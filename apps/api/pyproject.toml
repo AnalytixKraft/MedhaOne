@@ -1,0 +1,43 @@
+[project]
+name = "medhaone-api"
+version = "0.1.0"
+description = "MedhaOne ERP API"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.115.8,<1.0.0",
+  "uvicorn[standard]>=0.34.0,<1.0.0",
+  "sqlalchemy>=2.0.38,<3.0.0",
+  "psycopg[binary]>=3.2.3,<4.0.0",
+  "alembic>=1.14.1,<2.0.0",
+  "pydantic-settings>=2.8.0,<3.0.0",
+  "email-validator>=2.2.0,<3.0.0",
+  "python-jose[cryptography]>=3.3.0,<4.0.0",
+  "passlib[bcrypt]>=1.7.4,<2.0.0",
+  "bcrypt==4.0.1",
+  "python-multipart>=0.0.20,<1.0.0",
+  "black>=25.1.0,<26.0.0",
+  "ruff>=0.11.0,<1.0.0"
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N"]
+ignore = ["B008"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"

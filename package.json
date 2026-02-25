@@ -1,0 +1,16 @@
+{
+  "name": "medhaone",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.6.3",
+  "scripts": {
+    "dev": "concurrently -n web,api -c cyan,green \"pnpm --filter web dev\" \"pnpm --filter api dev\"",
+    "build": "pnpm --filter web build",
+    "lint": "pnpm --filter web lint",
+    "format": "pnpm --filter web format",
+    "seed": "pnpm --filter api seed"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
