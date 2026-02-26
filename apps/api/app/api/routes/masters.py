@@ -19,7 +19,7 @@ from app.schemas.masters import (
     WarehouseUpdate,
 )
 
-router = APIRouter(prefix="/masters", tags=["masters"])
+router = APIRouter()
 
 
 def _commit_or_400(db: Session, error_message: str) -> None:

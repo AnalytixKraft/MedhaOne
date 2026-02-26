@@ -11,7 +11,7 @@ from app.schemas.inventory import (
 )
 from app.services.inventory import InventoryError, stock_adjust, stock_in, stock_out
 
-router = APIRouter(prefix="/inventory", tags=["inventory"])
+router = APIRouter()
 
 
 @router.post("/in", response_model=InventoryActionResponse)

@@ -8,6 +8,7 @@ from app.models.role import Role
 from app.models.user import User
 from app.models.warehouse import Warehouse
 
+# Import model classes so SQLAlchemy metadata is fully registered for Alembic.
 __all__ = [
     "Base",
     "User",
