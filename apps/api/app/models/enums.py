@@ -1,0 +1,25 @@
+from enum import Enum
+
+
+class PartyType(str, Enum):
+    MANUFACTURER = "MANUFACTURER"
+    SUPER_STOCKIST = "SUPER_STOCKIST"
+    DISTRIBUTOR = "DISTRIBUTOR"
+    HOSPITAL = "HOSPITAL"
+    PHARMACY = "PHARMACY"
+    RETAILER = "RETAILER"
+    CONSUMER = "CONSUMER"
+
+
+class InventoryTxnType(str, Enum):
+    IN = "IN"
+    OUT = "OUT"
+    ADJUST = "ADJUST"
+    TRANSFER = "TRANSFER"
+
+
+class InventoryReason(str, Enum):
+    PURCHASE_GRN = "PURCHASE_GRN"
+    SALES_DISPATCH = "SALES_DISPATCH"
+    STOCK_ADJUSTMENT = "STOCK_ADJUSTMENT"
+    OPENING_STOCK = "OPENING_STOCK"

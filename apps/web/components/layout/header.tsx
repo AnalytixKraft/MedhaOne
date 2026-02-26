@@ -8,10 +8,11 @@ import { Button } from "@/components/ui/button";
 import { apiClient } from "@/lib/api/client";
 
 type AppHeaderProps = {
-  onToggleSidebar: () => void;
+  onToggleDesktopSidebar: () => void;
+  onToggleMobileSidebar: () => void;
 };
 
-export function AppHeader({ onToggleSidebar }: AppHeaderProps) {
+export function AppHeader({ onToggleDesktopSidebar, onToggleMobileSidebar }: AppHeaderProps) {
   const router = useRouter();
 
   const handleLogout = async () => {
@@ -22,7 +23,15 @@ export function AppHeader({ onToggleSidebar }: AppHeaderProps) {
 
   return (
     <header className="flex h-16 items-center justify-between border-b bg-background px-4">
-      <Button variant="outline" size="icon" onClick={onToggleSidebar}>
+      <Button className="md:hidden" variant="outline" size="icon" onClick={onToggleMobileSidebar}>
+        <Menu className="h-4 w-4" />
+      </Button>
+      <Button
+        className="hidden md:inline-flex"
+        variant="outline"
+        size="icon"
+        onClick={onToggleDesktopSidebar}
+      >
         <Menu className="h-4 w-4" />
       </Button>
       <div className="flex items-center gap-2">

@@ -6,6 +6,7 @@
     "dev": "./.venv/bin/python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 1730",
     "seed": "./.venv/bin/python -m app.seed",
     "migrate": "./.venv/bin/python -m alembic upgrade head",
-    "makemigration": "./.venv/bin/python -m alembic revision --autogenerate -m"
+    "makemigration": "./.venv/bin/python -m alembic revision --autogenerate -m",
+    "test": "./.venv/bin/python -m pytest"
   }
 }

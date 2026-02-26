@@ -15,3 +15,4 @@ class User(Base):
     role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), nullable=False)
 
     role = relationship("Role", back_populates="users")
+    login_audits = relationship("LoginAudit", back_populates="user")

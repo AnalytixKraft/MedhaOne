@@ -5,6 +5,8 @@ Production-oriented monorepo foundation for **AnalytixKraft / MedhaOne**.
 Phase 1 scope implemented:
 - Frontend shell (Next.js + Tailwind + shadcn-style components)
 - Backend auth core (FastAPI + SQLAlchemy + Alembic)
+- Inventory core schema + ledger engine (with stock summary maintenance)
+- Masters CRUD for Parties, Products, Warehouses
 - Deployment-agnostic architecture (local/LAN/cloud-ready by env)
 
 ## Tech Stack
@@ -113,6 +115,28 @@ Set production-safe values via:
 - `GET /health`
 - `POST /auth/login`
 - `GET /auth/me`
+- `GET /dashboard/metrics`
+- `POST /inventory/in`
+- `POST /inventory/out`
+- `POST /inventory/adjust`
+- `GET|POST /masters/parties`
+- `GET|PUT|DELETE /masters/parties/{id}`
+- `GET|POST /masters/products`
+- `GET|PUT|DELETE /masters/products/{id}`
+- `GET|POST /masters/warehouses`
+- `GET|PUT|DELETE /masters/warehouses/{id}`
+
+## Inventory Notes
+
+- `InventoryLedger` is immutable (insert-only via service layer).
+- `StockSummary` is updated atomically with each ledger entry.
+- Negative stock is blocked for `OUT` and negative `ADJUST`.
+
+## Run Tests
+
+```bash
+pnpm --filter api test
+```
 
 ## Frontend Auth Flow
 
@@ -150,5 +174,5 @@ This scaffold is provided for deployment-ready direction; local dev remains `pnp
 
 ## Notes
 
-- Business modules (Purchase/Sales/Warehouse logic) are intentionally not implemented in this phase.
-- Foundation is modular and ready for Phase 1 domain module expansion.
+- Purchase/Sales order workflows are intentionally not implemented yet.
+- Foundation is modular and ready for Phase 1 module expansion.

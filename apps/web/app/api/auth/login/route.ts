@@ -11,10 +11,18 @@ export async function POST(request: NextRequest) {
   }
 
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:1730";
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  const realIp = request.headers.get("x-real-ip");
+  const userAgent = request.headers.get("user-agent");
 
   const response = await fetch(`${apiBaseUrl}/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}),
+      ...(realIp ? { "x-real-ip": realIp } : {}),
+      ...(userAgent ? { "user-agent": userAgent } : {}),
+    },
     body: JSON.stringify({ email, password }),
   });
 
