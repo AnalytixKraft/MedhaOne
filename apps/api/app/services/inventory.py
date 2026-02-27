@@ -100,6 +100,7 @@ def stock_in(
     created_by: int,
     ref_type: str | None = None,
     ref_id: str | None = None,
+    commit: bool = True,
 ) -> InventoryResult:
     qty_dec = _as_decimal(qty)
     if qty_dec <= 0:
@@ -138,13 +139,18 @@ def stock_in(
             ref_type=ref_type,
             ref_id=ref_id,
         )
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
     except Exception:
-        db.rollback()
+        if commit:
+            db.rollback()
         raise
 
-    db.refresh(ledger)
-    db.refresh(summary)
+    if commit:
+        db.refresh(ledger)
+        db.refresh(summary)
     return InventoryResult(ledger=ledger, summary=summary)
 
 
@@ -159,6 +165,7 @@ def stock_out(
     created_by: int,
     ref_type: str | None = None,
     ref_id: str | None = None,
+    commit: bool = True,
 ) -> InventoryResult:
     qty_dec = _as_decimal(qty)
     if qty_dec <= 0:
@@ -192,13 +199,18 @@ def stock_out(
             ref_type=ref_type,
             ref_id=ref_id,
         )
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
     except Exception:
-        db.rollback()
+        if commit:
+            db.rollback()
         raise
 
-    db.refresh(ledger)
-    db.refresh(summary)
+    if commit:
+        db.refresh(ledger)
+        db.refresh(summary)
     return InventoryResult(ledger=ledger, summary=summary)
 
 
@@ -211,6 +223,7 @@ def stock_adjust(
     delta_qty: Decimal,
     created_by: int,
     reason: InventoryReason = InventoryReason.STOCK_ADJUSTMENT,
+    commit: bool = True,
 ) -> InventoryResult:
     delta_dec = _as_decimal(delta_qty)
     if delta_dec == 0:
@@ -256,11 +269,16 @@ def stock_adjust(
             ref_type=None,
             ref_id=None,
         )
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
     except Exception:
-        db.rollback()
+        if commit:
+            db.rollback()
         raise
 
-    db.refresh(ledger)
-    db.refresh(summary)
+    if commit:
+        db.refresh(ledger)
+        db.refresh(summary)
     return InventoryResult(ledger=ledger, summary=summary)

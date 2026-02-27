@@ -1,0 +1,401 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Guided Test Report</title>
+    <style>
+      body { font-family: sans-serif; margin: 24px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+      th, td { border: 1px solid #ddd; padding: 8px; font-size: 14px; vertical-align: top; }
+      th { background: #f8fafc; text-align: left; }
+      .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    </style>
+  </head>
+  <body>
+    <h1>PO to GRN Guided Acceptance</h1>
+    <div class="meta">
+      <div><strong>Script:</strong> /Users/lijolawrance/work/analytixkraft/MedhaOne/apps/web/e2e/guided/scripts/po_grn_guided.json</div>
+      <div><strong>Base URL:</strong> http://localhost:1729</div>
+      <div><strong>Started:</strong> 2026-02-27T10:43:06.790Z</div>
+      <div><strong>Ended:</strong> 2026-02-27T10:43:16.319Z</div>
+      <div><strong>Duration:</strong> 9529 ms</div>
+      <div><strong>Reset:</strong> attempted=true, succeeded=true</div>
+      <div><strong>Summary:</strong> pass=40, fail=0, aborted=false</div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>ID</th>
+          <th>Description</th>
+          <th>Status</th>
+          <th>Duration (ms)</th>
+          <th>Screenshot</th>
+          <th>Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+        <td>1</td>
+        <td>login-nav</td>
+        <td>Navigate to login page</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>835</td>
+        <td><a href="01-login-nav.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>login-email</td>
+        <td>Fill admin email</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>157</td>
+        <td><a href="02-login-email.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>login-password</td>
+        <td>Fill admin password</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>168</td>
+        <td><a href="03-login-password.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>4</td>
+        <td>login-submit</td>
+        <td>Submit login</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>185</td>
+        <td><a href="04-login-submit.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>5</td>
+        <td>dashboard-check</td>
+        <td>Verify dashboard navigation is visible</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>404</td>
+        <td><a href="05-dashboard-check.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>6</td>
+        <td>masters-parties-nav</td>
+        <td>Open Parties masters page</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>843</td>
+        <td><a href="06-masters-parties-nav.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>7</td>
+        <td>party-name</td>
+        <td>Enter supplier party name</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>41</td>
+        <td><a href="07-party-name.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>8</td>
+        <td>party-type</td>
+        <td>Select SUPER_STOCKIST party type</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>43</td>
+        <td><a href="08-party-type.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>9</td>
+        <td>party-create</td>
+        <td>Create supplier party</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>84</td>
+        <td><a href="09-party-create.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>10</td>
+        <td>party-created-expect</td>
+        <td>Verify supplier appears in table</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>41</td>
+        <td><a href="10-party-created-expect.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>11</td>
+        <td>warehouse-nav</td>
+        <td>Open Warehouses masters page</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>832</td>
+        <td><a href="11-warehouse-nav.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>12</td>
+        <td>warehouse-name</td>
+        <td>Enter warehouse name</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>50</td>
+        <td><a href="12-warehouse-name.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>13</td>
+        <td>warehouse-code</td>
+        <td>Enter warehouse code</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>41</td>
+        <td><a href="13-warehouse-code.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>14</td>
+        <td>warehouse-create</td>
+        <td>Create warehouse</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>77</td>
+        <td><a href="14-warehouse-create.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>15</td>
+        <td>warehouse-created-expect</td>
+        <td>Verify warehouse appears in table</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>32</td>
+        <td><a href="15-warehouse-created-expect.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>16</td>
+        <td>product-nav</td>
+        <td>Open Products masters page</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>843</td>
+        <td><a href="16-product-nav.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>17</td>
+        <td>product-sku</td>
+        <td>Enter product SKU</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>49</td>
+        <td><a href="17-product-sku.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>18</td>
+        <td>product-name</td>
+        <td>Enter product name</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>42</td>
+        <td><a href="18-product-name.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>19</td>
+        <td>product-create</td>
+        <td>Create product</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>85</td>
+        <td><a href="19-product-create.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>20</td>
+        <td>product-created-expect</td>
+        <td>Verify product appears in table</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>39</td>
+        <td><a href="20-product-created-expect.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>21</td>
+        <td>po-nav</td>
+        <td>Open Purchase Order page</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>850</td>
+        <td><a href="21-po-nav.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>22</td>
+        <td>po-supplier</td>
+        <td>Select supplier</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>41</td>
+        <td><a href="22-po-supplier.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>23</td>
+        <td>po-warehouse</td>
+        <td>Select warehouse</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>42</td>
+        <td><a href="23-po-warehouse.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>24</td>
+        <td>po-product</td>
+        <td>Select product in first line</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>43</td>
+        <td><a href="24-po-product.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>25</td>
+        <td>po-qty</td>
+        <td>Set PO quantity to 10</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>42</td>
+        <td><a href="25-po-qty.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>26</td>
+        <td>po-create</td>
+        <td>Create PO</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>85</td>
+        <td><a href="26-po-create.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>27</td>
+        <td>po-approve</td>
+        <td>Approve PO</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>93</td>
+        <td><a href="27-po-approve.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>28</td>
+        <td>po-approved-check</td>
+        <td>Verify PO status has moved to APPROVED</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>38</td>
+        <td><a href="28-po-approved-check.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>29</td>
+        <td>grn-nav</td>
+        <td>Open GRN page</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>864</td>
+        <td><a href="29-grn-nav.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>30</td>
+        <td>grn-select-po</td>
+        <td>Select PO for GRN</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>43</td>
+        <td><a href="30-grn-select-po.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>31</td>
+        <td>grn-qty</td>
+        <td>Set GRN received quantity to 10</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>41</td>
+        <td><a href="31-grn-qty.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>32</td>
+        <td>grn-batch</td>
+        <td>Set GRN batch number</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>42</td>
+        <td><a href="32-grn-batch.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>33</td>
+        <td>grn-expiry</td>
+        <td>Set GRN expiry date</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>43</td>
+        <td><a href="33-grn-expiry.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>34</td>
+        <td>grn-create</td>
+        <td>Create GRN from selected PO</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>84</td>
+        <td><a href="34-grn-create.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>35</td>
+        <td>grn-open-detail</td>
+        <td>Open first GRN detail page</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>97</td>
+        <td><a href="35-grn-open-detail.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>36</td>
+        <td>grn-post</td>
+        <td>Post GRN</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>206</td>
+        <td><a href="36-grn-post.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>37</td>
+        <td>grn-status-posted</td>
+        <td>Verify GRN status is POSTED</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>147</td>
+        <td><a href="37-grn-status-posted.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>38</td>
+        <td>stock-qty</td>
+        <td>Verify stock qty is 10.000</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>44</td>
+        <td><a href="38-stock-qty.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>39</td>
+        <td>po-closed-check</td>
+        <td>Navigate back to PO list and verify status CLOSED</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>880</td>
+        <td><a href="39-po-closed-check.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>40</td>
+        <td>po-status-closed</td>
+        <td>Confirm PO status is CLOSED</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>34</td>
+        <td><a href="40-po-status-closed.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+      </tbody>
+    </table>
+  </body>
+</html>

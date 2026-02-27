@@ -8,7 +8,12 @@
     "build": "pnpm --filter web build",
     "lint": "pnpm --filter web lint",
     "format": "pnpm --filter web format",
-    "seed": "pnpm --filter api seed"
+    "seed": "pnpm --filter api seed",
+    "e2e": "pnpm --filter web e2e",
+    "e2e:ui": "pnpm --filter web e2e:ui",
+    "e2e:debug": "pnpm --filter web e2e:debug",
+    "guided:test": "pnpm --filter web guided:test",
+    "guided:test:po-grn": "pnpm --filter web guided:test:po-grn"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

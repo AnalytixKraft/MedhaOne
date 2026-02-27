@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import inventory, masters
+from app.api.routes import inventory, masters, purchase, test_tools
 from app.api.routes.auth import router as auth_router
 from app.api.routes.dashboard import router as dashboard_router
 from app.api.routes.health import router as health_router
@@ -25,3 +25,5 @@ app.include_router(auth_router)
 app.include_router(dashboard_router)
 app.include_router(masters.router, prefix="/masters", tags=["Masters"])
 app.include_router(inventory.router, prefix="/inventory", tags=["Inventory"])
+app.include_router(purchase.router, prefix="/purchase", tags=["Purchase"])
+app.include_router(test_tools.router)

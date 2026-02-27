@@ -1,0 +1,146 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Guided Test Report</title>
+    <style>
+      body { font-family: sans-serif; margin: 24px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+      th, td { border: 1px solid #ddd; padding: 8px; font-size: 14px; vertical-align: top; }
+      th { background: #f8fafc; text-align: left; }
+      .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    </style>
+  </head>
+  <body>
+    <h1>PO to GRN Guided Acceptance</h1>
+    <div class="meta">
+      <div><strong>Script:</strong> /Users/lijolawrance/work/analytixkraft/MedhaOne/apps/web/e2e/guided/scripts/po_grn_guided.json</div>
+      <div><strong>Base URL:</strong> http://localhost:1729</div>
+      <div><strong>Started:</strong> 2026-02-27T10:38:51.265Z</div>
+      <div><strong>Ended:</strong> 2026-02-27T10:38:58.895Z</div>
+      <div><strong>Duration:</strong> 7630 ms</div>
+      <div><strong>Reset:</strong> attempted=true, succeeded=true</div>
+      <div><strong>Summary:</strong> pass=9, fail=1, aborted=false</div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>ID</th>
+          <th>Description</th>
+          <th>Status</th>
+          <th>Duration (ms)</th>
+          <th>Screenshot</th>
+          <th>Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+        <td>1</td>
+        <td>login-nav</td>
+        <td>Navigate to login page</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>226</td>
+        <td><a href="01-login-nav.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>2</td>
+        <td>login-email</td>
+        <td>Fill admin email</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>158</td>
+        <td><a href="02-login-email.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>3</td>
+        <td>login-password</td>
+        <td>Fill admin password</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>270</td>
+        <td><a href="03-login-password.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>4</td>
+        <td>login-submit</td>
+        <td>Submit login</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>160</td>
+        <td><a href="04-login-submit.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>5</td>
+        <td>dashboard-check</td>
+        <td>Verify dashboard navigation is visible</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>397</td>
+        <td><a href="05-dashboard-check.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>6</td>
+        <td>masters-parties-nav</td>
+        <td>Open Parties masters page</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>107</td>
+        <td><a href="06-masters-parties-nav.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>7</td>
+        <td>party-name</td>
+        <td>Enter supplier party name</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>35</td>
+        <td><a href="07-party-name.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>8</td>
+        <td>party-type</td>
+        <td>Select SUPER_STOCKIST party type</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>51</td>
+        <td><a href="08-party-type.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>9</td>
+        <td>party-create</td>
+        <td>Create supplier party</td>
+        <td><span style="color:#0f766e;font-weight:600">PASS</span></td>
+        <td>226</td>
+        <td><a href="09-party-create.png" target="_blank">view</a></td>
+        <td></td>
+      </tr>
+<tr>
+        <td>10</td>
+        <td>party-created-expect</td>
+        <td>Verify supplier appears in table</td>
+        <td><span style="color:#b91c1c;font-weight:600">FAIL</span></td>
+        <td>0</td>
+        <td><a href="10-party-created-expect-failed.png" target="_blank">view</a></td>
+        <td>Error: expect(locator).toContainText(expected) failed
+
+Locator: locator('tbody').first()
+Expected substring: "Guided Supplier"
+Received string:    "DISTRIBUTOR--ActiveEdit"
+Timeout: 5000ms
+
+Call log:
+  - Expect "to.have.text" with timeout 5000ms
+  - waiting for locator('tbody').first()
+    8 × locator resolved to &lt;tbody class="[&_tr:last-child]:border-0">…&lt;/tbody>
+      - unexpected value "DISTRIBUTOR--ActiveEdit"
+
+    at Proxy.&lt;anonymous> (/Users/lijolawrance/work/analytixkraft/MedhaOne/node_modules/.pnpm/playwright@1.58.2/node_modules/playwright/lib/matchers/expect.js:213:24)
+    at executeStep (/Users/lijolawrance/work/analytixkraft/MedhaOne/apps/web/e2e/guided/runner.ts:262:33)
+    at main (/Users/lijolawrance/work/analytixkraft/MedhaOne/apps/web/e2e/guided/runner.ts:424:15)</td>
+      </tr>
+      </tbody>
+    </table>
+  </body>
+</html>

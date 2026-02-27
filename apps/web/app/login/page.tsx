@@ -4,7 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiClient } from "@/lib/api/client";
 
@@ -37,7 +43,9 @@ export default function LoginPage() {
       <Card className="relative w-full max-w-md border-slate-700/80 bg-slate-900/70 backdrop-blur">
         <CardHeader>
           <CardTitle className="text-white">MedhaOne Login</CardTitle>
-          <CardDescription>Sign in to access the ERP operational core.</CardDescription>
+          <CardDescription>
+            Sign in to access the ERP operational core.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={handleSubmit}>
@@ -45,7 +53,14 @@ export default function LoginPage() {
               <label className="text-sm text-slate-200" htmlFor="email">
                 Email
               </label>
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <Input
+                id="email"
+                data-testid="login-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-2">
               <label className="text-sm text-slate-200" htmlFor="password">
@@ -53,6 +68,7 @@ export default function LoginPage() {
               </label>
               <Input
                 id="password"
+                data-testid="login-password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -60,7 +76,12 @@ export default function LoginPage() {
               />
             </div>
             {error ? <p className="text-sm text-red-400">{error}</p> : null}
-            <Button className="w-full" type="submit" disabled={loading}>
+            <Button
+              className="w-full"
+              data-testid="login-submit"
+              type="submit"
+              disabled={loading}
+            >
               {loading ? "Signing in..." : "Sign in"}
             </Button>
           </form>

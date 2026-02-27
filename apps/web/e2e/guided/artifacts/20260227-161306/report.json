@@ -1,0 +1,417 @@
+{
+  "name": "PO to GRN Guided Acceptance",
+  "scriptPath": "/Users/lijolawrance/work/analytixkraft/MedhaOne/apps/web/e2e/guided/scripts/po_grn_guided.json",
+  "baseURL": "http://localhost:1729",
+  "apiBaseURL": "http://localhost:1730",
+  "resetAttempted": true,
+  "resetSucceeded": true,
+  "aborted": false,
+  "startedAt": "2026-02-27T10:43:06.790Z",
+  "endedAt": "2026-02-27T10:43:16.319Z",
+  "durationMs": 9529,
+  "totalSteps": 40,
+  "passedSteps": 40,
+  "failedSteps": 0,
+  "steps": [
+    {
+      "id": "login-nav",
+      "description": "Navigate to login page",
+      "action": "navigate",
+      "startedAt": "2026-02-27T10:43:07.645Z",
+      "endedAt": "2026-02-27T10:43:08.480Z",
+      "durationMs": 835,
+      "status": "PASS",
+      "screenshotPath": "01-login-nav.png"
+    },
+    {
+      "id": "login-email",
+      "description": "Fill admin email",
+      "action": "fill",
+      "startedAt": "2026-02-27T10:43:08.480Z",
+      "endedAt": "2026-02-27T10:43:08.637Z",
+      "durationMs": 157,
+      "status": "PASS",
+      "screenshotPath": "02-login-email.png"
+    },
+    {
+      "id": "login-password",
+      "description": "Fill admin password",
+      "action": "fill",
+      "startedAt": "2026-02-27T10:43:08.637Z",
+      "endedAt": "2026-02-27T10:43:08.805Z",
+      "durationMs": 168,
+      "status": "PASS",
+      "screenshotPath": "03-login-password.png"
+    },
+    {
+      "id": "login-submit",
+      "description": "Submit login",
+      "action": "click",
+      "startedAt": "2026-02-27T10:43:08.805Z",
+      "endedAt": "2026-02-27T10:43:08.990Z",
+      "durationMs": 185,
+      "status": "PASS",
+      "screenshotPath": "04-login-submit.png"
+    },
+    {
+      "id": "dashboard-check",
+      "description": "Verify dashboard navigation is visible",
+      "action": "expect",
+      "startedAt": "2026-02-27T10:43:08.990Z",
+      "endedAt": "2026-02-27T10:43:09.394Z",
+      "durationMs": 404,
+      "status": "PASS",
+      "screenshotPath": "05-dashboard-check.png"
+    },
+    {
+      "id": "masters-parties-nav",
+      "description": "Open Parties masters page",
+      "action": "navigate",
+      "startedAt": "2026-02-27T10:43:09.394Z",
+      "endedAt": "2026-02-27T10:43:10.237Z",
+      "durationMs": 843,
+      "status": "PASS",
+      "screenshotPath": "06-masters-parties-nav.png"
+    },
+    {
+      "id": "party-name",
+      "description": "Enter supplier party name",
+      "action": "fill",
+      "startedAt": "2026-02-27T10:43:10.237Z",
+      "endedAt": "2026-02-27T10:43:10.278Z",
+      "durationMs": 41,
+      "status": "PASS",
+      "screenshotPath": "07-party-name.png"
+    },
+    {
+      "id": "party-type",
+      "description": "Select SUPER_STOCKIST party type",
+      "action": "select",
+      "startedAt": "2026-02-27T10:43:10.278Z",
+      "endedAt": "2026-02-27T10:43:10.321Z",
+      "durationMs": 43,
+      "status": "PASS",
+      "screenshotPath": "08-party-type.png"
+    },
+    {
+      "id": "party-create",
+      "description": "Create supplier party",
+      "action": "click",
+      "startedAt": "2026-02-27T10:43:10.321Z",
+      "endedAt": "2026-02-27T10:43:10.405Z",
+      "durationMs": 84,
+      "status": "PASS",
+      "screenshotPath": "09-party-create.png"
+    },
+    {
+      "id": "party-created-expect",
+      "description": "Verify supplier appears in table",
+      "action": "expect",
+      "startedAt": "2026-02-27T10:43:10.405Z",
+      "endedAt": "2026-02-27T10:43:10.446Z",
+      "durationMs": 41,
+      "status": "PASS",
+      "screenshotPath": "10-party-created-expect.png"
+    },
+    {
+      "id": "warehouse-nav",
+      "description": "Open Warehouses masters page",
+      "action": "navigate",
+      "startedAt": "2026-02-27T10:43:10.446Z",
+      "endedAt": "2026-02-27T10:43:11.278Z",
+      "durationMs": 832,
+      "status": "PASS",
+      "screenshotPath": "11-warehouse-nav.png"
+    },
+    {
+      "id": "warehouse-name",
+      "description": "Enter warehouse name",
+      "action": "fill",
+      "startedAt": "2026-02-27T10:43:11.278Z",
+      "endedAt": "2026-02-27T10:43:11.328Z",
+      "durationMs": 50,
+      "status": "PASS",
+      "screenshotPath": "12-warehouse-name.png"
+    },
+    {
+      "id": "warehouse-code",
+      "description": "Enter warehouse code",
+      "action": "fill",
+      "startedAt": "2026-02-27T10:43:11.328Z",
+      "endedAt": "2026-02-27T10:43:11.369Z",
+      "durationMs": 41,
+      "status": "PASS",
+      "screenshotPath": "13-warehouse-code.png"
+    },
+    {
+      "id": "warehouse-create",
+      "description": "Create warehouse",
+      "action": "click",
+      "startedAt": "2026-02-27T10:43:11.369Z",
+      "endedAt": "2026-02-27T10:43:11.446Z",
+      "durationMs": 77,
+      "status": "PASS",
+      "screenshotPath": "14-warehouse-create.png"
+    },
+    {
+      "id": "warehouse-created-expect",
+      "description": "Verify warehouse appears in table",
+      "action": "expect",
+      "startedAt": "2026-02-27T10:43:11.446Z",
+      "endedAt": "2026-02-27T10:43:11.478Z",
+      "durationMs": 32,
+      "status": "PASS",
+      "screenshotPath": "15-warehouse-created-expect.png"
+    },
+    {
+      "id": "product-nav",
+      "description": "Open Products masters page",
+      "action": "navigate",
+      "startedAt": "2026-02-27T10:43:11.478Z",
+      "endedAt": "2026-02-27T10:43:12.321Z",
+      "durationMs": 843,
+      "status": "PASS",
+      "screenshotPath": "16-product-nav.png"
+    },
+    {
+      "id": "product-sku",
+      "description": "Enter product SKU",
+      "action": "fill",
+      "startedAt": "2026-02-27T10:43:12.321Z",
+      "endedAt": "2026-02-27T10:43:12.370Z",
+      "durationMs": 49,
+      "status": "PASS",
+      "screenshotPath": "17-product-sku.png"
+    },
+    {
+      "id": "product-name",
+      "description": "Enter product name",
+      "action": "fill",
+      "startedAt": "2026-02-27T10:43:12.371Z",
+      "endedAt": "2026-02-27T10:43:12.413Z",
+      "durationMs": 42,
+      "status": "PASS",
+      "screenshotPath": "18-product-name.png"
+    },
+    {
+      "id": "product-create",
+      "description": "Create product",
+      "action": "click",
+      "startedAt": "2026-02-27T10:43:12.413Z",
+      "endedAt": "2026-02-27T10:43:12.498Z",
+      "durationMs": 85,
+      "status": "PASS",
+      "screenshotPath": "19-product-create.png"
+    },
+    {
+      "id": "product-created-expect",
+      "description": "Verify product appears in table",
+      "action": "expect",
+      "startedAt": "2026-02-27T10:43:12.498Z",
+      "endedAt": "2026-02-27T10:43:12.537Z",
+      "durationMs": 39,
+      "status": "PASS",
+      "screenshotPath": "20-product-created-expect.png"
+    },
+    {
+      "id": "po-nav",
+      "description": "Open Purchase Order page",
+      "action": "navigate",
+      "startedAt": "2026-02-27T10:43:12.537Z",
+      "endedAt": "2026-02-27T10:43:13.387Z",
+      "durationMs": 850,
+      "status": "PASS",
+      "screenshotPath": "21-po-nav.png"
+    },
+    {
+      "id": "po-supplier",
+      "description": "Select supplier",
+      "action": "select",
+      "startedAt": "2026-02-27T10:43:13.387Z",
+      "endedAt": "2026-02-27T10:43:13.428Z",
+      "durationMs": 41,
+      "status": "PASS",
+      "screenshotPath": "22-po-supplier.png"
+    },
+    {
+      "id": "po-warehouse",
+      "description": "Select warehouse",
+      "action": "select",
+      "startedAt": "2026-02-27T10:43:13.428Z",
+      "endedAt": "2026-02-27T10:43:13.470Z",
+      "durationMs": 42,
+      "status": "PASS",
+      "screenshotPath": "23-po-warehouse.png"
+    },
+    {
+      "id": "po-product",
+      "description": "Select product in first line",
+      "action": "select",
+      "startedAt": "2026-02-27T10:43:13.470Z",
+      "endedAt": "2026-02-27T10:43:13.513Z",
+      "durationMs": 43,
+      "status": "PASS",
+      "screenshotPath": "24-po-product.png"
+    },
+    {
+      "id": "po-qty",
+      "description": "Set PO quantity to 10",
+      "action": "fill",
+      "startedAt": "2026-02-27T10:43:13.513Z",
+      "endedAt": "2026-02-27T10:43:13.555Z",
+      "durationMs": 42,
+      "status": "PASS",
+      "screenshotPath": "25-po-qty.png"
+    },
+    {
+      "id": "po-create",
+      "description": "Create PO",
+      "action": "click",
+      "startedAt": "2026-02-27T10:43:13.555Z",
+      "endedAt": "2026-02-27T10:43:13.640Z",
+      "durationMs": 85,
+      "status": "PASS",
+      "screenshotPath": "26-po-create.png"
+    },
+    {
+      "id": "po-approve",
+      "description": "Approve PO",
+      "action": "click",
+      "startedAt": "2026-02-27T10:43:13.640Z",
+      "endedAt": "2026-02-27T10:43:13.733Z",
+      "durationMs": 93,
+      "status": "PASS",
+      "screenshotPath": "27-po-approve.png"
+    },
+    {
+      "id": "po-approved-check",
+      "description": "Verify PO status has moved to APPROVED",
+      "action": "expect",
+      "startedAt": "2026-02-27T10:43:13.733Z",
+      "endedAt": "2026-02-27T10:43:13.771Z",
+      "durationMs": 38,
+      "status": "PASS",
+      "screenshotPath": "28-po-approved-check.png"
+    },
+    {
+      "id": "grn-nav",
+      "description": "Open GRN page",
+      "action": "navigate",
+      "startedAt": "2026-02-27T10:43:13.771Z",
+      "endedAt": "2026-02-27T10:43:14.635Z",
+      "durationMs": 864,
+      "status": "PASS",
+      "screenshotPath": "29-grn-nav.png"
+    },
+    {
+      "id": "grn-select-po",
+      "description": "Select PO for GRN",
+      "action": "select",
+      "startedAt": "2026-02-27T10:43:14.635Z",
+      "endedAt": "2026-02-27T10:43:14.678Z",
+      "durationMs": 43,
+      "status": "PASS",
+      "screenshotPath": "30-grn-select-po.png"
+    },
+    {
+      "id": "grn-qty",
+      "description": "Set GRN received quantity to 10",
+      "action": "fill",
+      "startedAt": "2026-02-27T10:43:14.678Z",
+      "endedAt": "2026-02-27T10:43:14.719Z",
+      "durationMs": 41,
+      "status": "PASS",
+      "screenshotPath": "31-grn-qty.png"
+    },
+    {
+      "id": "grn-batch",
+      "description": "Set GRN batch number",
+      "action": "fill",
+      "startedAt": "2026-02-27T10:43:14.719Z",
+      "endedAt": "2026-02-27T10:43:14.761Z",
+      "durationMs": 42,
+      "status": "PASS",
+      "screenshotPath": "32-grn-batch.png"
+    },
+    {
+      "id": "grn-expiry",
+      "description": "Set GRN expiry date",
+      "action": "fill",
+      "startedAt": "2026-02-27T10:43:14.761Z",
+      "endedAt": "2026-02-27T10:43:14.804Z",
+      "durationMs": 43,
+      "status": "PASS",
+      "screenshotPath": "33-grn-expiry.png"
+    },
+    {
+      "id": "grn-create",
+      "description": "Create GRN from selected PO",
+      "action": "click",
+      "startedAt": "2026-02-27T10:43:14.804Z",
+      "endedAt": "2026-02-27T10:43:14.888Z",
+      "durationMs": 84,
+      "status": "PASS",
+      "screenshotPath": "34-grn-create.png"
+    },
+    {
+      "id": "grn-open-detail",
+      "description": "Open first GRN detail page",
+      "action": "click",
+      "startedAt": "2026-02-27T10:43:14.888Z",
+      "endedAt": "2026-02-27T10:43:14.985Z",
+      "durationMs": 97,
+      "status": "PASS",
+      "screenshotPath": "35-grn-open-detail.png"
+    },
+    {
+      "id": "grn-post",
+      "description": "Post GRN",
+      "action": "click",
+      "startedAt": "2026-02-27T10:43:14.985Z",
+      "endedAt": "2026-02-27T10:43:15.191Z",
+      "durationMs": 206,
+      "status": "PASS",
+      "screenshotPath": "36-grn-post.png"
+    },
+    {
+      "id": "grn-status-posted",
+      "description": "Verify GRN status is POSTED",
+      "action": "expect",
+      "startedAt": "2026-02-27T10:43:15.191Z",
+      "endedAt": "2026-02-27T10:43:15.338Z",
+      "durationMs": 147,
+      "status": "PASS",
+      "screenshotPath": "37-grn-status-posted.png"
+    },
+    {
+      "id": "stock-qty",
+      "description": "Verify stock qty is 10.000",
+      "action": "expect",
+      "startedAt": "2026-02-27T10:43:15.338Z",
+      "endedAt": "2026-02-27T10:43:15.382Z",
+      "durationMs": 44,
+      "status": "PASS",
+      "screenshotPath": "38-stock-qty.png"
+    },
+    {
+      "id": "po-closed-check",
+      "description": "Navigate back to PO list and verify status CLOSED",
+      "action": "navigate",
+      "startedAt": "2026-02-27T10:43:15.382Z",
+      "endedAt": "2026-02-27T10:43:16.262Z",
+      "durationMs": 880,
+      "status": "PASS",
+      "screenshotPath": "39-po-closed-check.png"
+    },
+    {
+      "id": "po-status-closed",
+      "description": "Confirm PO status is CLOSED",
+      "action": "expect",
+      "startedAt": "2026-02-27T10:43:16.262Z",
+      "endedAt": "2026-02-27T10:43:16.296Z",
+      "durationMs": 34,
+      "status": "PASS",
+      "screenshotPath": "40-po-status-closed.png"
+    }
+  ]
+}

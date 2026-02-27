@@ -5,7 +5,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Warehouse, WarehousePayload, apiClient } from "@/lib/api/client";
 
 type FormState = {
@@ -30,7 +37,10 @@ export function WarehousesManager() {
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(initialState);
 
-  const modeLabel = useMemo(() => (editingId ? "Update Warehouse" : "Add Warehouse"), [editingId]);
+  const modeLabel = useMemo(
+    () => (editingId ? "Update Warehouse" : "Add Warehouse"),
+    [editingId],
+  );
 
   const load = async () => {
     setLoading(true);
@@ -40,7 +50,9 @@ export function WarehousesManager() {
       const data = await apiClient.listWarehouses();
       setItems(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load warehouses");
+      setError(
+        err instanceof Error ? err.message : "Failed to load warehouses",
+      );
     } finally {
       setLoading(false);
     }
@@ -101,33 +113,50 @@ export function WarehousesManager() {
         <CardContent>
           <form className="space-y-3" onSubmit={handleSubmit}>
             <Input
+              data-testid="warehouse-name"
               value={form.name}
-              onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, name: event.target.value }))
+              }
               placeholder="Warehouse name"
               required
             />
             <Input
+              data-testid="warehouse-code"
               value={form.code}
-              onChange={(event) => setForm((prev) => ({ ...prev, code: event.target.value }))}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, code: event.target.value }))
+              }
               placeholder="Code"
               required
             />
             <Input
               value={form.address}
-              onChange={(event) => setForm((prev) => ({ ...prev, address: event.target.value }))}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, address: event.target.value }))
+              }
               placeholder="Address"
             />
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
                 checked={form.is_active}
-                onChange={(event) => setForm((prev) => ({ ...prev, is_active: event.target.checked }))}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    is_active: event.target.checked,
+                  }))
+                }
               />
               Active
             </label>
 
             <div className="flex gap-2">
-              <Button type="submit" disabled={saving}>
+              <Button
+                data-testid="create-warehouse"
+                type="submit"
+                disabled={saving}
+              >
                 {saving ? "Saving..." : modeLabel}
               </Button>
               {editingId ? (
@@ -147,7 +176,9 @@ export function WarehousesManager() {
         <CardContent>
           {error ? <p className="mb-3 text-sm text-red-500">{error}</p> : null}
           {loading ? (
-            <p className="text-sm text-muted-foreground">Loading warehouses...</p>
+            <p className="text-sm text-muted-foreground">
+              Loading warehouses...
+            </p>
           ) : (
             <Table>
               <TableHeader>
@@ -165,9 +196,15 @@ export function WarehousesManager() {
                     <TableCell>{item.name}</TableCell>
                     <TableCell>{item.code}</TableCell>
                     <TableCell>{item.address ?? "-"}</TableCell>
-                    <TableCell>{item.is_active ? "Active" : "Inactive"}</TableCell>
+                    <TableCell>
+                      {item.is_active ? "Active" : "Inactive"}
+                    </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="outline" size="sm" onClick={() => handleEdit(item)}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleEdit(item)}
+                      >
                         Edit
                       </Button>
                     </TableCell>

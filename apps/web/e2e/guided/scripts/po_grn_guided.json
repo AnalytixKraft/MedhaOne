@@ -1,0 +1,356 @@
+{
+  "name": "PO to GRN Guided Acceptance",
+  "description": "Guided flow for login, masters setup, PO creation, GRN posting, and status/stock verification.",
+  "resetBeforeRun": true,
+  "steps": [
+    {
+      "id": "login-nav",
+      "description": "Navigate to login page",
+      "action": "navigate",
+      "value": "/login",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "login-email",
+      "description": "Fill admin email",
+      "action": "fill",
+      "selector": "[data-testid='login-email']",
+      "value": "admin@medhaone.app",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "login-password",
+      "description": "Fill admin password",
+      "action": "fill",
+      "selector": "[data-testid='login-password']",
+      "value": "ChangeMe123!",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "login-submit",
+      "description": "Submit login",
+      "action": "click",
+      "selector": "[data-testid='login-submit']",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "dashboard-check",
+      "description": "Verify dashboard navigation is visible",
+      "action": "expect",
+      "selector": "[data-testid='nav-masters']",
+      "value": { "visible": true },
+      "checkpoint": true,
+      "screenshot": true
+    },
+
+    {
+      "id": "masters-parties-nav",
+      "description": "Open Parties masters page",
+      "action": "navigate",
+      "value": "/masters/parties",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "party-name",
+      "description": "Enter supplier party name",
+      "action": "fill",
+      "selector": "[data-testid='party-name']",
+      "value": "Guided Supplier",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "party-type",
+      "description": "Select SUPER_STOCKIST party type",
+      "action": "select",
+      "selector": "[data-testid='party-type']",
+      "value": "SUPER_STOCKIST",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "party-create",
+      "description": "Create supplier party",
+      "action": "click",
+      "selector": "[data-testid='create-party']",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "party-created-expect",
+      "description": "Verify supplier appears in table",
+      "action": "expect",
+      "selector": "text=Guided Supplier",
+      "value": { "visible": true },
+      "checkpoint": false,
+      "screenshot": true
+    },
+
+    {
+      "id": "warehouse-nav",
+      "description": "Open Warehouses masters page",
+      "action": "navigate",
+      "value": "/masters/warehouses",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "warehouse-name",
+      "description": "Enter warehouse name",
+      "action": "fill",
+      "selector": "[data-testid='warehouse-name']",
+      "value": "Guided Warehouse",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "warehouse-code",
+      "description": "Enter warehouse code",
+      "action": "fill",
+      "selector": "[data-testid='warehouse-code']",
+      "value": "GUIDEWH",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "warehouse-create",
+      "description": "Create warehouse",
+      "action": "click",
+      "selector": "[data-testid='create-warehouse']",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "warehouse-created-expect",
+      "description": "Verify warehouse appears in table",
+      "action": "expect",
+      "selector": "text=GUIDEWH",
+      "value": { "visible": true },
+      "checkpoint": false,
+      "screenshot": true
+    },
+
+    {
+      "id": "product-nav",
+      "description": "Open Products masters page",
+      "action": "navigate",
+      "value": "/masters/products",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "product-sku",
+      "description": "Enter product SKU",
+      "action": "fill",
+      "selector": "[data-testid='product-sku']",
+      "value": "GUIDED-SKU-001",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "product-name",
+      "description": "Enter product name",
+      "action": "fill",
+      "selector": "[data-testid='product-name']",
+      "value": "Guided Product",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "product-create",
+      "description": "Create product",
+      "action": "click",
+      "selector": "[data-testid='create-product']",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "product-created-expect",
+      "description": "Verify product appears in table",
+      "action": "expect",
+      "selector": "text=GUIDED-SKU-001",
+      "value": { "visible": true },
+      "checkpoint": true,
+      "screenshot": true
+    },
+
+    {
+      "id": "po-nav",
+      "description": "Open Purchase Order page",
+      "action": "navigate",
+      "value": "/purchase/po",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "po-supplier",
+      "description": "Select supplier",
+      "action": "select",
+      "selector": "[data-testid='po-supplier-select']",
+      "value": { "label": "Guided Supplier" },
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "po-warehouse",
+      "description": "Select warehouse",
+      "action": "select",
+      "selector": "[data-testid='po-warehouse-select']",
+      "value": { "label": "Guided Warehouse" },
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "po-product",
+      "description": "Select product in first line",
+      "action": "select",
+      "selector": "[data-testid='po-line-product-0']",
+      "value": { "label": "GUIDED-SKU-001 - Guided Product" },
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "po-qty",
+      "description": "Set PO quantity to 10",
+      "action": "fill",
+      "selector": "[data-testid='po-line-qty-0']",
+      "value": "10",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "po-create",
+      "description": "Create PO",
+      "action": "click",
+      "selector": "[data-testid='create-po']",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "po-approve",
+      "description": "Approve PO",
+      "action": "click",
+      "selector": "[data-testid='approve-po']",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "po-approved-check",
+      "description": "Verify PO status has moved to APPROVED",
+      "action": "expect",
+      "selector": "tbody tr:first-child [data-testid='status-badge']",
+      "value": "APPROVED",
+      "checkpoint": true,
+      "screenshot": true
+    },
+
+    {
+      "id": "grn-nav",
+      "description": "Open GRN page",
+      "action": "navigate",
+      "value": "/purchase/grn",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "grn-select-po",
+      "description": "Select PO for GRN",
+      "action": "select",
+      "selector": "[data-testid='grn-po-select']",
+      "value": "1",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "grn-qty",
+      "description": "Set GRN received quantity to 10",
+      "action": "fill",
+      "selector": "[data-testid^='grn-line-qty-']",
+      "value": "10",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "grn-batch",
+      "description": "Set GRN batch number",
+      "action": "fill",
+      "selector": "[data-testid^='grn-line-batch-']",
+      "value": "GUIDED-BATCH-001",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "grn-expiry",
+      "description": "Set GRN expiry date",
+      "action": "fill",
+      "selector": "[data-testid^='grn-line-expiry-']",
+      "value": "2030-12-31",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "grn-create",
+      "description": "Create GRN from selected PO",
+      "action": "click",
+      "selector": "[data-testid='create-grn-from-po']",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "grn-open-detail",
+      "description": "Open first GRN detail page",
+      "action": "click",
+      "selector": "tbody tr:first-child a",
+      "checkpoint": true,
+      "screenshot": true
+    },
+    {
+      "id": "grn-post",
+      "description": "Post GRN",
+      "action": "click",
+      "selector": "[data-testid='post-grn']",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "grn-status-posted",
+      "description": "Verify GRN status is POSTED",
+      "action": "expect",
+      "selector": "[data-testid='status-badge']",
+      "value": "POSTED",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "stock-qty",
+      "description": "Verify stock qty is 10.000",
+      "action": "expect",
+      "selector": "[data-testid='stock-qty']",
+      "value": "10.000",
+      "checkpoint": true,
+      "screenshot": true
+    },
+    {
+      "id": "po-closed-check",
+      "description": "Navigate back to PO list and verify status CLOSED",
+      "action": "navigate",
+      "value": "/purchase/po",
+      "checkpoint": false,
+      "screenshot": true
+    },
+    {
+      "id": "po-status-closed",
+      "description": "Confirm PO status is CLOSED",
+      "action": "expect",
+      "selector": "tbody tr:first-child [data-testid='status-badge']",
+      "value": "CLOSED",
+      "checkpoint": true,
+      "screenshot": true
+    }
+  ]
+}

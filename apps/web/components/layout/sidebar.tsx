@@ -2,18 +2,47 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Building2, LayoutDashboard, Settings, ShoppingCart, Truck, Warehouse, X } from "lucide-react";
+import {
+  BarChart3,
+  Building2,
+  LayoutDashboard,
+  Settings,
+  ShoppingCart,
+  Truck,
+  Warehouse,
+  X,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/masters", label: "Masters", icon: Building2 },
-  { href: "/purchase", label: "Purchase", icon: ShoppingCart },
-  { href: "/sales", label: "Sales", icon: Truck },
-  { href: "/warehouse", label: "Warehouse", icon: Warehouse },
-  { href: "/reports", label: "Reports", icon: BarChart3 },
-  { href: "/settings", label: "Settings", icon: Settings },
+  {
+    href: "/dashboard",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    testId: undefined,
+  },
+  {
+    href: "/masters",
+    label: "Masters",
+    icon: Building2,
+    testId: "nav-masters",
+  },
+  {
+    href: "/purchase",
+    label: "Purchase",
+    icon: ShoppingCart,
+    testId: "nav-purchase",
+  },
+  { href: "/sales", label: "Sales", icon: Truck, testId: undefined },
+  {
+    href: "/warehouse",
+    label: "Warehouse",
+    icon: Warehouse,
+    testId: undefined,
+  },
+  { href: "/reports", label: "Reports", icon: BarChart3, testId: undefined },
+  { href: "/settings", label: "Settings", icon: Settings, testId: undefined },
 ];
 
 type AppSidebarProps = {
@@ -22,7 +51,11 @@ type AppSidebarProps = {
   onCloseMobile: () => void;
 };
 
-export function AppSidebar({ collapsed, mobileOpen, onCloseMobile }: AppSidebarProps) {
+export function AppSidebar({
+  collapsed,
+  mobileOpen,
+  onCloseMobile,
+}: AppSidebarProps) {
   const pathname = usePathname();
 
   return (
@@ -34,18 +67,24 @@ export function AppSidebar({ collapsed, mobileOpen, onCloseMobile }: AppSidebarP
         )}
       >
         <div className="flex h-16 items-center border-b px-4">
-          <span className={cn("font-semibold", collapsed && "sr-only")}>MedhaOne</span>
-          <span className={cn("text-lg font-bold", !collapsed && "hidden")}>M1</span>
+          <span className={cn("font-semibold", collapsed && "sr-only")}>
+            MedhaOne
+          </span>
+          <span className={cn("text-lg font-bold", !collapsed && "hidden")}>
+            M1
+          </span>
         </div>
         <nav className="space-y-1 p-3">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const active =
+              pathname === item.href || pathname.startsWith(`${item.href}/`);
 
             return (
               <Link
                 key={item.href}
                 href={item.href}
+                data-testid={item.testId}
                 className={cn(
                   "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
                   active && "bg-muted text-foreground",
@@ -81,14 +120,19 @@ export function AppSidebar({ collapsed, mobileOpen, onCloseMobile }: AppSidebarP
         >
           <div className="flex h-16 items-center justify-between border-b px-4">
             <span className="font-semibold">MedhaOne</span>
-            <button aria-label="Close navigation" className="rounded-md p-2 hover:bg-muted" onClick={onCloseMobile}>
+            <button
+              aria-label="Close navigation"
+              className="rounded-md p-2 hover:bg-muted"
+              onClick={onCloseMobile}
+            >
               <X className="h-4 w-4" />
             </button>
           </div>
           <nav className="space-y-1 p-3">
             {navItems.map((item) => {
               const Icon = item.icon;
-              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+              const active =
+                pathname === item.href || pathname.startsWith(`${item.href}/`);
 
               return (
                 <Link

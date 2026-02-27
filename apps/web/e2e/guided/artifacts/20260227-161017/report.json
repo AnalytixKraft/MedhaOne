@@ -1,0 +1,118 @@
+{
+  "name": "PO to GRN Guided Acceptance",
+  "scriptPath": "/Users/lijolawrance/work/analytixkraft/MedhaOne/apps/web/e2e/guided/scripts/po_grn_guided.json",
+  "baseURL": "http://localhost:1729",
+  "apiBaseURL": "http://localhost:1730",
+  "resetAttempted": true,
+  "resetSucceeded": true,
+  "aborted": false,
+  "startedAt": "2026-02-27T10:40:17.774Z",
+  "endedAt": "2026-02-27T10:40:25.367Z",
+  "durationMs": 7593,
+  "totalSteps": 40,
+  "passedSteps": 9,
+  "failedSteps": 1,
+  "steps": [
+    {
+      "id": "login-nav",
+      "description": "Navigate to login page",
+      "action": "navigate",
+      "startedAt": "2026-02-27T10:40:18.644Z",
+      "endedAt": "2026-02-27T10:40:18.924Z",
+      "durationMs": 280,
+      "status": "PASS",
+      "screenshotPath": "01-login-nav.png"
+    },
+    {
+      "id": "login-email",
+      "description": "Fill admin email",
+      "action": "fill",
+      "startedAt": "2026-02-27T10:40:18.924Z",
+      "endedAt": "2026-02-27T10:40:19.160Z",
+      "durationMs": 236,
+      "status": "PASS",
+      "screenshotPath": "02-login-email.png"
+    },
+    {
+      "id": "login-password",
+      "description": "Fill admin password",
+      "action": "fill",
+      "startedAt": "2026-02-27T10:40:19.160Z",
+      "endedAt": "2026-02-27T10:40:19.338Z",
+      "durationMs": 178,
+      "status": "PASS",
+      "screenshotPath": "03-login-password.png"
+    },
+    {
+      "id": "login-submit",
+      "description": "Submit login",
+      "action": "click",
+      "startedAt": "2026-02-27T10:40:19.338Z",
+      "endedAt": "2026-02-27T10:40:19.507Z",
+      "durationMs": 169,
+      "status": "PASS",
+      "screenshotPath": "04-login-submit.png"
+    },
+    {
+      "id": "dashboard-check",
+      "description": "Verify dashboard navigation is visible",
+      "action": "expect",
+      "startedAt": "2026-02-27T10:40:19.507Z",
+      "endedAt": "2026-02-27T10:40:19.904Z",
+      "durationMs": 397,
+      "status": "PASS",
+      "screenshotPath": "05-dashboard-check.png"
+    },
+    {
+      "id": "masters-parties-nav",
+      "description": "Open Parties masters page",
+      "action": "navigate",
+      "startedAt": "2026-02-27T10:40:19.904Z",
+      "endedAt": "2026-02-27T10:40:20.026Z",
+      "durationMs": 122,
+      "status": "PASS",
+      "screenshotPath": "06-masters-parties-nav.png"
+    },
+    {
+      "id": "party-name",
+      "description": "Enter supplier party name",
+      "action": "fill",
+      "startedAt": "2026-02-27T10:40:20.026Z",
+      "endedAt": "2026-02-27T10:40:20.061Z",
+      "durationMs": 35,
+      "status": "PASS",
+      "screenshotPath": "07-party-name.png"
+    },
+    {
+      "id": "party-type",
+      "description": "Select SUPER_STOCKIST party type",
+      "action": "select",
+      "startedAt": "2026-02-27T10:40:20.062Z",
+      "endedAt": "2026-02-27T10:40:20.183Z",
+      "durationMs": 121,
+      "status": "PASS",
+      "screenshotPath": "08-party-type.png"
+    },
+    {
+      "id": "party-create",
+      "description": "Create supplier party",
+      "action": "click",
+      "startedAt": "2026-02-27T10:40:20.183Z",
+      "endedAt": "2026-02-27T10:40:20.306Z",
+      "durationMs": 123,
+      "status": "PASS",
+      "screenshotPath": "09-party-create.png"
+    },
+    {
+      "id": "party-created-expect",
+      "description": "Verify supplier appears in table",
+      "action": "expect",
+      "startedAt": "2026-02-27T10:40:20.306Z",
+      "endedAt": "2026-02-27T10:40:20.306Z",
+      "durationMs": 0,
+      "status": "FAIL",
+      "error": "Error: expect(locator).toBeVisible() failed\n\nLocator: locator('text=Guided Supplier').first()\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"to.be.visible\" with timeout 5000ms\n  - waiting for locator('text=Guided Supplier').first()\n\n    at Proxy.<anonymous> (/Users/lijolawrance/work/analytixkraft/MedhaOne/node_modules/.pnpm/playwright@1.58.2/node_modules/playwright/lib/matchers/expect.js:213:24)\n    at executeStep (/Users/lijolawrance/work/analytixkraft/MedhaOne/apps/web/e2e/guided/runner.ts:268:31)\n    at main (/Users/lijolawrance/work/analytixkraft/MedhaOne/apps/web/e2e/guided/runner.ts:427:15)",
+      "screenshotPath": "10-party-created-expect-failed.png"
+    }
+  ]
+}

@@ -138,6 +138,69 @@ Set production-safe values via:
 pnpm --filter api test
 ```
 
+## E2E Test Agent (Playwright)
+
+The E2E suite is under `apps/web/e2e` and runs user-like workflow tests for:
+- Login
+- Masters creation (supplier, warehouse, product)
+- Purchase PO -> GRN -> Post
+- Stock verification via gated test API
+
+### Safety Gate (Important)
+
+Test reset endpoints are disabled by default and only enabled when:
+
+```env
+ENABLE_TEST_ENDPOINTS=true
+```
+
+When this is `false` (default), `/test/*` endpoints return `404`.
+
+### Local Run
+
+Terminal 1:
+
+```bash
+ENABLE_TEST_ENDPOINTS=true pnpm dev
+```
+
+Terminal 2:
+
+```bash
+pnpm e2e
+```
+
+Optional:
+
+```bash
+pnpm e2e:ui
+pnpm e2e:debug
+```
+
+## Guided UI Testing Agent
+
+For manual acceptance runs with step-by-step pauses and screenshots:
+
+```bash
+ENABLE_TEST_ENDPOINTS=true pnpm dev
+```
+
+In another terminal:
+
+```bash
+pnpm guided:test:po-grn
+```
+
+Or run any script:
+
+```bash
+pnpm guided:test -- --script apps/web/e2e/guided/scripts/po_grn_guided.json --baseURL http://localhost:1729 --headless false
+```
+
+Artifacts are written under:
+
+`apps/web/e2e/guided/artifacts/<timestamp>/`
+
 ## Frontend Auth Flow
 
 - Login form posts to Next API route: `POST /api/auth/login`

@@ -23,3 +23,17 @@ class InventoryReason(str, Enum):
     SALES_DISPATCH = "SALES_DISPATCH"
     STOCK_ADJUSTMENT = "STOCK_ADJUSTMENT"
     OPENING_STOCK = "OPENING_STOCK"
+
+
+class PurchaseOrderStatus(str, Enum):
+    DRAFT = "DRAFT"
+    APPROVED = "APPROVED"
+    PARTIALLY_RECEIVED = "PARTIALLY_RECEIVED"
+    CLOSED = "CLOSED"
+    CANCELLED = "CANCELLED"
+
+
+class GrnStatus(str, Enum):
+    DRAFT = "DRAFT"
+    POSTED = "POSTED"
+    CANCELLED = "CANCELLED"

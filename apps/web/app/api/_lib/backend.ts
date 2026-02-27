@@ -2,7 +2,8 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 const TOKEN_COOKIE = "medhaone_token";
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:1730";
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:1730";
 
 type ProxyOptions = {
   path: string;
@@ -10,7 +11,17 @@ type ProxyOptions = {
   body?: unknown;
 };
 
-export async function proxyWithAuth({ path, method, body }: ProxyOptions): Promise<NextResponse> {
+type PublicProxyOptions = {
+  path: string;
+  method: "GET" | "POST";
+  body?: unknown;
+};
+
+export async function proxyWithAuth({
+  path,
+  method,
+  body,
+}: ProxyOptions): Promise<NextResponse> {
   const cookieStore = await cookies();
   const token = cookieStore.get(TOKEN_COOKIE)?.value;
 
@@ -22,6 +33,35 @@ export async function proxyWithAuth({ path, method, body }: ProxyOptions): Promi
     method,
     headers: {
       Authorization: `Bearer ${token}`,
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    cache: "no-store",
+  });
+
+  const raw = await response.text();
+  if (!raw) {
+    return new NextResponse(null, { status: response.status });
+  }
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    payload = { detail: raw };
+  }
+
+  return NextResponse.json(payload, { status: response.status });
+}
+
+export async function proxyWithoutAuth({
+  path,
+  method,
+  body,
+}: PublicProxyOptions): Promise<NextResponse> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method,
+    headers: {
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,

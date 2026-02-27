@@ -5,7 +5,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Product, ProductPayload, apiClient } from "@/lib/api/client";
 
 type FormState = {
@@ -38,7 +45,10 @@ export function ProductsManager() {
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(initialState);
 
-  const modeLabel = useMemo(() => (editingId ? "Update Product" : "Add Product"), [editingId]);
+  const modeLabel = useMemo(
+    () => (editingId ? "Update Product" : "Add Product"),
+    [editingId],
+  );
 
   const load = async () => {
     setLoading(true);
@@ -117,41 +127,57 @@ export function ProductsManager() {
         <CardContent>
           <form className="space-y-3" onSubmit={handleSubmit}>
             <Input
+              data-testid="product-sku"
               value={form.sku}
-              onChange={(event) => setForm((prev) => ({ ...prev, sku: event.target.value }))}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, sku: event.target.value }))
+              }
               placeholder="SKU"
               required
             />
             <Input
+              data-testid="product-name"
               value={form.name}
-              onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, name: event.target.value }))
+              }
               placeholder="Product name"
               required
             />
             <Input
               value={form.brand}
-              onChange={(event) => setForm((prev) => ({ ...prev, brand: event.target.value }))}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, brand: event.target.value }))
+              }
               placeholder="Brand"
             />
             <Input
               value={form.uom}
-              onChange={(event) => setForm((prev) => ({ ...prev, uom: event.target.value }))}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, uom: event.target.value }))
+              }
               placeholder="UOM"
               required
             />
             <Input
               value={form.barcode}
-              onChange={(event) => setForm((prev) => ({ ...prev, barcode: event.target.value }))}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, barcode: event.target.value }))
+              }
               placeholder="Barcode"
             />
             <Input
               value={form.hsn}
-              onChange={(event) => setForm((prev) => ({ ...prev, hsn: event.target.value }))}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, hsn: event.target.value }))
+              }
               placeholder="HSN"
             />
             <Input
               value={form.gst_rate}
-              onChange={(event) => setForm((prev) => ({ ...prev, gst_rate: event.target.value }))}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, gst_rate: event.target.value }))
+              }
               placeholder="GST Rate"
               type="number"
             />
@@ -159,13 +185,22 @@ export function ProductsManager() {
               <input
                 type="checkbox"
                 checked={form.is_active}
-                onChange={(event) => setForm((prev) => ({ ...prev, is_active: event.target.checked }))}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    is_active: event.target.checked,
+                  }))
+                }
               />
               Active
             </label>
 
             <div className="flex gap-2">
-              <Button type="submit" disabled={saving}>
+              <Button
+                data-testid="create-product"
+                type="submit"
+                disabled={saving}
+              >
                 {saving ? "Saving..." : modeLabel}
               </Button>
               {editingId ? (
@@ -205,9 +240,15 @@ export function ProductsManager() {
                     <TableCell>{item.name}</TableCell>
                     <TableCell>{item.uom}</TableCell>
                     <TableCell>{item.gst_rate ?? "-"}</TableCell>
-                    <TableCell>{item.is_active ? "Active" : "Inactive"}</TableCell>
+                    <TableCell>
+                      {item.is_active ? "Active" : "Inactive"}
+                    </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="outline" size="sm" onClick={() => handleEdit(item)}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleEdit(item)}
+                      >
                         Edit
                       </Button>
                     </TableCell>

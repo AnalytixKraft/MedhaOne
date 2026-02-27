@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:1729"]
     default_admin_email: str = "admin@medhaone.app"
     default_admin_password: str = "ChangeMe123!"
+    enable_test_endpoints: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",

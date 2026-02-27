@@ -7,7 +7,12 @@
     "build": "next build",
     "start": "next start -p 1729",
     "lint": "next lint",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "e2e": "playwright test -c e2e/playwright.config.ts",
+    "e2e:ui": "playwright test -c e2e/playwright.config.ts --ui",
+    "e2e:debug": "playwright test -c e2e/playwright.config.ts --debug",
+    "guided:test": "tsx e2e/guided/runner.ts",
+    "guided:test:po-grn": "tsx e2e/guided/runner.ts --script e2e/guided/scripts/po_grn_guided.json"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.1.2",
@@ -25,12 +30,14 @@
     "@types/node": "^22.13.4",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
+    "@playwright/test": "^1.54.2",
     "autoprefixer": "^10.4.20",
     "eslint": "^9.21.0",
     "eslint-config-next": "15.2.2",
     "postcss": "^8.5.3",
     "prettier": "^3.5.3",
     "tailwindcss": "^3.4.17",
+    "tsx": "^4.20.3",
     "typescript": "^5.8.2"
   }
 }

@@ -100,6 +100,116 @@ export type ProductPayload = {
   is_active: boolean;
 };
 
+export type PurchaseOrderStatus =
+  | "DRAFT"
+  | "APPROVED"
+  | "PARTIALLY_RECEIVED"
+  | "CLOSED"
+  | "CANCELLED";
+
+export type GrnStatus = "DRAFT" | "POSTED" | "CANCELLED";
+
+export type PurchaseOrderLine = {
+  id: number;
+  purchase_order_id: number;
+  product_id: number;
+  ordered_qty: string;
+  received_qty: string;
+  unit_cost: string | null;
+  free_qty: string;
+  line_notes: string | null;
+};
+
+export type PurchaseOrder = {
+  id: number;
+  po_number: string;
+  supplier_id: number;
+  warehouse_id: number;
+  status: PurchaseOrderStatus;
+  order_date: string;
+  expected_date: string | null;
+  notes: string | null;
+  created_by: number;
+  created_at: string;
+  updated_at: string;
+  lines: PurchaseOrderLine[];
+};
+
+export type PurchaseOrderLinePayload = {
+  product_id: number;
+  ordered_qty: string;
+  unit_cost?: string;
+  free_qty?: string;
+  line_notes?: string;
+};
+
+export type PurchaseOrderPayload = {
+  supplier_id: number;
+  warehouse_id: number;
+  order_date: string;
+  expected_date?: string;
+  notes?: string;
+  lines: PurchaseOrderLinePayload[];
+};
+
+export type GrnLine = {
+  id: number;
+  grn_id: number;
+  po_line_id: number;
+  product_id: number;
+  batch_id: number;
+  received_qty: string;
+  free_qty: string;
+  unit_cost: string | null;
+  expiry_date: string;
+};
+
+export type Grn = {
+  id: number;
+  grn_number: string;
+  purchase_order_id: number;
+  supplier_id: number;
+  warehouse_id: number;
+  status: GrnStatus;
+  received_date: string;
+  posted_at: string | null;
+  posted_by: number | null;
+  created_by: number;
+  created_at: string;
+  updated_at: string;
+  lines: GrnLine[];
+};
+
+export type GrnLinePayload = {
+  po_line_id: number;
+  received_qty: string;
+  free_qty?: string;
+  unit_cost?: string;
+  batch_id?: number;
+  batch_no?: string;
+  expiry_date?: string;
+};
+
+export type CreateGrnFromPoPayload = {
+  received_date?: string;
+  supplier_id?: number;
+  warehouse_id?: number;
+  lines: GrnLinePayload[];
+};
+
+export type TestResetResponse = {
+  ok: boolean;
+  admin_email: string;
+  seed_minimal: boolean;
+};
+
+export type StockSummaryLookup = {
+  warehouse_id: number;
+  product_id: number;
+  batch_id: number;
+  qty_on_hand: string;
+};
+
 function toErrorMessage(errorBody: ApiError): string {
   if (typeof errorBody.detail === "string") {
     return errorBody.detail;
@@ -141,11 +251,14 @@ export const apiClient = {
       body: JSON.stringify(payload),
     }),
   getMe: () => request<AuthUser>("/api/auth/me", { method: "GET" }),
-  logout: () => request<{ success: true }>("/api/auth/logout", { method: "POST" }),
+  logout: () =>
+    request<{ success: true }>("/api/auth/logout", { method: "POST" }),
 
-  getDashboardMetrics: () => request<DashboardMetrics>("/api/dashboard/metrics", { method: "GET" }),
+  getDashboardMetrics: () =>
+    request<DashboardMetrics>("/api/dashboard/metrics", { method: "GET" }),
 
-  listParties: () => request<Party[]>("/api/masters/parties", { method: "GET" }),
+  listParties: () =>
+    request<Party[]>("/api/masters/parties", { method: "GET" }),
   createParty: (payload: PartyPayload) =>
     request<Party>("/api/masters/parties", {
       method: "POST",
@@ -157,7 +270,8 @@ export const apiClient = {
       body: JSON.stringify(payload),
     }),
 
-  listProducts: () => request<Product[]>("/api/masters/products", { method: "GET" }),
+  listProducts: () =>
+    request<Product[]>("/api/masters/products", { method: "GET" }),
   createProduct: (payload: ProductPayload) =>
     request<Product>("/api/masters/products", {
       method: "POST",
@@ -169,7 +283,8 @@ export const apiClient = {
       body: JSON.stringify(payload),
     }),
 
-  listWarehouses: () => request<Warehouse[]>("/api/masters/warehouses", { method: "GET" }),
+  listWarehouses: () =>
+    request<Warehouse[]>("/api/masters/warehouses", { method: "GET" }),
   createWarehouse: (payload: WarehousePayload) =>
     request<Warehouse>("/api/masters/warehouses", {
       method: "POST",
@@ -180,4 +295,49 @@ export const apiClient = {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
+
+  listPurchaseOrders: () =>
+    request<{ items: PurchaseOrder[] }>("/api/purchase/po", { method: "GET" }),
+  getPurchaseOrder: (id: number) =>
+    request<PurchaseOrder>(`/api/purchase/po/${id}`, { method: "GET" }),
+  createPurchaseOrder: (payload: PurchaseOrderPayload) =>
+    request<PurchaseOrder>("/api/purchase/po", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  approvePurchaseOrder: (id: number) =>
+    request<PurchaseOrder>(`/api/purchase/po/${id}/approve`, {
+      method: "POST",
+    }),
+
+  listGrns: () => request<Grn[]>("/api/purchase/grn", { method: "GET" }),
+  getGrn: (id: number) =>
+    request<Grn>(`/api/purchase/grn/${id}`, { method: "GET" }),
+  createGrnFromPo: (poId: number, payload: CreateGrnFromPoPayload) =>
+    request<Grn>(`/api/purchase/grn/from-po/${poId}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  postGrn: (id: number) =>
+    request<Grn>(`/api/purchase/grn/${id}/post`, {
+      method: "POST",
+    }),
+
+  testResetAndSeed: (seed_minimal = true) =>
+    request<TestResetResponse>("/api/test/reset-and-seed", {
+      method: "POST",
+      body: JSON.stringify({ seed_minimal }),
+    }),
+  getTestStockSummary: (query: Record<string, string | number>) => {
+    const params = new URLSearchParams();
+    Object.entries(query).forEach(([key, value]) =>
+      params.set(key, String(value)),
+    );
+    return request<StockSummaryLookup>(
+      `/api/test/stock-summary?${params.toString()}`,
+      {
+        method: "GET",
+      },
+    );
+  },
 };

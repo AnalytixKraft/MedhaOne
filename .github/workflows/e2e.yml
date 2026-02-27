@@ -1,0 +1,82 @@
+name: E2E Tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.6.3
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup API venv
+        run: |
+          cd apps/api
+          python -m venv .venv
+          ./.venv/bin/pip install -e .
+
+      - name: Install Playwright browser
+        run: pnpm --filter web exec playwright install --with-deps chromium
+
+      - name: Start app
+        env:
+          ENABLE_TEST_ENDPOINTS: "true"
+        run: |
+          pnpm dev > /tmp/medhaone-dev.log 2>&1 &
+          echo $! > /tmp/medhaone-dev.pid
+
+      - name: Wait for web/api
+        run: |
+          for i in {1..60}; do
+            if curl -sSf http://localhost:1729 >/dev/null && curl -sSf http://localhost:1730/health >/dev/null; then
+              echo "Services are up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timed out waiting for services"
+          cat /tmp/medhaone-dev.log
+          exit 1
+
+      - name: Run E2E
+        env:
+          E2E_BASE_URL: http://localhost:1729
+          E2E_API_BASE_URL: http://localhost:1730
+        run: pnpm e2e
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            apps/web/e2e/reports
+            /tmp/medhaone-dev.log
+
+      - name: Stop app
+        if: always()
+        run: |
+          if [ -f /tmp/medhaone-dev.pid ]; then
+            kill $(cat /tmp/medhaone-dev.pid) || true
+          fi
