@@ -208,9 +208,7 @@ test("Over-receipt is blocked in GRN creation", async ({ page, request }) => {
     .fill(data.expiryDate);
   await page.getByTestId("create-grn-from-po").click();
 
-  await expect(
-    page.getByText("Received quantity exceeds remaining quantity on PO line"),
-  ).toBeVisible();
+  await expect(page.getByText("Cannot receive more than remaining quantity")).toBeVisible();
 
   const stockResp = await request.get(
     `${process.env.E2E_API_BASE_URL ?? "http://localhost:1730"}/test/stock-summary?warehouse_code=${encodeURIComponent(

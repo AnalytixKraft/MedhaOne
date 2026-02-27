@@ -1,5 +1,11 @@
 export type ApiError = {
-  detail?: string | { msg?: string }[];
+  detail?:
+    | string
+    | {
+        error_code?: string;
+        message?: string;
+      }
+    | { msg?: string }[];
   message?: string;
 };
 
@@ -213,6 +219,14 @@ export type StockSummaryLookup = {
 function toErrorMessage(errorBody: ApiError): string {
   if (typeof errorBody.detail === "string") {
     return errorBody.detail;
+  }
+
+  if (
+    errorBody.detail &&
+    !Array.isArray(errorBody.detail) &&
+    typeof errorBody.detail.message === "string"
+  ) {
+    return errorBody.detail.message;
   }
 
   if (Array.isArray(errorBody.detail) && errorBody.detail.length > 0) {

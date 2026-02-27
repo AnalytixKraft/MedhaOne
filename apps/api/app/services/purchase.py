@@ -18,7 +18,11 @@ from app.services.inventory import stock_in
 
 
 class PurchaseError(Exception):
-    pass
+    def __init__(self, *, error_code: str, message: str, status_code: int = 400) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+        self.message = message
+        self.status_code = status_code
 
 
 def _as_decimal(value: Decimal | float | int) -> Decimal:
@@ -31,6 +35,10 @@ def _new_po_number() -> str:
 
 def _new_grn_number() -> str:
     return f"GRN-{uuid4().hex[:10].upper()}"
+
+
+def _raise_purchase_error(*, error_code: str, message: str, status_code: int) -> None:
+    raise PurchaseError(error_code=error_code, message=message, status_code=status_code)
 
 
 def _get_po_with_lines(db: Session, po_id: int, lock: bool = False) -> PurchaseOrder | None:
@@ -53,19 +61,81 @@ def _get_grn_with_lines(db: Session, grn_id: int, lock: bool = False) -> GRN | N
 
 def _assert_master_refs(db: Session, *, supplier_id: int, warehouse_id: int) -> None:
     if not db.get(Party, supplier_id):
-        raise PurchaseError("Supplier not found")
+        _raise_purchase_error(
+            error_code="NOT_FOUND",
+            message="Supplier not found",
+            status_code=404,
+        )
     if not db.get(Warehouse, warehouse_id):
-        raise PurchaseError("Warehouse not found")
+        _raise_purchase_error(
+            error_code="NOT_FOUND",
+            message="Warehouse not found",
+            status_code=404,
+        )
 
 
 def _assert_product_exists(db: Session, product_id: int) -> None:
     if not db.get(Product, product_id):
-        raise PurchaseError(f"Product not found: {product_id}")
+        _raise_purchase_error(
+            error_code="NOT_FOUND",
+            message=f"Product not found: {product_id}",
+            status_code=404,
+        )
+
+
+def _assert_po_can_approve(po: PurchaseOrder) -> None:
+    if po.status == PurchaseOrderStatus.DRAFT:
+        return
+    if po.status == PurchaseOrderStatus.APPROVED:
+        _raise_purchase_error(
+            error_code="INVALID_STATE",
+            message="Purchase order is already approved",
+            status_code=409,
+        )
+    _raise_purchase_error(
+        error_code="INVALID_STATE",
+        message=f"Purchase order cannot be approved from status {po.status.value}",
+        status_code=409,
+    )
+
+
+def _assert_po_can_receive(po: PurchaseOrder) -> None:
+    if po.status in (PurchaseOrderStatus.CLOSED, PurchaseOrderStatus.CANCELLED):
+        _raise_purchase_error(
+            error_code="INVALID_STATE",
+            message="Purchase order cannot be modified once closed or cancelled",
+            status_code=409,
+        )
+    if po.status not in (PurchaseOrderStatus.APPROVED, PurchaseOrderStatus.PARTIALLY_RECEIVED):
+        _raise_purchase_error(
+            error_code="PO_NOT_APPROVED",
+            message="Purchase order must be APPROVED or PARTIALLY_RECEIVED to accept receipts",
+            status_code=409,
+        )
+
+
+def _assert_grn_can_post(grn: GRN) -> None:
+    if grn.status == GrnStatus.POSTED:
+        _raise_purchase_error(
+            error_code="GRN_ALREADY_POSTED",
+            message="GRN already posted",
+            status_code=409,
+        )
+    if grn.status != GrnStatus.DRAFT:
+        _raise_purchase_error(
+            error_code="INVALID_STATE",
+            message=f"GRN cannot be posted from status {grn.status.value}",
+            status_code=409,
+        )
 
 
 def create_po(db: Session, payload: PurchaseOrderCreate, created_by: int) -> PurchaseOrder:
     if not payload.lines:
-        raise PurchaseError("Purchase order must include at least one line")
+        _raise_purchase_error(
+            error_code="INVALID_STATE",
+            message="Purchase order must include at least one line",
+            status_code=400,
+        )
 
     _assert_master_refs(db, supplier_id=payload.supplier_id, warehouse_id=payload.warehouse_id)
 
@@ -109,13 +179,19 @@ def approve_po(db: Session, po_id: int, user_id: int) -> PurchaseOrder:
     _ = user_id
     po = _get_po_with_lines(db, po_id)
     if not po:
-        raise PurchaseError("Purchase order not found")
-
-    if po.status != PurchaseOrderStatus.DRAFT:
-        raise PurchaseError("Only draft purchase orders can be approved")
+        _raise_purchase_error(
+            error_code="NOT_FOUND",
+            message="Purchase order not found",
+            status_code=404,
+        )
+    _assert_po_can_approve(po)
 
     if not po.lines:
-        raise PurchaseError("Cannot approve a purchase order without lines")
+        _raise_purchase_error(
+            error_code="INVALID_STATE",
+            message="Cannot approve a purchase order without lines",
+            status_code=409,
+        )
 
     po.status = PurchaseOrderStatus.APPROVED
 
@@ -139,15 +215,38 @@ def _resolve_batch_for_grn_line(
     if batch_id is not None:
         batch = db.get(Batch, batch_id)
         if not batch:
-            raise PurchaseError("Batch not found")
+            _raise_purchase_error(
+                error_code="BATCH_REQUIRED",
+                message="Provided batch_id does not exist",
+                status_code=400,
+            )
         if batch.product_id != product_id:
-            raise PurchaseError("Batch does not belong to the PO line product")
+            _raise_purchase_error(
+                error_code="BATCH_REQUIRED",
+                message="Provided batch does not belong to the selected product",
+                status_code=400,
+            )
         if expiry_date and expiry_date != batch.expiry_date:
-            raise PurchaseError("Provided expiry_date does not match selected batch")
+            _raise_purchase_error(
+                error_code="BATCH_REQUIRED",
+                message="Provided expiry_date does not match selected batch",
+                status_code=400,
+            )
         return batch
 
-    if not batch_no or not expiry_date:
-        raise PurchaseError("Either batch_id or batch_no with expiry_date is required")
+    if not batch_no:
+        _raise_purchase_error(
+            error_code="BATCH_REQUIRED",
+            message="Batch is required: provide batch_id or batch_no",
+            status_code=400,
+        )
+
+    if not expiry_date:
+        _raise_purchase_error(
+            error_code="BATCH_REQUIRED",
+            message="Expiry date is required for medical batch receipt",
+            status_code=400,
+        )
 
     stmt = (
         select(Batch)
@@ -168,19 +267,33 @@ def _resolve_batch_for_grn_line(
 def create_grn_from_po(db: Session, po_id: int, payload: GRNCreateFromPO, created_by: int) -> GRN:
     po = _get_po_with_lines(db, po_id)
     if not po:
-        raise PurchaseError("Purchase order not found")
-
-    if po.status not in (PurchaseOrderStatus.APPROVED, PurchaseOrderStatus.PARTIALLY_RECEIVED):
-        raise PurchaseError("GRN can be created only for approved or partially received PO")
+        _raise_purchase_error(
+            error_code="NOT_FOUND",
+            message="Purchase order not found",
+            status_code=404,
+        )
+    _assert_po_can_receive(po)
 
     if payload.supplier_id is not None and payload.supplier_id != po.supplier_id:
-        raise PurchaseError("Supplier does not match purchase order")
+        _raise_purchase_error(
+            error_code="SUPPLIER_MISMATCH",
+            message="GRN supplier does not match purchase order supplier",
+            status_code=400,
+        )
 
     if payload.warehouse_id is not None and payload.warehouse_id != po.warehouse_id:
-        raise PurchaseError("Warehouse does not match purchase order")
+        _raise_purchase_error(
+            error_code="WAREHOUSE_MISMATCH",
+            message="GRN warehouse does not match purchase order warehouse",
+            status_code=400,
+        )
 
     if not payload.lines:
-        raise PurchaseError("GRN must include at least one line")
+        _raise_purchase_error(
+            error_code="INVALID_STATE",
+            message="GRN must include at least one line",
+            status_code=400,
+        )
 
     po_lines_by_id = {line.id: line for line in po.lines}
     seen_po_lines: set[int] = set()
@@ -200,21 +313,43 @@ def create_grn_from_po(db: Session, po_id: int, payload: GRNCreateFromPO, create
 
         for line_payload in payload.lines:
             if line_payload.po_line_id in seen_po_lines:
-                raise PurchaseError("Duplicate po_line_id in GRN lines")
+                _raise_purchase_error(
+                    error_code="INVALID_STATE",
+                    message="Duplicate po_line_id in GRN lines",
+                    status_code=400,
+                )
             seen_po_lines.add(line_payload.po_line_id)
 
             po_line = po_lines_by_id.get(line_payload.po_line_id)
             if not po_line:
-                raise PurchaseError("GRN line references a PO line from a different purchase order")
+                _raise_purchase_error(
+                    error_code="INVALID_STATE",
+                    message="GRN line references a PO line from a different purchase order",
+                    status_code=409,
+                )
 
             remaining_qty = _as_decimal(po_line.ordered_qty) - _as_decimal(po_line.received_qty)
             received_qty = _as_decimal(line_payload.received_qty)
+            if received_qty <= 0:
+                _raise_purchase_error(
+                    error_code="INVALID_STATE",
+                    message="Received quantity must be greater than zero",
+                    status_code=400,
+                )
             if received_qty > remaining_qty:
-                raise PurchaseError("Received quantity exceeds remaining quantity on PO line")
+                _raise_purchase_error(
+                    error_code="OVER_RECEIPT",
+                    message="Cannot receive more than remaining quantity",
+                    status_code=400,
+                )
 
             free_qty = _as_decimal(line_payload.free_qty)
             if free_qty < 0:
-                raise PurchaseError("Free quantity cannot be negative")
+                _raise_purchase_error(
+                    error_code="INVALID_STATE",
+                    message="Free quantity cannot be negative",
+                    status_code=400,
+                )
 
             batch = _resolve_batch_for_grn_line(
                 db,
@@ -248,34 +383,66 @@ def post_grn(db: Session, grn_id: int, user_id: int) -> GRN:
     try:
         grn = _get_grn_with_lines(db, grn_id, lock=True)
         if not grn:
-            raise PurchaseError("GRN not found")
-        if grn.status == GrnStatus.POSTED:
-            raise PurchaseError("GRN is already posted")
-        if grn.status == GrnStatus.CANCELLED:
-            raise PurchaseError("Cancelled GRN cannot be posted")
+            _raise_purchase_error(
+                error_code="NOT_FOUND",
+                message="GRN not found",
+                status_code=404,
+            )
+        _assert_grn_can_post(grn)
         if not grn.lines:
-            raise PurchaseError("Cannot post an empty GRN")
+            _raise_purchase_error(
+                error_code="INVALID_STATE",
+                message="Cannot post an empty GRN",
+                status_code=409,
+            )
 
         po = _get_po_with_lines(db, grn.purchase_order_id, lock=True)
         if not po:
-            raise PurchaseError("Purchase order not found")
-        if po.status == PurchaseOrderStatus.CANCELLED:
-            raise PurchaseError("Cannot post GRN for cancelled purchase order")
+            _raise_purchase_error(
+                error_code="NOT_FOUND",
+                message="Purchase order not found",
+                status_code=404,
+            )
+        _assert_po_can_receive(po)
+        if grn.warehouse_id != po.warehouse_id:
+            _raise_purchase_error(
+                error_code="WAREHOUSE_MISMATCH",
+                message="GRN warehouse does not match purchase order warehouse",
+                status_code=400,
+            )
+        if grn.supplier_id != po.supplier_id:
+            _raise_purchase_error(
+                error_code="SUPPLIER_MISMATCH",
+                message="GRN supplier does not match purchase order supplier",
+                status_code=400,
+            )
 
         po_lines_by_id = {line.id: line for line in po.lines}
 
         for line in grn.lines:
             po_line = po_lines_by_id.get(line.po_line_id)
             if not po_line or po_line.purchase_order_id != po.id:
-                raise PurchaseError("GRN line references a PO line from a different purchase order")
+                _raise_purchase_error(
+                    error_code="INVALID_STATE",
+                    message="GRN line references a PO line from a different purchase order",
+                    status_code=409,
+                )
 
             remaining_qty = _as_decimal(po_line.ordered_qty) - _as_decimal(po_line.received_qty)
             if _as_decimal(line.received_qty) > remaining_qty:
-                raise PurchaseError("Posting would exceed ordered quantity")
+                _raise_purchase_error(
+                    error_code="OVER_RECEIPT",
+                    message="Cannot receive more than remaining quantity",
+                    status_code=400,
+                )
 
             total_stock_qty = _as_decimal(line.received_qty) + _as_decimal(line.free_qty)
             if total_stock_qty <= 0:
-                raise PurchaseError("Invalid GRN line quantity")
+                _raise_purchase_error(
+                    error_code="INVALID_STATE",
+                    message="Invalid GRN line quantity",
+                    status_code=400,
+                )
 
             stock_in(
                 db,

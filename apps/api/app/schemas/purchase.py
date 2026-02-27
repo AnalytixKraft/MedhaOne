@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import GrnStatus, PurchaseOrderStatus
 
@@ -65,15 +65,6 @@ class GRNLineCreateFromPO(BaseModel):
     batch_id: int | None = None
     batch_no: str | None = None
     expiry_date: date | None = None
-
-    @model_validator(mode="after")
-    def validate_batch_input(self):
-        has_batch_id = self.batch_id is not None
-        has_batch_descriptor = bool(self.batch_no and self.expiry_date)
-
-        if has_batch_id == has_batch_descriptor:
-            raise ValueError("Provide either batch_id or batch_no with expiry_date")
-        return self
 
 
 class GRNCreateFromPO(BaseModel):

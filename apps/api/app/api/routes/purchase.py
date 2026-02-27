@@ -22,6 +22,13 @@ from app.services.purchase import (
 router = APIRouter()
 
 
+def _raise_purchase_http_error(error: PurchaseError) -> None:
+    raise HTTPException(
+        status_code=error.status_code,
+        detail={"error_code": error.error_code, "message": error.message},
+    ) from error
+
+
 @router.post("/po", response_model=PurchaseOrderResponse, status_code=status.HTTP_201_CREATED)
 def create_purchase_order(
     payload: PurchaseOrderCreate,
@@ -31,7 +38,7 @@ def create_purchase_order(
     try:
         return create_po(db, payload, current_user.id)
     except PurchaseError as error:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+        _raise_purchase_http_error(error)
 
 
 @router.get("/po", response_model=PurchaseOrderList)
@@ -64,7 +71,8 @@ def get_purchase_order(
     )
     if not record:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Purchase order not found"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error_code": "NOT_FOUND", "message": "Purchase order not found"},
         )
     return record
 
@@ -78,9 +86,7 @@ def approve_purchase_order(
     try:
         return approve_po(db, po_id, current_user.id)
     except PurchaseError as error:
-        message = str(error)
-        status_code = status.HTTP_404_NOT_FOUND if "not found" in message.lower() else 400
-        raise HTTPException(status_code=status_code, detail=message) from error
+        _raise_purchase_http_error(error)
 
 
 @router.post(
@@ -95,9 +101,7 @@ def create_grn(
     try:
         return create_grn_from_po(db, po_id, payload, current_user.id)
     except PurchaseError as error:
-        message = str(error)
-        status_code = status.HTTP_404_NOT_FOUND if "not found" in message.lower() else 400
-        raise HTTPException(status_code=status_code, detail=message) from error
+        _raise_purchase_http_error(error)
 
 
 @router.get("/grn", response_model=list[GRNResponse])
@@ -118,7 +122,10 @@ def get_grn(
     _ = current_user
     record = db.query(GRN).options(selectinload(GRN.lines)).filter(GRN.id == grn_id).first()
     if not record:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="GRN not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error_code": "NOT_FOUND", "message": "GRN not found"},
+        )
     return record
 
 
@@ -131,11 +138,4 @@ def post_grn_route(
     try:
         return post_grn(db, grn_id, current_user.id)
     except PurchaseError as error:
-        message = str(error)
-        lowered = message.lower()
-        status_code = (
-            status.HTTP_404_NOT_FOUND if "not found" in lowered else status.HTTP_400_BAD_REQUEST
-        )
-        if "already posted" in lowered:
-            status_code = status.HTTP_409_CONFLICT
-        raise HTTPException(status_code=status_code, detail=message) from error
+        _raise_purchase_http_error(error)
