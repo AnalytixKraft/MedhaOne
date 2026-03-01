@@ -1,22 +1,28 @@
 export type ApiError = {
+  error_code?: string;
   detail?:
     | string
     | {
         error_code?: string;
         message?: string;
+        details?: unknown;
       }
     | { msg?: string }[];
   message?: string;
+  details?: unknown;
 };
 
 export type LoginPayload = {
   email: string;
   password: string;
+  organization_slug?: string;
 };
 
 export type Role = {
   id: number;
   name: string;
+  description?: string | null;
+  is_system?: boolean;
 };
 
 export type AuthUser = {
@@ -24,7 +30,13 @@ export type AuthUser = {
   email: string;
   full_name: string;
   is_active: boolean;
-  role: Role;
+  is_superuser: boolean;
+  last_login_at: string | null;
+  created_at: string;
+  updated_at: string;
+  role: Role | null;
+  roles: Role[];
+  permissions: string[];
 };
 
 export type PartyType =
@@ -216,6 +228,52 @@ export type StockSummaryLookup = {
   qty_on_hand: string;
 };
 
+export type PagedResponse<T> = {
+  total: number;
+  page: number;
+  page_size: number;
+  data: T[];
+};
+
+export type StockInwardReportRow = {
+  grn_number: string;
+  po_number: string;
+  supplier_name: string;
+  warehouse_name: string;
+  product_name: string;
+  batch_no: string;
+  expiry_date: string;
+  qty_received: string;
+  free_qty: string;
+  received_date: string;
+  posted_by: string | null;
+};
+
+export type PurchaseRegisterReportRow = {
+  po_number: string;
+  supplier: string;
+  warehouse: string;
+  order_date: string;
+  status: PurchaseOrderStatus;
+  total_order_qty: string;
+  total_received_qty: string;
+  pending_qty: string;
+  total_value: string | null;
+};
+
+export type StockMovementReportRow = {
+  transaction_date: string;
+  reason: string;
+  reference_type: string | null;
+  reference_id: string | null;
+  product: string;
+  batch: string;
+  warehouse: string;
+  qty_in: string;
+  qty_out: string;
+  running_balance: string;
+};
+
 function toErrorMessage(errorBody: ApiError): string {
   if (typeof errorBody.detail === "string") {
     return errorBody.detail;
@@ -236,6 +294,18 @@ function toErrorMessage(errorBody: ApiError): string {
   return errorBody.message ?? "Request failed";
 }
 
+export class ApiRequestError extends Error {
+  code?: string;
+  details?: unknown;
+
+  constructor(message: string, options?: { code?: string; details?: unknown }) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.code = options?.code;
+    this.details = options?.details;
+  }
+}
+
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     ...init,
@@ -248,7 +318,16 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const errorBody = (await response.json().catch(() => ({}))) as ApiError;
-    throw new Error(toErrorMessage(errorBody));
+    const detailObject =
+      errorBody.detail &&
+      typeof errorBody.detail === "object" &&
+      !Array.isArray(errorBody.detail)
+        ? errorBody.detail
+        : undefined;
+    throw new ApiRequestError(toErrorMessage(errorBody), {
+      code: errorBody.error_code || detailObject?.error_code,
+      details: errorBody.details || detailObject?.details,
+    });
   }
 
   if (response.status === 204) {
@@ -256,6 +335,21 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
   }
 
   return (await response.json()) as T;
+}
+
+function withQuery(path: string, query?: Record<string, string | number | undefined | null>) {
+  if (!query) {
+    return path;
+  }
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null || value === "") {
+      continue;
+    }
+    params.set(key, String(value));
+  }
+  const suffix = params.toString();
+  return suffix ? `${path}?${suffix}` : path;
 }
 
 export const apiClient = {
@@ -335,6 +429,19 @@ export const apiClient = {
   postGrn: (id: number) =>
     request<Grn>(`/api/purchase/grn/${id}/post`, {
       method: "POST",
+    }),
+
+  getStockInwardReport: (query?: Record<string, string | number | undefined | null>) =>
+    request<PagedResponse<StockInwardReportRow>>(withQuery("/api/reports/stock-inward", query), {
+      method: "GET",
+    }),
+  getPurchaseRegisterReport: (query?: Record<string, string | number | undefined | null>) =>
+    request<PagedResponse<PurchaseRegisterReportRow>>(withQuery("/api/reports/purchase-register", query), {
+      method: "GET",
+    }),
+  getStockMovementReport: (query?: Record<string, string | number | undefined | null>) =>
+    request<PagedResponse<StockMovementReportRow>>(withQuery("/api/reports/stock-movement", query), {
+      method: "GET",
     }),
 
   testResetAndSeed: (seed_minimal = true) =>

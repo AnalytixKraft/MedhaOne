@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from app.api.deps import get_db
 from app.core.security import create_access_token
 from app.main import app
+from app.models.audit import AuditLog
 from app.models.base import Base
 from app.models.enums import InventoryReason, PartyType
 from app.models.inventory import InventoryLedger, StockSummary
@@ -18,7 +19,10 @@ from app.models.user import User
 
 
 def _error_payload(response) -> dict[str, str]:
-    detail = response.json().get("detail")
+    data = response.json()
+    if "error_code" in data:
+        return data
+    detail = data.get("detail")
     if isinstance(detail, dict):
         return detail
     return {"message": str(detail)}
@@ -34,6 +38,7 @@ def _create_access_user(db: Session) -> str:
         full_name="Purchase Admin",
         hashed_password="not-used",
         is_active=True,
+        is_superuser=True,
         role_id=role.id,
     )
     db.add(user)
@@ -794,3 +799,57 @@ def test_closed_po_cannot_receive_more_grn(
     assert closed_po_attempt.status_code == 409
     err = _error_payload(closed_po_attempt)
     assert err["error_code"] == "INVALID_STATE"
+
+
+def test_audit_logs_created_for_po_approve_and_grn_post(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db = client_with_test_db
+    token = _create_access_user(db)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    supplier_id = _create_supplier(client, headers, "ADT")
+    warehouse_id = _create_warehouse(client, headers, "ADTWH")
+    product_id = _create_product(client, headers, "ADT-SKU-1")
+
+    po = _create_po(
+        client,
+        headers,
+        supplier_id=supplier_id,
+        warehouse_id=warehouse_id,
+        lines=[{"product_id": product_id, "ordered_qty": "5", "unit_cost": "10"}],
+    )
+    _approve_po(client, headers, po["id"])
+
+    grn = _create_grn(
+        client,
+        headers,
+        po["id"],
+        lines=[
+            {
+                "po_line_id": po["lines"][0]["id"],
+                "received_qty": "5",
+                "batch_no": "ADT-BATCH-1",
+                "expiry_date": "2030-12-31",
+            }
+        ],
+    )
+    _post_grn(client, headers, grn["id"])
+
+    po_approve_log = (
+        db.query(AuditLog)
+        .filter(AuditLog.entity_type == "PO")
+        .filter(AuditLog.entity_id == po["id"])
+        .filter(AuditLog.action == "APPROVE")
+        .first()
+    )
+    assert po_approve_log is not None
+
+    grn_post_log = (
+        db.query(AuditLog)
+        .filter(AuditLog.entity_type == "GRN")
+        .filter(AuditLog.entity_id == grn["id"])
+        .filter(AuditLog.action == "POST")
+        .first()
+    )
+    assert grn_post_log is not None

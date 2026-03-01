@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { usePermissions } from "@/components/auth/permission-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -19,6 +20,7 @@ type GrnDetailProps = {
 };
 
 export function GrnDetail({ grnId }: GrnDetailProps) {
+  const { hasPermission } = usePermissions();
   const [grn, setGrn] = useState<Grn | null>(null);
   const [stockQty, setStockQty] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -97,7 +99,7 @@ export function GrnDetail({ grnId }: GrnDetailProps) {
               Stock Qty: <span data-testid="stock-qty">{stockQty}</span>
             </p>
           ) : null}
-          {grn.status === "DRAFT" ? (
+          {grn.status === "DRAFT" && hasPermission("grn:post") ? (
             <Button
               data-testid="post-grn"
               onClick={handlePost}

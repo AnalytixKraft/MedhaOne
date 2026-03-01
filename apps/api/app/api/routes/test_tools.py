@@ -3,19 +3,17 @@ from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.config import get_settings
 from app.core.database import Base, SessionLocal, engine
-from app.core.security import get_password_hash
 from app.models.batch import Batch
 from app.models.enums import PartyType
-from app.models.inventory import StockSummary
+from app.models.inventory import InventoryLedger, StockSummary
 from app.models.party import Party
 from app.models.product import Product
-from app.models.role import Role
-from app.models.user import User
 from app.models.warehouse import Warehouse
+from app.services.rbac import ensure_admin_user
 
 router = APIRouter(prefix="/test", tags=["Test"])
 
@@ -37,6 +35,16 @@ class StockSummaryLookupResponse(BaseModel):
     qty_on_hand: Decimal
 
 
+class LedgerDuplicateRow(BaseModel):
+    ref_id: str
+    count: int
+
+
+class LedgerDuplicateCheckResponse(BaseModel):
+    has_duplicates: bool
+    duplicate_refs: list[LedgerDuplicateRow]
+
+
 def _ensure_enabled() -> None:
     if not get_settings().enable_test_endpoints:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
@@ -48,29 +56,9 @@ def _reset_schema() -> None:
 
 
 def _seed_admin() -> str:
-    settings = get_settings()
-
     with SessionLocal() as db:
-        role = db.query(Role).filter(Role.name == "admin").first()
-        if not role:
-            role = Role(name="admin", is_active=True)
-            db.add(role)
-            db.flush()
-
-        user = db.query(User).filter(User.email == settings.default_admin_email).first()
-        if not user:
-            user = User(
-                email=settings.default_admin_email,
-                full_name="System Administrator",
-                hashed_password=get_password_hash(settings.default_admin_password),
-                is_active=True,
-                role_id=role.id,
-            )
-            db.add(user)
-
-        db.commit()
-
-    return settings.default_admin_email
+        user = ensure_admin_user(db)
+        return user.email
 
 
 def _seed_minimal() -> None:
@@ -166,4 +154,31 @@ def get_stock_summary(
             product_id=record.product_id,
             batch_id=record.batch_id,
             qty_on_hand=record.qty_on_hand,
+        )
+
+
+@router.get("/ledger-grn-duplicates", response_model=LedgerDuplicateCheckResponse)
+def get_ledger_grn_duplicates() -> LedgerDuplicateCheckResponse:
+    _ensure_enabled()
+
+    with SessionLocal() as db:
+        rows = (
+            db.query(
+                InventoryLedger.ref_id,
+                func.count(InventoryLedger.id).label("count"),
+            )
+            .filter(InventoryLedger.ref_type == "GRN")
+            .filter(InventoryLedger.ref_id.isnot(None))
+            .group_by(InventoryLedger.ref_id)
+            .having(func.count(InventoryLedger.id) > 1)
+            .all()
+        )
+        duplicates = [
+            LedgerDuplicateRow(ref_id=str(row.ref_id), count=int(row.count))
+            for row in rows
+            if row.ref_id
+        ]
+        return LedgerDuplicateCheckResponse(
+            has_duplicates=len(duplicates) > 0,
+            duplicate_refs=duplicates,
         )

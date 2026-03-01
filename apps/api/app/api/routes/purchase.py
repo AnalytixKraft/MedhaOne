@@ -1,9 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
+from app.core.exceptions import AppException
+from app.core.permissions import require_permission
 from app.models.purchase import GRN, PurchaseOrder
+from app.models.user import User
 from app.schemas.purchase import (
     GRNCreateFromPO,
     GRNResponse,
@@ -11,34 +14,18 @@ from app.schemas.purchase import (
     PurchaseOrderList,
     PurchaseOrderResponse,
 )
-from app.services.purchase import (
-    PurchaseError,
-    approve_po,
-    create_grn_from_po,
-    create_po,
-    post_grn,
-)
+from app.services.purchase import approve_po, create_grn_from_po, create_po, post_grn
 
 router = APIRouter()
-
-
-def _raise_purchase_http_error(error: PurchaseError) -> None:
-    raise HTTPException(
-        status_code=error.status_code,
-        detail={"error_code": error.error_code, "message": error.message},
-    ) from error
 
 
 @router.post("/po", response_model=PurchaseOrderResponse, status_code=status.HTTP_201_CREATED)
 def create_purchase_order(
     payload: PurchaseOrderCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchase:create")),
 ) -> PurchaseOrderResponse:
-    try:
-        return create_po(db, payload, current_user.id)
-    except PurchaseError as error:
-        _raise_purchase_http_error(error)
+    return create_po(db, payload, current_user.id)
 
 
 @router.get("/po", response_model=PurchaseOrderList)
@@ -70,9 +57,10 @@ def get_purchase_order(
         .first()
     )
     if not record:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error_code": "NOT_FOUND", "message": "Purchase order not found"},
+        raise AppException(
+            error_code="NOT_FOUND",
+            message="Purchase order not found",
+            status_code=404,
         )
     return record
 
@@ -81,12 +69,9 @@ def get_purchase_order(
 def approve_purchase_order(
     po_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchase:approve")),
 ) -> PurchaseOrderResponse:
-    try:
-        return approve_po(db, po_id, current_user.id)
-    except PurchaseError as error:
-        _raise_purchase_http_error(error)
+    return approve_po(db, po_id, current_user.id)
 
 
 @router.post(
@@ -96,12 +81,9 @@ def create_grn(
     po_id: int,
     payload: GRNCreateFromPO,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user: User = Depends(require_permission("grn:create")),
 ) -> GRNResponse:
-    try:
-        return create_grn_from_po(db, po_id, payload, current_user.id)
-    except PurchaseError as error:
-        _raise_purchase_http_error(error)
+    return create_grn_from_po(db, po_id, payload, current_user.id)
 
 
 @router.get("/grn", response_model=list[GRNResponse])
@@ -122,10 +104,7 @@ def get_grn(
     _ = current_user
     record = db.query(GRN).options(selectinload(GRN.lines)).filter(GRN.id == grn_id).first()
     if not record:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error_code": "NOT_FOUND", "message": "GRN not found"},
-        )
+        raise AppException(error_code="NOT_FOUND", message="GRN not found", status_code=404)
     return record
 
 
@@ -133,9 +112,6 @@ def get_grn(
 def post_grn_route(
     grn_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user: User = Depends(require_permission("grn:post")),
 ) -> GRNResponse:
-    try:
-        return post_grn(db, grn_id, current_user.id)
-    except PurchaseError as error:
-        _raise_purchase_http_error(error)
+    return post_grn(db, grn_id, current_user.id)

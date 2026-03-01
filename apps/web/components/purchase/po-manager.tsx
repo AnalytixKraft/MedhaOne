@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { usePermissions } from "@/components/auth/permission-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,7 @@ const emptyLine = (): DraftLine => ({
 });
 
 export function PurchaseOrderManager() {
+  const { hasPermission, loading: permissionLoading } = usePermissions();
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [suppliers, setSuppliers] = useState<Party[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -156,7 +158,10 @@ export function PurchaseOrderManager() {
           <CardTitle>Create Purchase Order</CardTitle>
         </CardHeader>
         <CardContent>
-          <form className="space-y-3" onSubmit={handleCreatePo}>
+          {permissionLoading ? (
+            <p className="text-sm text-muted-foreground">Loading permissions...</p>
+          ) : hasPermission("purchase:create") ? (
+            <form className="space-y-3" onSubmit={handleCreatePo}>
             <select
               data-testid="po-supplier-select"
               value={supplierId}
@@ -263,7 +268,12 @@ export function PurchaseOrderManager() {
                 {saving ? "Saving..." : "Create PO"}
               </Button>
             </div>
-          </form>
+            </form>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              You do not have permission to create purchase orders.
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -311,7 +321,7 @@ export function PurchaseOrderManager() {
                       <TableCell>{warehouseName}</TableCell>
                       <TableCell>{po.lines.length}</TableCell>
                       <TableCell className="text-right">
-                        {po.status === "DRAFT" ? (
+                        {po.status === "DRAFT" && hasPermission("purchase:approve") ? (
                           <Button
                             data-testid="approve-po"
                             size="sm"
@@ -320,9 +330,7 @@ export function PurchaseOrderManager() {
                           >
                             Approve
                           </Button>
-                        ) : (
-                          "-"
-                        )}
+                        ) : "-"}
                       </TableCell>
                     </TableRow>
                   );

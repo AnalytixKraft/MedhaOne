@@ -28,8 +28,15 @@ def create_access_token(subject: str, expires_delta: timedelta | None = None) ->
     return jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)
 
 
-def decode_access_token(token: str) -> dict[str, Any] | None:
-    try:
-        return jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
-    except JWTError:
-        return None
+def decode_access_token(token: str) -> tuple[dict[str, Any] | None, str | None]:
+    secrets_to_try = [("LOCAL", settings.secret_key)]
+    if settings.rbac_jwt_secret and settings.rbac_jwt_secret != settings.secret_key:
+        secrets_to_try.append(("RBAC", settings.rbac_jwt_secret))
+
+    for source, secret in secrets_to_try:
+        try:
+            return jwt.decode(token, secret, algorithms=[ALGORITHM]), source
+        except JWTError:
+            continue
+
+    return None, None

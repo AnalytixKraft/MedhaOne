@@ -28,6 +28,7 @@ def _create_access_user(db: Session) -> str:
         full_name="Smoke Admin",
         hashed_password="not-used-in-token-smoke",
         is_active=True,
+        is_superuser=True,
         role_id=role.id,
     )
     db.add(user)
@@ -164,4 +165,6 @@ def test_inventory_endpoints_smoke(client_with_test_db: tuple[TestClient, Sessio
         },
     )
     assert insufficient_resp.status_code == 400
-    assert "Insufficient stock" in insufficient_resp.json()["detail"]
+    error_payload = insufficient_resp.json()
+    assert error_payload["error_code"] == "INSUFFICIENT_STOCK"
+    assert "Insufficient stock" in error_payload["message"]

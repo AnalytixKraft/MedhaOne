@@ -7,6 +7,9 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.exceptions import AppException
+from app.domain.state_machine import PurchaseStateMachine
+from app.models.audit import AuditLog
 from app.models.batch import Batch
 from app.models.enums import GrnStatus, InventoryReason, PurchaseOrderStatus
 from app.models.party import Party
@@ -15,14 +18,6 @@ from app.models.purchase import GRN, GRNLine, PurchaseOrder, PurchaseOrderLine
 from app.models.warehouse import Warehouse
 from app.schemas.purchase import GRNCreateFromPO, PurchaseOrderCreate
 from app.services.inventory import stock_in
-
-
-class PurchaseError(Exception):
-    def __init__(self, *, error_code: str, message: str, status_code: int = 400) -> None:
-        super().__init__(message)
-        self.error_code = error_code
-        self.message = message
-        self.status_code = status_code
 
 
 def _as_decimal(value: Decimal | float | int) -> Decimal:
@@ -37,8 +32,19 @@ def _new_grn_number() -> str:
     return f"GRN-{uuid4().hex[:10].upper()}"
 
 
-def _raise_purchase_error(*, error_code: str, message: str, status_code: int) -> None:
-    raise PurchaseError(error_code=error_code, message=message, status_code=status_code)
+def _raise_purchase_error(
+    *,
+    error_code: str,
+    message: str,
+    status_code: int,
+    details: dict | list | str | None = None,
+) -> None:
+    raise AppException(
+        error_code=error_code,
+        message=message,
+        status_code=status_code,
+        details=details,
+    )
 
 
 def _get_po_with_lines(db: Session, po_id: int, lock: bool = False) -> PurchaseOrder | None:
@@ -83,50 +89,40 @@ def _assert_product_exists(db: Session, product_id: int) -> None:
         )
 
 
-def _assert_po_can_approve(po: PurchaseOrder) -> None:
-    if po.status == PurchaseOrderStatus.DRAFT:
+def _assert_po_receivable(po: PurchaseOrder) -> None:
+    if po.status in (PurchaseOrderStatus.APPROVED, PurchaseOrderStatus.PARTIALLY_RECEIVED):
         return
-    if po.status == PurchaseOrderStatus.APPROVED:
-        _raise_purchase_error(
-            error_code="INVALID_STATE",
-            message="Purchase order is already approved",
-            status_code=409,
-        )
-    _raise_purchase_error(
-        error_code="INVALID_STATE",
-        message=f"Purchase order cannot be approved from status {po.status.value}",
-        status_code=409,
-    )
-
-
-def _assert_po_can_receive(po: PurchaseOrder) -> None:
     if po.status in (PurchaseOrderStatus.CLOSED, PurchaseOrderStatus.CANCELLED):
         _raise_purchase_error(
             error_code="INVALID_STATE",
             message="Purchase order cannot be modified once closed or cancelled",
             status_code=409,
         )
-    if po.status not in (PurchaseOrderStatus.APPROVED, PurchaseOrderStatus.PARTIALLY_RECEIVED):
-        _raise_purchase_error(
-            error_code="PO_NOT_APPROVED",
-            message="Purchase order must be APPROVED or PARTIALLY_RECEIVED to accept receipts",
-            status_code=409,
-        )
+    _raise_purchase_error(
+        error_code="PO_NOT_APPROVED",
+        message="Purchase order must be APPROVED or PARTIALLY_RECEIVED to accept receipts",
+        status_code=409,
+    )
 
 
-def _assert_grn_can_post(grn: GRN) -> None:
-    if grn.status == GrnStatus.POSTED:
-        _raise_purchase_error(
-            error_code="GRN_ALREADY_POSTED",
-            message="GRN already posted",
-            status_code=409,
+def _add_audit_log(
+    db: Session,
+    *,
+    entity_type: str,
+    entity_id: int,
+    action: str,
+    performed_by: int,
+    metadata: dict | None = None,
+) -> None:
+    db.add(
+        AuditLog(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            action=action,
+            performed_by=performed_by,
+            metadata_json=metadata,
         )
-    if grn.status != GrnStatus.DRAFT:
-        _raise_purchase_error(
-            error_code="INVALID_STATE",
-            message=f"GRN cannot be posted from status {grn.status.value}",
-            status_code=409,
-        )
+    )
 
 
 def create_po(db: Session, payload: PurchaseOrderCreate, created_by: int) -> PurchaseOrder:
@@ -167,6 +163,14 @@ def create_po(db: Session, payload: PurchaseOrderCreate, created_by: int) -> Pur
                 )
             )
 
+        _add_audit_log(
+            db,
+            entity_type="PO",
+            entity_id=po.id,
+            action="CREATE",
+            performed_by=created_by,
+            metadata={"po_number": po.po_number},
+        )
         db.commit()
     except Exception:
         db.rollback()
@@ -176,7 +180,6 @@ def create_po(db: Session, payload: PurchaseOrderCreate, created_by: int) -> Pur
 
 
 def approve_po(db: Session, po_id: int, user_id: int) -> PurchaseOrder:
-    _ = user_id
     po = _get_po_with_lines(db, po_id)
     if not po:
         _raise_purchase_error(
@@ -184,7 +187,8 @@ def approve_po(db: Session, po_id: int, user_id: int) -> PurchaseOrder:
             message="Purchase order not found",
             status_code=404,
         )
-    _assert_po_can_approve(po)
+
+    PurchaseStateMachine.validate_po_transition(po.status, PurchaseOrderStatus.APPROVED)
 
     if not po.lines:
         _raise_purchase_error(
@@ -194,6 +198,14 @@ def approve_po(db: Session, po_id: int, user_id: int) -> PurchaseOrder:
         )
 
     po.status = PurchaseOrderStatus.APPROVED
+    _add_audit_log(
+        db,
+        entity_type="PO",
+        entity_id=po.id,
+        action="APPROVE",
+        performed_by=user_id,
+        metadata={"po_number": po.po_number},
+    )
 
     try:
         db.commit()
@@ -272,7 +284,7 @@ def create_grn_from_po(db: Session, po_id: int, payload: GRNCreateFromPO, create
             message="Purchase order not found",
             status_code=404,
         )
-    _assert_po_can_receive(po)
+    _assert_po_receivable(po)
 
     if payload.supplier_id is not None and payload.supplier_id != po.supplier_id:
         _raise_purchase_error(
@@ -371,6 +383,14 @@ def create_grn_from_po(db: Session, po_id: int, payload: GRNCreateFromPO, create
                 )
             )
 
+        _add_audit_log(
+            db,
+            entity_type="GRN",
+            entity_id=grn.id,
+            action="CREATE",
+            performed_by=created_by,
+            metadata={"grn_number": grn.grn_number, "purchase_order_id": po.id},
+        )
         db.commit()
     except Exception:
         db.rollback()
@@ -388,7 +408,7 @@ def post_grn(db: Session, grn_id: int, user_id: int) -> GRN:
                 message="GRN not found",
                 status_code=404,
             )
-        _assert_grn_can_post(grn)
+        PurchaseStateMachine.validate_grn_transition(grn.status, GrnStatus.POSTED)
         if not grn.lines:
             _raise_purchase_error(
                 error_code="INVALID_STATE",
@@ -403,7 +423,7 @@ def post_grn(db: Session, grn_id: int, user_id: int) -> GRN:
                 message="Purchase order not found",
                 status_code=404,
             )
-        _assert_po_can_receive(po)
+        _assert_po_receivable(po)
         if grn.warehouse_id != po.warehouse_id:
             _raise_purchase_error(
                 error_code="WAREHOUSE_MISMATCH",
@@ -461,21 +481,33 @@ def post_grn(db: Session, grn_id: int, user_id: int) -> GRN:
                 line.received_qty
             )
 
-        fully_received = all(
-            _as_decimal(po_line.received_qty) >= _as_decimal(po_line.ordered_qty)
-            for po_line in po.lines
+        next_po_status = (
+            PurchaseOrderStatus.CLOSED
+            if all(
+                _as_decimal(po_line.received_qty) >= _as_decimal(po_line.ordered_qty)
+                for po_line in po.lines
+            )
+            else PurchaseOrderStatus.PARTIALLY_RECEIVED
         )
-        po.status = (
-            PurchaseOrderStatus.CLOSED if fully_received else PurchaseOrderStatus.PARTIALLY_RECEIVED
-        )
+        PurchaseStateMachine.validate_po_transition(po.status, next_po_status)
+        po.status = next_po_status
 
         grn.status = GrnStatus.POSTED
         grn.posted_at = datetime.now(timezone.utc)
         grn.posted_by = user_id
 
+        _add_audit_log(
+            db,
+            entity_type="GRN",
+            entity_id=grn.id,
+            action="POST",
+            performed_by=user_id,
+            metadata={"grn_number": grn.grn_number, "purchase_order_id": po.id},
+        )
         db.commit()
     except Exception:
         db.rollback()
         raise
 
     return _get_grn_with_lines(db, grn_id)  # type: ignore[return-value]
+

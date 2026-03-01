@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import { usePermissions } from "@/components/auth/permission-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -29,6 +30,7 @@ type LineDraft = {
 };
 
 export function GrnManager() {
+  const { hasPermission, loading: permissionLoading } = usePermissions();
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [grns, setGrns] = useState<Grn[]>([]);
   const [selectedPoId, setSelectedPoId] = useState("");
@@ -164,7 +166,10 @@ export function GrnManager() {
           <CardTitle>Create GRN From PO</CardTitle>
         </CardHeader>
         <CardContent>
-          <form className="space-y-3" onSubmit={handleCreateGrn}>
+          {permissionLoading ? (
+            <p className="text-sm text-muted-foreground">Loading permissions...</p>
+          ) : hasPermission("grn:create") ? (
+            <form className="space-y-3" onSubmit={handleCreateGrn}>
             <select
               data-testid="grn-po-select"
               value={selectedPoId}
@@ -264,7 +269,12 @@ export function GrnManager() {
             >
               {saving ? "Saving..." : "Create GRN"}
             </Button>
-          </form>
+            </form>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              You do not have permission to create GRNs.
+            </p>
+          )}
         </CardContent>
       </Card>
 

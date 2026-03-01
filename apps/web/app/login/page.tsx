@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { usePermissions } from "@/components/auth/permission-provider";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -12,12 +13,20 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { apiClient } from "@/lib/api/client";
+import { ApiRequestError, apiClient } from "@/lib/api/client";
+
+type OrganizationOption = {
+  id: string;
+  name: string;
+};
 
 export default function LoginPage() {
   const router = useRouter();
+  const { refreshPermissions } = usePermissions();
   const [email, setEmail] = useState("admin@medhaone.app");
   const [password, setPassword] = useState("ChangeMe123!");
+  const [organizationOptions, setOrganizationOptions] = useState<OrganizationOption[]>([]);
+  const [selectedOrganization, setSelectedOrganization] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,11 +36,41 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      await apiClient.login({ email, password });
+      await apiClient.login({
+        email,
+        password,
+        organization_slug: selectedOrganization || undefined,
+      });
+      await refreshPermissions();
       router.replace("/dashboard");
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Authentication failed");
+      if (
+        err instanceof ApiRequestError &&
+        err.code === "ORG_SELECTION_REQUIRED" &&
+        err.details &&
+        typeof err.details === "object" &&
+        "organizations" in err.details &&
+        Array.isArray(err.details.organizations)
+      ) {
+        const organizations = err.details.organizations
+          .filter(
+            (item): item is OrganizationOption =>
+              Boolean(item) &&
+              typeof item === "object" &&
+              "id" in item &&
+              "name" in item &&
+              typeof item.id === "string" &&
+              typeof item.name === "string",
+          )
+          .map((item) => ({ id: item.id, name: item.name }));
+
+        setOrganizationOptions(organizations);
+        setSelectedOrganization(organizations[0]?.id ?? "");
+        setError("Multiple organizations match this account. Select one to continue.");
+      } else {
+        setError(err instanceof Error ? err.message : "Authentication failed");
+      }
     } finally {
       setLoading(false);
     }
@@ -58,7 +97,11 @@ export default function LoginPage() {
                 data-testid="login-email"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setOrganizationOptions([]);
+                  setSelectedOrganization("");
+                }}
                 required
               />
             </div>
@@ -71,10 +114,34 @@ export default function LoginPage() {
                 data-testid="login-password"
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setOrganizationOptions([]);
+                  setSelectedOrganization("");
+                }}
                 required
               />
             </div>
+            {organizationOptions.length > 0 ? (
+              <div className="space-y-2">
+                <label className="text-sm text-slate-200" htmlFor="organization">
+                  Organization
+                </label>
+                <select
+                  id="organization"
+                  value={selectedOrganization}
+                  onChange={(e) => setSelectedOrganization(e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-slate-950 ring-offset-background"
+                  required
+                >
+                  {organizationOptions.map((organization) => (
+                    <option key={organization.id} value={organization.id}>
+                      {organization.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
             {error ? <p className="text-sm text-red-400">{error}</p> : null}
             <Button
               className="w-full"

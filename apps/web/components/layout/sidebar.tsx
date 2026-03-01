@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 
+import { usePermissions } from "@/components/auth/permission-provider";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -41,7 +42,13 @@ const navItems = [
     icon: Warehouse,
     testId: undefined,
   },
-  { href: "/reports", label: "Reports", icon: BarChart3, testId: undefined },
+  {
+    href: "/reports",
+    label: "Reports",
+    icon: BarChart3,
+    testId: undefined,
+    requiredPermission: "reports:view",
+  },
   { href: "/settings", label: "Settings", icon: Settings, testId: undefined },
 ];
 
@@ -56,7 +63,14 @@ export function AppSidebar({
   mobileOpen,
   onCloseMobile,
 }: AppSidebarProps) {
+  const { hasPermission, loading } = usePermissions();
   const pathname = usePathname();
+  const visibleItems = navItems.filter((item) => {
+    if (!("requiredPermission" in item) || !item.requiredPermission) {
+      return true;
+    }
+    return !loading && hasPermission(item.requiredPermission);
+  });
 
   return (
     <>
@@ -75,7 +89,7 @@ export function AppSidebar({
           </span>
         </div>
         <nav className="space-y-1 p-3">
-          {navItems.map((item) => {
+          {visibleItems.map((item) => {
             const Icon = item.icon;
             const active =
               pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -129,7 +143,7 @@ export function AppSidebar({
             </button>
           </div>
           <nav className="space-y-1 p-3">
-            {navItems.map((item) => {
+            {visibleItems.map((item) => {
               const Icon = item.icon;
               const active =
                 pathname === item.href || pathname.startsWith(`${item.href}/`);

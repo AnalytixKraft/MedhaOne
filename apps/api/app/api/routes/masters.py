@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
+from app.core.exceptions import AppException
 from app.models.party import Party
 from app.models.product import Product
 from app.models.warehouse import Warehouse
@@ -22,20 +23,28 @@ from app.schemas.masters import (
 router = APIRouter()
 
 
-def _commit_or_400(db: Session, error_message: str) -> None:
+def _commit_or_400(db: Session, error_message: str, details: dict | None = None) -> None:
     try:
         db.commit()
     except IntegrityError as error:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=error_message
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message=error_message,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details=details,
         ) from error
 
 
 def _get_or_404(db: Session, model, item_id: int, label: str):
     record = db.get(model, item_id)
     if not record:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"{label} not found")
+        raise AppException(
+            error_code="NOT_FOUND",
+            message=f"{label} not found",
+            status_code=status.HTTP_404_NOT_FOUND,
+            details={"id": item_id},
+        )
     return record
 
 
@@ -45,6 +54,7 @@ def list_parties(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> list[PartyRead]:
+    _ = current_user
     query = db.query(Party).order_by(Party.name.asc())
     if not include_inactive:
         query = query.filter(Party.is_active.is_(True))
@@ -57,6 +67,7 @@ def create_party(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> PartyRead:
+    _ = current_user
     party = Party(**payload.model_dump())
     db.add(party)
     _commit_or_400(db, "Failed to create party")
@@ -70,6 +81,7 @@ def get_party(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> PartyRead:
+    _ = current_user
     return _get_or_404(db, Party, party_id, "Party")
 
 
@@ -80,6 +92,7 @@ def update_party(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> PartyRead:
+    _ = current_user
     party = _get_or_404(db, Party, party_id, "Party")
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(party, field, value)
@@ -95,6 +108,7 @@ def delete_party(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> PartyRead:
+    _ = current_user
     party = _get_or_404(db, Party, party_id, "Party")
     party.is_active = False
     _commit_or_400(db, "Failed to deactivate party")
@@ -108,6 +122,7 @@ def list_products(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> list[ProductRead]:
+    _ = current_user
     query = db.query(Product).order_by(Product.name.asc())
     if not include_inactive:
         query = query.filter(Product.is_active.is_(True))
@@ -120,9 +135,14 @@ def create_product(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> ProductRead:
+    _ = current_user
     product = Product(**payload.model_dump())
     db.add(product)
-    _commit_or_400(db, "Failed to create product. SKU must be unique")
+    _commit_or_400(
+        db,
+        "Failed to create product. SKU must be unique",
+        details={"field": "sku"},
+    )
     db.refresh(product)
     return product
 
@@ -133,6 +153,7 @@ def get_product(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> ProductRead:
+    _ = current_user
     return _get_or_404(db, Product, product_id, "Product")
 
 
@@ -143,6 +164,7 @@ def update_product(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> ProductRead:
+    _ = current_user
     product = _get_or_404(db, Product, product_id, "Product")
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(product, field, value)
@@ -158,6 +180,7 @@ def delete_product(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> ProductRead:
+    _ = current_user
     product = _get_or_404(db, Product, product_id, "Product")
     product.is_active = False
     _commit_or_400(db, "Failed to deactivate product")
@@ -171,6 +194,7 @@ def list_warehouses(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> list[WarehouseRead]:
+    _ = current_user
     query = db.query(Warehouse).order_by(Warehouse.name.asc())
     if not include_inactive:
         query = query.filter(Warehouse.is_active.is_(True))
@@ -183,9 +207,14 @@ def create_warehouse(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> WarehouseRead:
+    _ = current_user
     warehouse = Warehouse(**payload.model_dump())
     db.add(warehouse)
-    _commit_or_400(db, "Failed to create warehouse. Code must be unique")
+    _commit_or_400(
+        db,
+        "Failed to create warehouse. Code must be unique",
+        details={"field": "code"},
+    )
     db.refresh(warehouse)
     return warehouse
 
@@ -196,6 +225,7 @@ def get_warehouse(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> WarehouseRead:
+    _ = current_user
     return _get_or_404(db, Warehouse, warehouse_id, "Warehouse")
 
 
@@ -206,6 +236,7 @@ def update_warehouse(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> WarehouseRead:
+    _ = current_user
     warehouse = _get_or_404(db, Warehouse, warehouse_id, "Warehouse")
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(warehouse, field, value)
@@ -221,8 +252,10 @@ def delete_warehouse(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> WarehouseRead:
+    _ = current_user
     warehouse = _get_or_404(db, Warehouse, warehouse_id, "Warehouse")
     warehouse.is_active = False
     _commit_or_400(db, "Failed to deactivate warehouse")
     db.refresh(warehouse)
     return warehouse
+

@@ -5,6 +5,12 @@
   "packageManager": "pnpm@10.6.3",
   "scripts": {
     "dev": "concurrently -n web,api -c cyan,green \"pnpm --filter web dev\" \"pnpm --filter api dev\"",
+    "rbac:db:up": "docker compose up -d rbac-postgres",
+    "rbac:db:down": "docker compose stop rbac-postgres",
+    "rbac:dev": "pnpm --filter rbac-api dev",
+    "rbac:build": "pnpm --filter rbac-api build",
+    "rbac:prisma:generate": "pnpm --filter rbac-api prisma:generate",
+    "rbac:prisma:migrate": "pnpm --filter rbac-api prisma:migrate",
     "build": "pnpm --filter web build",
     "lint": "pnpm --filter web lint",
     "format": "pnpm --filter web format",
@@ -13,7 +19,11 @@
     "e2e:ui": "pnpm --filter web e2e:ui",
     "e2e:debug": "pnpm --filter web e2e:debug",
     "guided:test": "pnpm --filter web guided:test",
-    "guided:test:po-grn": "pnpm --filter web guided:test:po-grn"
+    "guided:test:po-grn": "pnpm --filter web guided:test:po-grn",
+    "ai:test": "pnpm --filter web ai:test",
+    "ai:test:acceptance": "AI_AGENT_MODE=acceptance pnpm ai:test",
+    "ai:test:regression": "AI_AGENT_MODE=regression pnpm ai:test",
+    "ai:test:chaos": "AI_AGENT_MODE=chaos pnpm ai:test"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

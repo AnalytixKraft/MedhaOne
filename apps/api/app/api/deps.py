@@ -1,10 +1,12 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import AppException
 from app.core.database import get_db
 from app.core.security import decode_access_token
 from app.crud.user import get_user_by_id
+from app.services.external_auth import get_or_create_rbac_shadow_user
 from app.models.user import User
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -15,23 +17,39 @@ def get_current_user(
     db: Session = Depends(get_db),
 ) -> User:
     if not credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
+        raise AppException(
+            error_code="UNAUTHORIZED",
+            message="Not authenticated",
+            status_code=401,
         )
 
-    payload = decode_access_token(credentials.credentials)
-    if not payload or "sub" not in payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
+    payload, _token_source = decode_access_token(credentials.credentials)
+    if not payload:
+        raise AppException(
+            error_code="UNAUTHORIZED",
+            message="Invalid token",
+            status_code=401,
         )
 
-    user = get_user_by_id(db, int(payload["sub"]))
+    if "sub" in payload:
+        user = get_user_by_id(db, int(payload["sub"]))
+    elif "userId" in payload and "organizationId" in payload:
+        user = get_or_create_rbac_shadow_user(db, payload)
+    else:
+        user = None
+
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
+        raise AppException(
+            error_code="UNAUTHORIZED",
+            message="User not found",
+            status_code=401,
+        )
+
+    if not user.is_active:
+        raise AppException(
+            error_code="FORBIDDEN",
+            message="User is inactive",
+            status_code=403,
         )
 
     return user

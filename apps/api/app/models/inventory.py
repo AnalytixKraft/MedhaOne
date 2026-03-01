@@ -14,6 +14,7 @@ class InventoryLedger(Base):
         Index("ix_inventory_ledger_wh_prod", "warehouse_id", "product_id"),
         Index("ix_inventory_ledger_batch_id", "batch_id"),
         Index("ix_inventory_ledger_created_at", "created_at"),
+        Index("ix_inventory_ledger_reason", "reason"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)

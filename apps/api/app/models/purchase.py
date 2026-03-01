@@ -25,6 +25,7 @@ class PurchaseOrder(Base):
         Index("ix_purchase_orders_supplier_id", "supplier_id"),
         Index("ix_purchase_orders_warehouse_id", "warehouse_id"),
         Index("ix_purchase_orders_status", "status"),
+        Index("ix_purchase_orders_order_date", "order_date"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
@@ -86,6 +87,7 @@ class GRN(Base):
         Index("ix_grns_supplier_id", "supplier_id"),
         Index("ix_grns_warehouse_id", "warehouse_id"),
         Index("ix_grns_status", "status"),
+        Index("ix_grns_posted_at", "posted_at"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)

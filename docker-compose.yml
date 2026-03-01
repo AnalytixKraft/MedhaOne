@@ -1,5 +1,24 @@
 version: "3.9"
 services:
+  rbac-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${RBAC_POSTGRES_DB}
+      POSTGRES_USER: ${RBAC_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${RBAC_POSTGRES_PASSWORD}
+    ports:
+      - "${RBAC_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - rbac_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: .
@@ -19,3 +38,6 @@ services:
       - "1729:1729"
     depends_on:
       - api
+
+volumes:
+  rbac_postgres_data:

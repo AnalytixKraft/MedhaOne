@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     app_name: str = "MedhaOne API"
     database_url: str = "sqlite:///./medhaone.db"
     secret_key: str = "change-me-in-production"
+    rbac_jwt_secret: str | None = None
+    rbac_api_url: str = "http://localhost:1740"
     access_token_expire_minutes: int = 120
     cors_origins: list[str] = ["http://localhost:1729"]
     default_admin_email: str = "admin@medhaone.app"
@@ -31,4 +33,7 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    if not settings.rbac_jwt_secret:
+        settings.rbac_jwt_secret = settings.secret_key
+    return settings

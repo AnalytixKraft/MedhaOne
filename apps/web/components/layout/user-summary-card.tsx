@@ -53,7 +53,11 @@ export function UserSummaryCard() {
               <span className="font-medium">Email:</span> {state.data.email}
             </p>
             <p>
-              <span className="font-medium">Role:</span> {state.data.role.name}
+              <span className="font-medium">Role:</span>{" "}
+              {state.data.role?.name ||
+                (state.data.roles.length > 0
+                  ? state.data.roles.map((role) => role.name).join(", ")
+                  : "Unassigned")}
             </p>
           </div>
         ) : null}

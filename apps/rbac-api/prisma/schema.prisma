@@ -1,0 +1,61 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["public"]
+}
+
+model SuperAdmin {
+  id             String           @id @default(cuid())
+  email          String           @unique
+  passwordHash   String           @map("password_hash")
+  fullName       String           @map("full_name")
+  role           String           @default("SUPER_ADMIN")
+  isActive       Boolean          @default(true) @map("is_active")
+  lastLoginAt    DateTime?        @map("last_login_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  createdOrgs    Organization[]   @relation("CreatedOrganizations")
+
+  @@index([email])
+  @@map("super_admins")
+  @@schema("public")
+}
+
+model Organization {
+  id                String           @id
+  name              String
+  schemaName        String           @unique @map("schema_name")
+  maxUsers          Int              @map("max_users")
+  isActive          Boolean          @default(true) @map("is_active")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+  createdById       String?          @map("created_by_id")
+  createdBy         SuperAdmin?      @relation("CreatedOrganizations", fields: [createdById], references: [id])
+  globalAuditLogs   GlobalAuditLog[]
+
+  @@index([isActive])
+  @@map("organizations")
+  @@schema("public")
+}
+
+model GlobalAuditLog {
+  id             String          @id @default(cuid())
+  actorType      String          @map("actor_type")
+  actorId        String          @map("actor_id")
+  action         String
+  organizationId String?         @map("organization_id")
+  targetType     String          @map("target_type")
+  targetId       String?         @map("target_id")
+  metadata       Json?
+  createdAt      DateTime        @default(now()) @map("created_at")
+  organization   Organization?   @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([action, createdAt])
+  @@map("global_audit_logs")
+  @@schema("public")
+}

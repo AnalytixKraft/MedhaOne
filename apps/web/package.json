@@ -12,9 +12,14 @@
     "e2e:ui": "playwright test -c e2e/playwright.config.ts --ui",
     "e2e:debug": "playwright test -c e2e/playwright.config.ts --debug",
     "guided:test": "tsx e2e/guided/runner.ts",
-    "guided:test:po-grn": "tsx e2e/guided/runner.ts --script e2e/guided/scripts/po_grn_guided.json"
+    "guided:test:po-grn": "tsx e2e/guided/runner.ts --script e2e/guided/scripts/po_grn_guided.json",
+    "ai:test": "tsx e2e/ai-agent/controller.ts",
+    "ai:test:acceptance": "AI_AGENT_MODE=acceptance pnpm ai:test",
+    "ai:test:regression": "AI_AGENT_MODE=regression pnpm ai:test",
+    "ai:test:chaos": "AI_AGENT_MODE=chaos pnpm ai:test"
   },
   "dependencies": {
+    "@headlessui/react": "^2.2.0",
     "@radix-ui/react-slot": "^1.1.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -23,6 +28,7 @@
     "next-themes": "^0.4.4",
     "react": "19.0.0",
     "react-dom": "19.0.0",
+    "recharts": "^2.15.4",
     "tailwind-merge": "^3.3.0"
   },
   "devDependencies": {
@@ -36,6 +42,7 @@
     "eslint-config-next": "15.2.2",
     "postcss": "^8.5.3",
     "prettier": "^3.5.3",
+    "openai": "^5.20.1",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.20.3",
     "typescript": "^5.8.2"

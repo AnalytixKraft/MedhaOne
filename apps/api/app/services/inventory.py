@@ -4,6 +4,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import AppException
 from app.models.batch import Batch
 from app.models.enums import InventoryReason, InventoryTxnType
 from app.models.inventory import InventoryLedger, StockSummary
@@ -11,7 +12,7 @@ from app.models.product import Product
 from app.models.warehouse import Warehouse
 
 
-class InventoryError(Exception):
+class InventoryError(AppException):
     pass
 
 
@@ -23,6 +24,10 @@ class InventoryResult:
 
 def _as_decimal(value: Decimal | float | int) -> Decimal:
     return Decimal(str(value))
+
+
+def _raise_inventory_error(*, error_code: str, message: str, status_code: int = 400) -> None:
+    raise InventoryError(error_code=error_code, message=message, status_code=status_code)
 
 
 def _load_summary_for_update(
@@ -45,18 +50,34 @@ def _load_summary_for_update(
 def _ensure_valid_refs(db: Session, *, warehouse_id: int, product_id: int, batch_id: int) -> None:
     warehouse = db.get(Warehouse, warehouse_id)
     if not warehouse:
-        raise InventoryError("Warehouse not found")
+        _raise_inventory_error(
+            error_code="NOT_FOUND",
+            message="Warehouse not found",
+            status_code=404,
+        )
 
     product = db.get(Product, product_id)
     if not product:
-        raise InventoryError("Product not found")
+        _raise_inventory_error(
+            error_code="NOT_FOUND",
+            message="Product not found",
+            status_code=404,
+        )
 
     batch = db.get(Batch, batch_id)
     if not batch:
-        raise InventoryError("Batch not found")
+        _raise_inventory_error(
+            error_code="NOT_FOUND",
+            message="Batch not found",
+            status_code=404,
+        )
 
     if batch.product_id != product_id:
-        raise InventoryError("Batch does not belong to the selected product")
+        _raise_inventory_error(
+            error_code="INVALID_STATE",
+            message="Batch does not belong to the selected product",
+            status_code=400,
+        )
 
 
 def _create_ledger(
@@ -104,7 +125,10 @@ def stock_in(
 ) -> InventoryResult:
     qty_dec = _as_decimal(qty)
     if qty_dec <= 0:
-        raise InventoryError("Quantity must be greater than zero")
+        _raise_inventory_error(
+            error_code="INVALID_QUANTITY",
+            message="Quantity must be greater than zero",
+        )
 
     try:
         _ensure_valid_refs(db, warehouse_id=warehouse_id, product_id=product_id, batch_id=batch_id)
@@ -169,7 +193,10 @@ def stock_out(
 ) -> InventoryResult:
     qty_dec = _as_decimal(qty)
     if qty_dec <= 0:
-        raise InventoryError("Quantity must be greater than zero")
+        _raise_inventory_error(
+            error_code="INVALID_QUANTITY",
+            message="Quantity must be greater than zero",
+        )
 
     try:
         _ensure_valid_refs(db, warehouse_id=warehouse_id, product_id=product_id, batch_id=batch_id)
@@ -183,7 +210,10 @@ def stock_out(
 
         available = _as_decimal(summary.qty_on_hand) if summary else Decimal("0")
         if available < qty_dec:
-            raise InventoryError("Insufficient stock for stock out")
+            _raise_inventory_error(
+                error_code="INSUFFICIENT_STOCK",
+                message="Insufficient stock for stock out",
+            )
 
         summary.qty_on_hand = available - qty_dec
 
@@ -227,7 +257,10 @@ def stock_adjust(
 ) -> InventoryResult:
     delta_dec = _as_decimal(delta_qty)
     if delta_dec == 0:
-        raise InventoryError("Adjustment delta cannot be zero")
+        _raise_inventory_error(
+            error_code="INVALID_QUANTITY",
+            message="Adjustment delta cannot be zero",
+        )
 
     try:
         _ensure_valid_refs(db, warehouse_id=warehouse_id, product_id=product_id, batch_id=batch_id)
@@ -241,7 +274,10 @@ def stock_adjust(
 
         if not summary:
             if delta_dec < 0:
-                raise InventoryError("Insufficient stock for negative adjustment")
+                _raise_inventory_error(
+                    error_code="INSUFFICIENT_STOCK",
+                    message="Insufficient stock for negative adjustment",
+                )
             summary = StockSummary(
                 warehouse_id=warehouse_id,
                 product_id=product_id,
@@ -253,7 +289,10 @@ def stock_adjust(
 
         new_qty = _as_decimal(summary.qty_on_hand) + delta_dec
         if new_qty < 0:
-            raise InventoryError("Adjustment would result in negative stock")
+            _raise_inventory_error(
+                error_code="INSUFFICIENT_STOCK",
+                message="Adjustment would result in negative stock",
+            )
 
         summary.qty_on_hand = new_qty
 
