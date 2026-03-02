@@ -1,7 +1,16 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import dotenv from "dotenv";
 import { z } from "zod";
 
-dotenv.config();
+const currentFilePath = fileURLToPath(import.meta.url);
+const currentDir = path.dirname(currentFilePath);
+const serviceRoot = path.resolve(currentDir, "..", "..");
+const repoRoot = path.resolve(serviceRoot, "..", "..");
+
+dotenv.config({ path: path.join(serviceRoot, ".env") });
+dotenv.config({ path: path.join(repoRoot, ".env"), override: false });
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -15,9 +24,9 @@ const envSchema = z.object({
 });
 
 function buildDatabaseUrl() {
-  const explicitUrl = process.env.RBAC_DATABASE_URL ?? process.env.DATABASE_URL;
-  if (explicitUrl) {
-    return explicitUrl;
+  const explicitRbacUrl = process.env.RBAC_DATABASE_URL;
+  if (explicitRbacUrl) {
+    return explicitRbacUrl;
   }
 
   const host = process.env.RBAC_POSTGRES_HOST ?? "localhost";
@@ -27,6 +36,13 @@ function buildDatabaseUrl() {
   const password = process.env.RBAC_POSTGRES_PASSWORD;
 
   if (!database || !user || !password) {
+    const fallbackUrl = process.env.DATABASE_URL;
+    if (
+      fallbackUrl &&
+      (fallbackUrl.startsWith("postgresql://") || fallbackUrl.startsWith("postgres://"))
+    ) {
+      return fallbackUrl;
+    }
     return undefined;
   }
 

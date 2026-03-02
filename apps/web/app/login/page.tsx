@@ -23,8 +23,8 @@ type OrganizationOption = {
 export default function LoginPage() {
   const router = useRouter();
   const { refreshPermissions } = usePermissions();
-  const [email, setEmail] = useState("admin@medhaone.app");
-  const [password, setPassword] = useState("ChangeMe123!");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [organizationOptions, setOrganizationOptions] = useState<OrganizationOption[]>([]);
   const [selectedOrganization, setSelectedOrganization] = useState("");
   const [loading, setLoading] = useState(false);

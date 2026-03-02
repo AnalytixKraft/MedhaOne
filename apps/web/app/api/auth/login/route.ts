@@ -19,16 +19,27 @@ export async function POST(request: NextRequest) {
   const realIp = request.headers.get("x-real-ip");
   const userAgent = request.headers.get("user-agent");
 
-  const response = await fetch(`${apiBaseUrl}/auth/login`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}),
-      ...(realIp ? { "x-real-ip": realIp } : {}),
-      ...(userAgent ? { "user-agent": userAgent } : {}),
-    },
-    body: JSON.stringify({ email, password, organization_slug }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}/auth/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}),
+        ...(realIp ? { "x-real-ip": realIp } : {}),
+        ...(userAgent ? { "user-agent": userAgent } : {}),
+      },
+      body: JSON.stringify({ email, password, organization_slug }),
+    });
+  } catch {
+    return NextResponse.json(
+      {
+        error_code: "UPSTREAM_UNAVAILABLE",
+        message: "ERP API is unavailable. Try again in a moment.",
+      },
+      { status: 503 },
+    );
+  }
 
   const payload = (await response.json().catch(() => ({}))) as {
     access_token?: string;
