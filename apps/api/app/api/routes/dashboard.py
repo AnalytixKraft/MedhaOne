@@ -4,8 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
-from app.core.database import get_db
+from app.api.deps import get_current_user, get_db_with_schema
 from app.models.inventory import StockSummary
 from app.models.party import Party
 from app.models.product import Product
@@ -17,7 +16,7 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("/metrics", response_model=DashboardMetrics)
 def get_dashboard_metrics(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_schema),
     current_user=Depends(get_current_user),
 ) -> DashboardMetrics:
     total_products = db.query(func.count(Product.id)).scalar() or 0

@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import get_current_user
-from app.core.database import get_db
+from app.api.deps import get_current_user, get_db_with_schema
 from app.core.exceptions import AppException
 from app.core.permissions import require_permission
 from app.models.purchase import GRN, PurchaseOrder
@@ -22,7 +21,7 @@ router = APIRouter()
 @router.post("/po", response_model=PurchaseOrderResponse, status_code=status.HTTP_201_CREATED)
 def create_purchase_order(
     payload: PurchaseOrderCreate,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_schema),
     current_user: User = Depends(require_permission("purchase:create")),
 ) -> PurchaseOrderResponse:
     return create_po(db, payload, current_user.id)
@@ -30,7 +29,7 @@ def create_purchase_order(
 
 @router.get("/po", response_model=PurchaseOrderList)
 def list_purchase_orders(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_schema),
     current_user=Depends(get_current_user),
 ) -> PurchaseOrderList:
     _ = current_user
@@ -46,7 +45,7 @@ def list_purchase_orders(
 @router.get("/po/{po_id}", response_model=PurchaseOrderResponse)
 def get_purchase_order(
     po_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_schema),
     current_user=Depends(get_current_user),
 ) -> PurchaseOrderResponse:
     _ = current_user
@@ -68,7 +67,7 @@ def get_purchase_order(
 @router.post("/po/{po_id}/approve", response_model=PurchaseOrderResponse)
 def approve_purchase_order(
     po_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_schema),
     current_user: User = Depends(require_permission("purchase:approve")),
 ) -> PurchaseOrderResponse:
     return approve_po(db, po_id, current_user.id)
@@ -80,7 +79,7 @@ def approve_purchase_order(
 def create_grn(
     po_id: int,
     payload: GRNCreateFromPO,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_schema),
     current_user: User = Depends(require_permission("grn:create")),
 ) -> GRNResponse:
     return create_grn_from_po(db, po_id, payload, current_user.id)
@@ -88,7 +87,7 @@ def create_grn(
 
 @router.get("/grn", response_model=list[GRNResponse])
 def list_grns(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_schema),
     current_user=Depends(get_current_user),
 ) -> list[GRNResponse]:
     _ = current_user
@@ -98,7 +97,7 @@ def list_grns(
 @router.get("/grn/{grn_id}", response_model=GRNResponse)
 def get_grn(
     grn_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_schema),
     current_user=Depends(get_current_user),
 ) -> GRNResponse:
     _ = current_user
@@ -111,7 +110,7 @@ def get_grn(
 @router.post("/grn/{grn_id}/post", response_model=GRNResponse)
 def post_grn_route(
     grn_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_schema),
     current_user: User = Depends(require_permission("grn:post")),
 ) -> GRNResponse:
     return post_grn(db, grn_id, current_user.id)

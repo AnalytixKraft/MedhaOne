@@ -29,6 +29,7 @@ export type AuthUser = {
   id: number;
   email: string;
   full_name: string;
+  organization_slug?: string | null;
   is_active: boolean;
   is_superuser: boolean;
   last_login_at: string | null;
@@ -89,6 +90,33 @@ export type DashboardMetrics = {
   total_parties: number;
   total_warehouses: number;
   stock_items_count: number;
+};
+
+export type CompanySettings = {
+  organization_name: string | null;
+  company_name: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  gst_number: string | null;
+  phone: string | null;
+  email: string | null;
+  logo_url: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type CompanySettingsPayload = {
+  company_name?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
+  gst_number?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  logo_url?: string | null;
 };
 
 export type PartyPayload = {
@@ -364,6 +392,14 @@ export const apiClient = {
 
   getDashboardMetrics: () =>
     request<DashboardMetrics>("/api/dashboard/metrics", { method: "GET" }),
+
+  getCompanySettings: () =>
+    request<CompanySettings>("/api/settings/company", { method: "GET" }),
+  updateCompanySettings: (payload: CompanySettingsPayload) =>
+    request<CompanySettings>("/api/settings/company", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
 
   listParties: () =>
     request<Party[]>("/api/masters/parties", { method: "GET" }),

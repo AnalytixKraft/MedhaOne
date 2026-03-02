@@ -27,7 +27,7 @@ export function OrganizationsTable({
   onDelete: (organization: OrganizationDashboardRecord) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"All" | "Active" | "Near Limit" | "Limit Reached">("All");
+  const [filter, setFilter] = useState<"All" | "Active" | "Disabled" | "Near Limit" | "Limit Reached">("All");
   const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
@@ -77,6 +77,7 @@ export function OrganizationsTable({
             >
               <option>All</option>
               <option>Active</option>
+              <option>Disabled</option>
               <option>Near Limit</option>
               <option>Limit Reached</option>
             </select>

@@ -7,6 +7,9 @@ import {
   createOrganization,
   deleteOrganization,
   listOrganizations,
+  listOrganizationAuditLogs,
+  resetOrganizationAdminPassword,
+  updateOrganization,
   updateOrganizationMaxUsers,
 } from "../services/organization.service.js";
 
@@ -17,6 +20,14 @@ organizationsRouter.use(authenticate, requireRoles("SUPER_ADMIN"));
 organizationsRouter.get("/", async (_req, res, next) => {
   try {
     res.json(await listOrganizations());
+  } catch (error) {
+    next(error);
+  }
+});
+
+organizationsRouter.get("/audit-logs", async (_req, res, next) => {
+  try {
+    res.json(await listOrganizationAuditLogs());
   } catch (error) {
     next(error);
   }
@@ -40,6 +51,32 @@ organizationsRouter.patch("/:organizationId/max-users", async (req, res, next) =
       body.maxUsers,
     );
     res.json(organization);
+  } catch (error) {
+    next(error);
+  }
+});
+
+organizationsRouter.patch("/:organizationId", async (req, res, next) => {
+  try {
+    const organization = await updateOrganization(req.auth!.userId, req.params.organizationId, req.body);
+    res.json(organization);
+  } catch (error) {
+    next(error);
+  }
+});
+
+organizationsRouter.post("/:organizationId/reset-admin-password", async (req, res, next) => {
+  try {
+    const reset = await resetOrganizationAdminPassword(req.auth!.userId, req.params.organizationId, req.body);
+    res.json(reset);
+  } catch (error) {
+    next(error);
+  }
+});
+
+organizationsRouter.get("/:organizationId/audit-logs", async (req, res, next) => {
+  try {
+    res.json(await listOrganizationAuditLogs(req.params.organizationId));
   } catch (error) {
     next(error);
   }

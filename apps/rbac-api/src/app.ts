@@ -5,6 +5,7 @@ import { env } from "./config/env.js";
 import { AppError } from "./lib/errors.js";
 import { authRouter } from "./routes/auth.routes.js";
 import { organizationsRouter } from "./routes/organizations.routes.js";
+import { superAdminRouter } from "./routes/superadmin.routes.js";
 import { usersRouter } from "./routes/users.routes.js";
 
 export const app = express();
@@ -18,6 +19,7 @@ app.get("/health", (_req, res) => {
 
 app.use("/auth", authRouter);
 app.use("/organizations", organizationsRouter);
+app.use("/superadmin", superAdminRouter);
 app.use("/users", usersRouter);
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

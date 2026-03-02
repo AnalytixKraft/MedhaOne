@@ -202,6 +202,29 @@ def test_store_user_cannot_approve_po(client_with_test_db: tuple[TestClient, Ses
     assert response.json()["error_code"] == "FORBIDDEN"
 
 
+def test_view_only_user_cannot_create_party(client_with_test_db: tuple[TestClient, Session]) -> None:
+    client, db = client_with_test_db
+    view_only_user = _create_user(
+        db,
+        email="view-only@medhaone.app",
+        role_names=["VIEW_ONLY"],
+    )
+    headers = {"Authorization": f"Bearer {_token_for(view_only_user)}"}
+
+    response = client.post(
+        "/masters/parties",
+        headers=headers,
+        json={
+            "name": "Blocked Party",
+            "party_type": "DISTRIBUTOR",
+            "is_active": True,
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error_code"] == "FORBIDDEN"
+
+
 def test_inactive_user_cannot_login(client_with_test_db: tuple[TestClient, Session]) -> None:
     client, db = client_with_test_db
     _create_user(

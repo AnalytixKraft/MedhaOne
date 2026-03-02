@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { useRbacSession } from "@/components/rbac/session-provider";
+import { apiClient } from "@/lib/api/client";
 import { rbacClient } from "@/lib/rbac/client";
 
 export default function RbacLoginPage() {
@@ -26,15 +27,21 @@ export default function RbacLoginPage() {
         password,
         organizationId: organizationId || undefined,
       });
+
+      if (session.user.role !== "SUPER_ADMIN") {
+        await apiClient.login({
+          email,
+          password,
+          organization_slug: organizationId || undefined,
+        });
+        setSession(null);
+        router.push("/dashboard");
+        return;
+      }
+
       setSession(session);
 
-      if (session.user.role === "SUPER_ADMIN") {
-        router.push("/rbac/super-admin");
-      } else if (session.user.role === "SERVICE_SUPPORT") {
-        router.push("/rbac/support");
-      } else {
-        router.push("/rbac/org-admin");
-      }
+      router.push("/rbac/super-admin");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Login failed");
     } finally {
@@ -45,8 +52,10 @@ export default function RbacLoginPage() {
   return (
     <div className="mx-auto max-w-xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-3xl font-semibold text-slate-900">Multi-tenant RBAC Login</h1>
-        <p className="mt-2 text-sm text-slate-600">Leave organization blank for super admin login.</p>
+        <h1 className="text-3xl font-semibold text-slate-900">Super Admin Login</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          This control panel is for super admins. Organization users should sign in from the main ERP login.
+        </p>
       </div>
       <form className="space-y-4 rounded-2xl border bg-white p-6" onSubmit={submit}>
         <input className="w-full rounded-md border px-3 py-2" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />

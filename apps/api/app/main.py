@@ -2,18 +2,21 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import inventory, masters, purchase, reports, test_tools, users
+from app.api.routes import inventory, masters, purchase, reports, settings as settings_routes, test_tools, users
 from app.api.routes.auth import router as auth_router
 from app.api.routes.dashboard import router as dashboard_router
 from app.api.routes.health import router as health_router
 from app.core.config import get_settings
 from app.core.exceptions import AppException
+from app.core.security import decode_access_token
+from app.core.tenancy import build_tenant_schema_name, validate_org_slug
 from app.models import base  # noqa: F401
 from app.services.rbac import bootstrap_rbac_if_ready
 
 settings = get_settings()
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
+tenant_scoped_prefixes = ("/dashboard", "/masters", "/inventory", "/purchase", "/reports", "/settings")
 
 
 @app.on_event("startup")
@@ -33,6 +36,32 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
 
     return JSONResponse(status_code=exc.status_code, content=content)
 
+
+@app.middleware("http")
+async def guard_tenant_context(request: Request, call_next):
+    if request.url.path.startswith(tenant_scoped_prefixes):
+        header = request.headers.get("authorization")
+        if header and header.lower().startswith("bearer "):
+            payload, _ = decode_access_token(header.split(" ", maxsplit=1)[1])
+            if payload and "organizationId" in payload:
+                try:
+                    org_slug = validate_org_slug(str(payload["organizationId"]))
+                    expected_schema = build_tenant_schema_name(org_slug)
+                except AppException as exc:
+                    return await app_exception_handler(request, exc)
+
+                if payload.get("schemaName") and payload["schemaName"] != expected_schema:
+                    return await app_exception_handler(
+                        request,
+                        AppException(
+                            error_code="FORBIDDEN",
+                            message="Invalid tenant context",
+                            status_code=403,
+                        ),
+                    )
+
+    return await call_next(request)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -48,5 +77,6 @@ app.include_router(masters.router, prefix="/masters", tags=["Masters"])
 app.include_router(inventory.router, prefix="/inventory", tags=["Inventory"])
 app.include_router(purchase.router, prefix="/purchase", tags=["Purchase"])
 app.include_router(reports.router, prefix="/reports", tags=["Reports"])
+app.include_router(settings_routes.router, prefix="/settings", tags=["Settings"])
 app.include_router(users.router, prefix="/users", tags=["Users"])
 app.include_router(test_tools.router)

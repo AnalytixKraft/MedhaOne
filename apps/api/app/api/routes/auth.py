@@ -25,6 +25,10 @@ def login(
     request: Request,
     db: Session = Depends(get_db),
 ) -> TokenResponse:
+    bootstrap_rbac_if_ready()
+    if db.query(User).filter(User.auth_provider == "LOCAL").first() is None:
+        ensure_admin_user(db)
+
     if payload.organization_slug:
         token = login_via_rbac(
             email=payload.email,
@@ -33,18 +37,19 @@ def login(
         )
         return TokenResponse(access_token=token)
 
-    bootstrap_rbac_if_ready()
-    if db.query(User).filter(User.auth_provider == "LOCAL").first() is None:
-        ensure_admin_user(db)
-
     user = get_user_by_email(db, payload.email)
-    if not user:
+    try:
         token = login_via_rbac(
             email=payload.email,
             password=payload.password,
             organization_slug=None,
         )
         return TokenResponse(access_token=token)
+    except AppException as exc:
+        if exc.error_code == "ORG_SELECTION_REQUIRED":
+            raise
+        if user is None:
+            raise
 
     if not verify_password(payload.password, user.hashed_password):
         raise AppException(

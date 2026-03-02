@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { usePermissions } from "@/components/auth/permission-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -44,6 +45,7 @@ const initialState: FormState = {
 };
 
 export function PartiesManager() {
+  const { user, hasPermission, loading: permissionsLoading } = usePermissions();
   const [items, setItems] = useState<Party[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -55,6 +57,7 @@ export function PartiesManager() {
     () => (editingId ? "Update Party" : "Add Party"),
     [editingId],
   );
+  const canManage = !!user && (user.is_superuser || hasPermission("masters:manage"));
 
   const load = async () => {
     setLoading(true);
@@ -109,6 +112,9 @@ export function PartiesManager() {
   };
 
   const handleEdit = (item: Party) => {
+    if (!canManage) {
+      return;
+    }
     setEditingId(item.id);
     setForm({
       name: item.name,
@@ -127,87 +133,93 @@ export function PartiesManager() {
           <CardTitle>{modeLabel}</CardTitle>
         </CardHeader>
         <CardContent>
-          <form className="space-y-3" onSubmit={handleSubmit}>
-            <Input
-              data-testid="party-name"
-              value={form.name}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, name: event.target.value }))
-              }
-              placeholder="Party name"
-              required
-            />
+          {!permissionsLoading && !canManage ? (
+            <p className="text-sm text-muted-foreground">
+              You have read-only access. Master data changes are disabled for your role.
+            </p>
+          ) : (
+            <form className="space-y-3" onSubmit={handleSubmit}>
+              <Input
+                data-testid="party-name"
+                value={form.name}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, name: event.target.value }))
+                }
+                placeholder="Party name"
+                required
+              />
 
-            <select
-              value={form.party_type}
-              data-testid="party-type"
-              onChange={(event) =>
-                setForm((prev) => ({
-                  ...prev,
-                  party_type: event.target.value as PartyType,
-                }))
-              }
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-            >
-              {partyTypes.map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
-
-            <Input
-              value={form.phone}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, phone: event.target.value }))
-              }
-              placeholder="Phone"
-            />
-            <Input
-              value={form.email}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, email: event.target.value }))
-              }
-              placeholder="Email"
-              type="email"
-            />
-            <Input
-              value={form.address}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, address: event.target.value }))
-              }
-              placeholder="Address"
-            />
-
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={form.is_active}
+              <select
+                value={form.party_type}
+                data-testid="party-type"
                 onChange={(event) =>
                   setForm((prev) => ({
                     ...prev,
-                    is_active: event.target.checked,
+                    party_type: event.target.value as PartyType,
                   }))
                 }
-              />
-              Active
-            </label>
-
-            <div className="flex gap-2">
-              <Button
-                data-testid="create-party"
-                type="submit"
-                disabled={saving}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               >
-                {saving ? "Saving..." : modeLabel}
-              </Button>
-              {editingId ? (
-                <Button type="button" variant="outline" onClick={resetForm}>
-                  Cancel
+                {partyTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+
+              <Input
+                value={form.phone}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, phone: event.target.value }))
+                }
+                placeholder="Phone"
+              />
+              <Input
+                value={form.email}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, email: event.target.value }))
+                }
+                placeholder="Email"
+                type="email"
+              />
+              <Input
+                value={form.address}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, address: event.target.value }))
+                }
+                placeholder="Address"
+              />
+
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.is_active}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      is_active: event.target.checked,
+                    }))
+                  }
+                />
+                Active
+              </label>
+
+              <div className="flex gap-2">
+                <Button
+                  data-testid="create-party"
+                  type="submit"
+                  disabled={saving}
+                >
+                  {saving ? "Saving..." : modeLabel}
                 </Button>
-              ) : null}
-            </div>
-          </form>
+                {editingId ? (
+                  <Button type="button" variant="outline" onClick={resetForm}>
+                    Cancel
+                  </Button>
+                ) : null}
+              </div>
+            </form>
+          )}
         </CardContent>
       </Card>
 
@@ -242,13 +254,17 @@ export function PartiesManager() {
                       {item.is_active ? "Active" : "Inactive"}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleEdit(item)}
-                      >
-                        Edit
-                      </Button>
+                      {canManage ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleEdit(item)}
+                        >
+                          Edit
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">View only</span>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
-from app.core.database import get_db
+from app.api.deps import get_current_user, get_db_with_schema
 from app.schemas.inventory import (
     InventoryActionResponse,
     InventoryAdjustRequest,
@@ -17,7 +16,7 @@ router = APIRouter()
 @router.post("/in", response_model=InventoryActionResponse)
 def create_stock_in(
     payload: InventoryInRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_schema),
     current_user=Depends(get_current_user),
 ) -> InventoryActionResponse:
     result = stock_in(
@@ -43,7 +42,7 @@ def create_stock_in(
 @router.post("/out", response_model=InventoryActionResponse)
 def create_stock_out(
     payload: InventoryOutRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_schema),
     current_user=Depends(get_current_user),
 ) -> InventoryActionResponse:
     result = stock_out(
@@ -69,7 +68,7 @@ def create_stock_out(
 @router.post("/adjust", response_model=InventoryActionResponse)
 def create_stock_adjust(
     payload: InventoryAdjustRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_schema),
     current_user=Depends(get_current_user),
 ) -> InventoryActionResponse:
     result = stock_adjust(
@@ -88,4 +87,3 @@ def create_stock_adjust(
         qty_on_hand=result.summary.qty_on_hand,
         created_at=result.ledger.created_at,
     )
-

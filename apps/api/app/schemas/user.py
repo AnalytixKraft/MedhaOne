@@ -16,6 +16,7 @@ class UserRead(BaseModel):
     id: int
     email: EmailStr
     full_name: str
+    organization_slug: str | None = None
     is_active: bool
     is_superuser: bool
     last_login_at: datetime | None = None

@@ -1,10 +1,10 @@
 import { SuperAdminLayout } from "@/components/rbac/super-admin/layout";
-import { SuperAdminDashboardView } from "@/components/rbac/super-admin/dashboard-view";
+import { SuperAdminOrganizationsView } from "@/components/rbac/super-admin/organizations-view";
 
 export default function SuperAdminOrganizationsPage() {
   return (
     <SuperAdminLayout>
-      <SuperAdminDashboardView />
+      <SuperAdminOrganizationsView />
     </SuperAdminLayout>
   );
 }

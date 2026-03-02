@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import type { PoolClient } from "pg";
 import { z } from "zod";
 
 import { withPgClient } from "../lib/db.js";
@@ -19,11 +20,37 @@ export const createOrganizationSchemaInput = z.object({
   adminFullName: z.string().min(2),
 });
 
+export const updateOrganizationInput = z.object({
+  name: z.string().min(2),
+  maxUsers: z.number().int().min(1),
+  isActive: z.boolean(),
+});
+
+export const resetOrganizationAdminPasswordInput = z.object({
+  password: z.string().min(12),
+});
+
 export async function listOrganizations() {
-  return prisma.organization.findMany({
-    where: { isActive: true },
+  const organizations = await prisma.organization.findMany({
+    where: {
+      NOT: {
+        schemaName: {
+          startsWith: "del_",
+        },
+      },
+    },
     orderBy: { createdAt: "desc" },
   });
+
+  return Promise.all(
+    organizations.map(async (organization) => {
+      const usage = await getOrganizationUsage(organization.schemaName);
+      return {
+        ...organization,
+        ...usage,
+      };
+    }),
+  );
 }
 
 export async function createOrganization(actorId: string, rawInput: unknown) {
@@ -99,31 +126,223 @@ export async function createOrganization(actorId: string, rawInput: unknown) {
       throw error;
     }
   }).then(async () => {
-    return prisma.organization.findUniqueOrThrow({ where: { id: input.id } });
+    const organization = await prisma.organization.findUniqueOrThrow({ where: { id: input.id } });
+    const usage = await getOrganizationUsage(organization.schemaName);
+    return {
+      ...organization,
+      ...usage,
+    };
   });
 }
 
 export async function updateOrganizationMaxUsers(actorId: string, organizationId: string, maxUsers: number) {
-  const organization = await prisma.organization.update({
-    where: { id: organizationId },
-    data: { maxUsers },
+  const organization = await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } });
+  return updateOrganization(actorId, organizationId, {
+    name: organization.name,
+    maxUsers,
+    isActive: organization.isActive,
   });
-
-  await writeGlobalAuditLog({
-    actorType: "SUPER_ADMIN",
-    actorId,
-    action: "ORGANIZATION_MAX_USERS_UPDATED",
-    organizationId,
-    targetType: "ORGANIZATION",
-    targetId: organizationId,
-    metadata: { maxUsers },
-  });
-
-  return organization;
 }
 
 export async function getOrganizationOrThrow(organizationId: string) {
   return prisma.organization.findUniqueOrThrow({ where: { id: organizationId } });
+}
+
+export async function updateOrganization(actorId: string, organizationId: string, rawInput: unknown) {
+  const input = updateOrganizationInput.parse(rawInput);
+
+  return withPgClient(async (client) => {
+    await client.query("BEGIN");
+    try {
+      const result = await client.query<{
+        id: string;
+        name: string;
+        schema_name: string;
+        is_active: boolean;
+        max_users: number;
+      }>(
+        `SELECT id, name, schema_name, is_active, max_users
+         FROM public.organizations
+         WHERE id = $1
+         FOR UPDATE`,
+        [organizationId],
+      );
+
+      const organization = result.rows[0];
+      if (!organization) {
+        throw new AppError(404, "ORGANIZATION_NOT_FOUND", "Organization not found");
+      }
+      if (organization.schema_name.startsWith("del_")) {
+        throw new AppError(409, "ORGANIZATION_ARCHIVED", "Archived organizations cannot be edited");
+      }
+
+      const usage = await getOrganizationUsageWithClient(client, organization.schema_name);
+      if (input.maxUsers < usage.currentUsers) {
+        throw new AppError(
+          409,
+          "INVALID_MAX_USERS",
+          "Max users must be greater than or equal to current users",
+          { currentUsers: usage.currentUsers },
+        );
+      }
+
+      await client.query(
+        `UPDATE public.organizations
+         SET name = $1,
+             max_users = $2,
+             is_active = $3,
+             updated_at = NOW()
+         WHERE id = $4`,
+        [input.name, input.maxUsers, input.isActive, organizationId],
+      );
+
+      await client.query(
+        `INSERT INTO public.global_audit_logs
+          (id, actor_type, actor_id, action, organization_id, target_type, target_id, metadata)
+         VALUES ($1, 'SUPER_ADMIN', $2, 'ORGANIZATION_UPDATED', $3, 'ORGANIZATION', $3, $4::jsonb)`,
+        [
+          randomUUID(),
+          actorId,
+          organizationId,
+          JSON.stringify({
+            previousName: organization.name,
+            nextName: input.name,
+            previousMaxUsers: organization.max_users,
+            nextMaxUsers: input.maxUsers,
+            previousIsActive: organization.is_active,
+            nextIsActive: input.isActive,
+          }),
+        ],
+      );
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+  }).then(async () => {
+    const organization = await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } });
+    const usage = await getOrganizationUsage(organization.schemaName);
+    return {
+      ...organization,
+      ...usage,
+    };
+  });
+}
+
+export async function resetOrganizationAdminPassword(
+  actorId: string,
+  organizationId: string,
+  rawInput: unknown,
+) {
+  const input = resetOrganizationAdminPasswordInput.parse(rawInput);
+  const passwordHash = await hashPassword(input.password);
+
+  return withPgClient(async (client) => {
+    await client.query("BEGIN");
+    try {
+      const orgResult = await client.query<{
+        id: string;
+        name: string;
+        schema_name: string;
+      }>(
+        `SELECT id, name, schema_name
+         FROM public.organizations
+         WHERE id = $1
+         FOR UPDATE`,
+        [organizationId],
+      );
+
+      const organization = orgResult.rows[0];
+      if (!organization) {
+        throw new AppError(404, "ORGANIZATION_NOT_FOUND", "Organization not found");
+      }
+      if (!organization.schema_name.startsWith("org_")) {
+        throw new AppError(409, "ORGANIZATION_ARCHIVED", "Archived organizations cannot be updated");
+      }
+
+      await client.query(`SET LOCAL search_path TO ${quoteIdentifier(organization.schema_name)}, public`);
+      const adminResult = await client.query<{
+        id: string;
+        email: string;
+        full_name: string;
+      }>(
+        `SELECT id, email, full_name
+         FROM users
+         WHERE role = 'ORG_ADMIN'
+         ORDER BY created_at ASC
+         LIMIT 1`,
+      );
+
+      const admin = adminResult.rows[0];
+      if (!admin) {
+        throw new AppError(404, "ORG_ADMIN_NOT_FOUND", "Organization admin not found");
+      }
+
+      await client.query(
+        `UPDATE users
+         SET password_hash = $1,
+             updated_at = NOW()
+         WHERE id = $2`,
+        [passwordHash, admin.id],
+      );
+      await client.query(
+        `INSERT INTO audit_logs (id, actor_user_id, action, target_type, target_id, metadata)
+         VALUES ($1, NULL, 'ORG_ADMIN_PASSWORD_RESET', 'USER', $2, $3::jsonb)`,
+        [
+          randomUUID(),
+          admin.id,
+          JSON.stringify({
+            actorId,
+            adminEmail: admin.email,
+          }),
+        ],
+      );
+      await client.query(
+        `INSERT INTO public.global_audit_logs
+          (id, actor_type, actor_id, action, organization_id, target_type, target_id, metadata)
+         VALUES ($1, 'SUPER_ADMIN', $2, 'ORG_ADMIN_PASSWORD_RESET', $3, 'USER', $4, $5::jsonb)`,
+        [
+          randomUUID(),
+          actorId,
+          organization.id,
+          admin.id,
+          JSON.stringify({
+            adminEmail: admin.email,
+            adminFullName: admin.full_name,
+          }),
+        ],
+      );
+
+      await client.query("COMMIT");
+      return {
+        organizationId: organization.id,
+        adminEmail: admin.email,
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+  });
+}
+
+export async function listOrganizationAuditLogs(organizationId?: string) {
+  const logs = await prisma.globalAuditLog.findMany({
+    where: organizationId ? { organizationId } : undefined,
+    orderBy: { createdAt: "desc" },
+    take: 100,
+  });
+
+  return logs.map((log) => ({
+    id: log.id,
+    timestamp: log.createdAt.toISOString(),
+    action: log.action,
+    performedBy: log.actorId,
+    targetOrg: log.organizationId ?? "Platform",
+    role: log.actorType,
+    ipAddress: "system",
+    details: JSON.stringify(log.metadata ?? {}),
+  }));
 }
 
 export async function deleteOrganization(actorId: string, organizationId: string) {
@@ -149,7 +368,7 @@ export async function deleteOrganization(actorId: string, organizationId: string
       if (!organization) {
         throw new Error("Organization not found");
       }
-      if (!organization.is_active) {
+      if (organization.schema_name.startsWith("del_")) {
         throw new Error("Organization already deleted");
       }
 
@@ -193,4 +412,52 @@ export async function deleteOrganization(actorId: string, organizationId: string
       throw error;
     }
   });
+}
+
+async function getOrganizationUsage(schemaName: string) {
+  return withPgClient(async (client) => {
+    await client.query("BEGIN");
+    try {
+      const usage = await getOrganizationUsageWithClient(client, schemaName);
+      await client.query("COMMIT");
+      return usage;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+  });
+}
+
+async function getOrganizationUsageWithClient(client: PoolClient, schemaName: string) {
+  if (!schemaName.startsWith("org_")) {
+    return {
+      currentUsers: 0,
+      activeUsers: 0,
+      adminCount: 0,
+      supportCount: 0,
+    };
+  }
+
+  await client.query(`SET LOCAL search_path TO ${quoteIdentifier(schemaName)}, public`);
+  const result = await client.query<{
+    current_users: string;
+    active_users: string;
+    admin_count: string;
+    support_count: string;
+  }>(
+    `SELECT
+       COUNT(*)::text AS current_users,
+       COUNT(*) FILTER (WHERE is_active = TRUE)::text AS active_users,
+       COUNT(*) FILTER (WHERE role = 'ORG_ADMIN')::text AS admin_count,
+       COUNT(*) FILTER (WHERE role = 'SERVICE_SUPPORT')::text AS support_count
+     FROM users`,
+  );
+
+  const row = result.rows[0];
+  return {
+    currentUsers: Number(row?.current_users ?? "0"),
+    activeUsers: Number(row?.active_users ?? "0"),
+    adminCount: Number(row?.admin_count ?? "0"),
+    supportCount: Number(row?.support_count ?? "0"),
+  };
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { usePermissions } from "@/components/auth/permission-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -30,6 +31,7 @@ const initialState: FormState = {
 };
 
 export function WarehousesManager() {
+  const { user, hasPermission, loading: permissionsLoading } = usePermissions();
   const [items, setItems] = useState<Warehouse[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -41,6 +43,7 @@ export function WarehousesManager() {
     () => (editingId ? "Update Warehouse" : "Add Warehouse"),
     [editingId],
   );
+  const canManage = !!user && (user.is_superuser || hasPermission("masters:manage"));
 
   const load = async () => {
     setLoading(true);
@@ -95,6 +98,9 @@ export function WarehousesManager() {
   };
 
   const handleEdit = (item: Warehouse) => {
+    if (!canManage) {
+      return;
+    }
     setEditingId(item.id);
     setForm({
       name: item.name,
@@ -111,6 +117,11 @@ export function WarehousesManager() {
           <CardTitle>{modeLabel}</CardTitle>
         </CardHeader>
         <CardContent>
+          {!permissionsLoading && !canManage ? (
+            <p className="text-sm text-muted-foreground">
+              You have read-only access. Master data changes are disabled for your role.
+            </p>
+          ) : (
           <form className="space-y-3" onSubmit={handleSubmit}>
             <Input
               data-testid="warehouse-name"
@@ -166,6 +177,7 @@ export function WarehousesManager() {
               ) : null}
             </div>
           </form>
+          )}
         </CardContent>
       </Card>
 
@@ -200,13 +212,17 @@ export function WarehousesManager() {
                       {item.is_active ? "Active" : "Inactive"}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleEdit(item)}
-                      >
-                        Edit
-                      </Button>
+                      {canManage ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleEdit(item)}
+                        >
+                          Edit
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">View only</span>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

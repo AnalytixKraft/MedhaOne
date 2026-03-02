@@ -1,5 +1,6 @@
 from app.models.audit import AuditLog
 from app.models.batch import Batch
+from app.models.company_settings import CompanySettings
 from app.models.enums import (
     GrnStatus,
     InventoryReason,
@@ -24,6 +25,7 @@ __all__ = [
     "Warehouse",
     "Product",
     "Batch",
+    "CompanySettings",
     "AuditLog",
     "PurchaseOrder",
     "PurchaseOrderLine",

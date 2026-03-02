@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
-from app.core.database import get_db
+from app.api.deps import get_current_user, get_db_with_schema
 from app.core.exceptions import AppException
+from app.core.permissions import require_permission
 from app.models.party import Party
 from app.models.product import Product
 from app.models.warehouse import Warehouse
@@ -51,7 +51,7 @@ def _get_or_404(db: Session, model, item_id: int, label: str):
 @router.get("/parties", response_model=list[PartyRead])
 def list_parties(
     include_inactive: bool = Query(default=False),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_schema),
     current_user=Depends(get_current_user),
 ) -> list[PartyRead]:
     _ = current_user
@@ -64,8 +64,8 @@ def list_parties(
 @router.post("/parties", response_model=PartyRead, status_code=status.HTTP_201_CREATED)
 def create_party(
     payload: PartyCreate,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db_with_schema),
+    current_user=Depends(require_permission("masters:manage")),
 ) -> PartyRead:
     _ = current_user
     party = Party(**payload.model_dump())
@@ -78,7 +78,7 @@ def create_party(
 @router.get("/parties/{party_id}", response_model=PartyRead)
 def get_party(
     party_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_schema),
     current_user=Depends(get_current_user),
 ) -> PartyRead:
     _ = current_user
@@ -89,8 +89,8 @@ def get_party(
 def update_party(
     party_id: int,
     payload: PartyUpdate,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db_with_schema),
+    current_user=Depends(require_permission("masters:manage")),
 ) -> PartyRead:
     _ = current_user
     party = _get_or_404(db, Party, party_id, "Party")
@@ -105,8 +105,8 @@ def update_party(
 @router.delete("/parties/{party_id}", response_model=PartyRead)
 def delete_party(
     party_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db_with_schema),
+    current_user=Depends(require_permission("masters:manage")),
 ) -> PartyRead:
     _ = current_user
     party = _get_or_404(db, Party, party_id, "Party")
@@ -119,7 +119,7 @@ def delete_party(
 @router.get("/products", response_model=list[ProductRead])
 def list_products(
     include_inactive: bool = Query(default=False),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_schema),
     current_user=Depends(get_current_user),
 ) -> list[ProductRead]:
     _ = current_user
@@ -132,8 +132,8 @@ def list_products(
 @router.post("/products", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
 def create_product(
     payload: ProductCreate,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db_with_schema),
+    current_user=Depends(require_permission("masters:manage")),
 ) -> ProductRead:
     _ = current_user
     product = Product(**payload.model_dump())
@@ -150,7 +150,7 @@ def create_product(
 @router.get("/products/{product_id}", response_model=ProductRead)
 def get_product(
     product_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_schema),
     current_user=Depends(get_current_user),
 ) -> ProductRead:
     _ = current_user
@@ -161,8 +161,8 @@ def get_product(
 def update_product(
     product_id: int,
     payload: ProductUpdate,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db_with_schema),
+    current_user=Depends(require_permission("masters:manage")),
 ) -> ProductRead:
     _ = current_user
     product = _get_or_404(db, Product, product_id, "Product")
@@ -177,8 +177,8 @@ def update_product(
 @router.delete("/products/{product_id}", response_model=ProductRead)
 def delete_product(
     product_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db_with_schema),
+    current_user=Depends(require_permission("masters:manage")),
 ) -> ProductRead:
     _ = current_user
     product = _get_or_404(db, Product, product_id, "Product")
@@ -191,7 +191,7 @@ def delete_product(
 @router.get("/warehouses", response_model=list[WarehouseRead])
 def list_warehouses(
     include_inactive: bool = Query(default=False),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_schema),
     current_user=Depends(get_current_user),
 ) -> list[WarehouseRead]:
     _ = current_user
@@ -204,8 +204,8 @@ def list_warehouses(
 @router.post("/warehouses", response_model=WarehouseRead, status_code=status.HTTP_201_CREATED)
 def create_warehouse(
     payload: WarehouseCreate,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db_with_schema),
+    current_user=Depends(require_permission("masters:manage")),
 ) -> WarehouseRead:
     _ = current_user
     warehouse = Warehouse(**payload.model_dump())
@@ -222,7 +222,7 @@ def create_warehouse(
 @router.get("/warehouses/{warehouse_id}", response_model=WarehouseRead)
 def get_warehouse(
     warehouse_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_schema),
     current_user=Depends(get_current_user),
 ) -> WarehouseRead:
     _ = current_user
@@ -233,8 +233,8 @@ def get_warehouse(
 def update_warehouse(
     warehouse_id: int,
     payload: WarehouseUpdate,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db_with_schema),
+    current_user=Depends(require_permission("masters:manage")),
 ) -> WarehouseRead:
     _ = current_user
     warehouse = _get_or_404(db, Warehouse, warehouse_id, "Warehouse")
@@ -249,8 +249,8 @@ def update_warehouse(
 @router.delete("/warehouses/{warehouse_id}", response_model=WarehouseRead)
 def delete_warehouse(
     warehouse_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db_with_schema),
+    current_user=Depends(require_permission("masters:manage")),
 ) -> WarehouseRead:
     _ = current_user
     warehouse = _get_or_404(db, Warehouse, warehouse_id, "Warehouse")
@@ -258,4 +258,3 @@ def delete_warehouse(
     _commit_or_400(db, "Failed to deactivate warehouse")
     db.refresh(warehouse)
     return warehouse
-

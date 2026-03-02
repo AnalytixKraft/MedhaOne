@@ -1,6 +1,7 @@
 from app.core.database import Base
 from app.models.audit import AuditLog
 from app.models.batch import Batch
+from app.models.company_settings import CompanySettings
 from app.models.inventory import InventoryLedger, StockSummary
 from app.models.login_audit import LoginAudit
 from app.models.party import Party
@@ -20,6 +21,7 @@ __all__ = [
     "Warehouse",
     "Product",
     "Batch",
+    "CompanySettings",
     "AuditLog",
     "PurchaseOrder",
     "PurchaseOrderLine",

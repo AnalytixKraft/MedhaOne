@@ -13,12 +13,15 @@ from app.models.role import Role
 from app.models.user import User
 
 CORE_PERMISSIONS = (
+    ("masters", "manage", "masters:manage"),
     ("purchase", "create", "purchase:create"),
     ("purchase", "approve", "purchase:approve"),
     ("grn", "create", "grn:create"),
     ("grn", "post", "grn:post"),
     ("inventory", "view", "inventory:view"),
     ("reports", "view", "reports:view"),
+    ("settings", "view", "settings:view"),
+    ("settings", "update", "settings:update"),
     ("user", "manage", "user:manage"),
 )
 
@@ -56,41 +59,52 @@ CORE_ROLES = {
 ROLE_PERMISSION_CODES = {
     "ADMIN": {code for _, _, code in CORE_PERMISSIONS},
     "ORG_ADMIN": {
+        "masters:manage",
         "purchase:create",
         "purchase:approve",
         "grn:create",
         "grn:post",
         "inventory:view",
         "reports:view",
+        "settings:view",
+        "settings:update",
     },
     "PURCHASE_MANAGER": {
+        "masters:manage",
         "purchase:create",
         "purchase:approve",
         "grn:create",
         "grn:post",
         "inventory:view",
         "reports:view",
+        "settings:view",
     },
     "READ_WRITE": {
+        "masters:manage",
         "purchase:create",
         "grn:create",
         "grn:post",
         "inventory:view",
         "reports:view",
+        "settings:view",
     },
     "SERVICE_SUPPORT": {
         "inventory:view",
         "reports:view",
+        "settings:view",
     },
     "STORE_EXECUTIVE": {
+        "masters:manage",
         "grn:create",
         "grn:post",
         "inventory:view",
         "reports:view",
+        "settings:view",
     },
     "VIEW_ONLY": {
         "inventory:view",
         "reports:view",
+        "settings:view",
     },
 }
 
@@ -138,6 +152,23 @@ def ensure_rbac_seeded(db: Session) -> dict[str, Role]:
     for role_name, permission_codes in ROLE_PERMISSION_CODES.items():
         role = roles_by_name[role_name]
         existing_codes = {permission.code for permission in role.permissions}
+        for code in existing_codes - permission_codes:
+            permission = next(
+                (linked_permission for linked_permission in role.permissions if linked_permission.code == code),
+                None,
+            )
+            if permission is None:
+                continue
+            link = next(
+                (
+                    role_permission
+                    for role_permission in role.role_permissions
+                    if role_permission.permission_id == permission.id
+                ),
+                None,
+            )
+            if link is not None:
+                db.delete(link)
         for code in permission_codes - existing_codes:
             db.add(
                 RolePermission(

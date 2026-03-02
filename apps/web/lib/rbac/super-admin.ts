@@ -1,11 +1,7 @@
 import type { OrganizationRecord } from "@/lib/rbac/client";
 
 export type OrganizationDashboardRecord = OrganizationRecord & {
-  currentUsers: number;
-  activeUsers: number;
-  adminCount: number;
-  supportCount: number;
-  statusLabel: "Active" | "Near Limit" | "Limit Reached";
+  statusLabel: "Active" | "Disabled" | "Near Limit" | "Limit Reached";
   usageRatio: number;
 };
 
@@ -31,15 +27,13 @@ export type AuditLogRecord = {
 export function buildOrganizationDashboardRecords(
   organizations: OrganizationRecord[],
 ): OrganizationDashboardRecord[] {
-  return organizations.map((organization, index) => {
-    const seededUsers = Math.max(1, Math.min(organization.maxUsers, 2 + (index % 5)));
-    const activeUsers = Math.max(1, seededUsers - (index % 3 === 0 ? 0 : 1));
-    const adminCount = 1;
-    const supportCount = Math.min(1 + (index % 2), Math.max(0, seededUsers - adminCount));
-    const usageRatio = organization.maxUsers > 0 ? seededUsers / organization.maxUsers : 0;
+  return organizations.map((organization) => {
+    const usageRatio = organization.maxUsers > 0 ? organization.currentUsers / organization.maxUsers : 0;
 
     let statusLabel: OrganizationDashboardRecord["statusLabel"] = "Active";
-    if (usageRatio >= 1) {
+    if (!organization.isActive) {
+      statusLabel = "Disabled";
+    } else if (usageRatio >= 1) {
       statusLabel = "Limit Reached";
     } else if (usageRatio >= 0.8) {
       statusLabel = "Near Limit";
@@ -47,10 +41,6 @@ export function buildOrganizationDashboardRecords(
 
     return {
       ...organization,
-      currentUsers: seededUsers,
-      activeUsers,
-      adminCount,
-      supportCount,
       usageRatio,
       statusLabel,
     };

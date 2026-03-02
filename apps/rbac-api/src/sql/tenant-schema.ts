@@ -32,5 +32,21 @@ export function buildCreateTenantSchemaSql(schemaName: string) {
 
     CREATE INDEX IF NOT EXISTS ${schemaName}_audit_logs_created_idx
       ON ${schema}.audit_logs(created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS ${schema}.company_settings (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      company_name TEXT,
+      address TEXT,
+      city TEXT,
+      state TEXT,
+      pincode TEXT,
+      gst_number TEXT,
+      phone TEXT,
+      email TEXT,
+      logo_url TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT ${schemaName}_company_settings_single_row CHECK (id = 1)
+    );
   `;
 }

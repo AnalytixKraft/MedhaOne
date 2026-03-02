@@ -8,7 +8,6 @@ import {
   LayoutDashboard,
   Settings,
   ShoppingCart,
-  Truck,
   Warehouse,
   X,
 } from "lucide-react";
@@ -35,10 +34,9 @@ const navItems = [
     icon: ShoppingCart,
     testId: "nav-purchase",
   },
-  { href: "/sales", label: "Sales", icon: Truck, testId: undefined },
   {
-    href: "/warehouse",
-    label: "Warehouse",
+    href: "/inventory",
+    label: "Inventory",
     icon: Warehouse,
     testId: undefined,
   },
@@ -53,13 +51,17 @@ const navItems = [
 ];
 
 type AppSidebarProps = {
+  brandName: string;
   collapsed: boolean;
+  logoUrl: string | null;
   mobileOpen: boolean;
   onCloseMobile: () => void;
 };
 
 export function AppSidebar({
+  brandName,
   collapsed,
+  logoUrl,
   mobileOpen,
   onCloseMobile,
 }: AppSidebarProps) {
@@ -81,11 +83,24 @@ export function AppSidebar({
         )}
       >
         <div className="flex h-16 items-center border-b px-4">
-          <span className={cn("font-semibold", collapsed && "sr-only")}>
-            MedhaOne
-          </span>
-          <span className={cn("text-lg font-bold", !collapsed && "hidden")}>
-            M1
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={logoUrl}
+              alt={brandName}
+              className="h-9 w-9 rounded-xl border object-cover"
+            />
+          ) : (
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl border bg-muted text-sm font-semibold">
+              {brandName.charAt(0).toUpperCase()}
+            </span>
+          )}
+          <div className={cn("ml-3 min-w-0", collapsed && "sr-only")}>
+            <p className="truncate text-sm font-semibold">{brandName}</p>
+            <p className="text-xs text-muted-foreground">MedhaOne ERP</p>
+          </div>
+          <span className={cn("ml-3 text-lg font-bold", !collapsed && "hidden")}>
+            {brandName.charAt(0).toUpperCase()}
           </span>
         </div>
         <nav className="space-y-1 p-3">
@@ -133,7 +148,24 @@ export function AppSidebar({
           )}
         >
           <div className="flex h-16 items-center justify-between border-b px-4">
-            <span className="font-semibold">MedhaOne</span>
+            <div className="flex min-w-0 items-center gap-3">
+              {logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={logoUrl}
+                  alt={brandName}
+                  className="h-9 w-9 rounded-xl border object-cover"
+                />
+              ) : (
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl border bg-muted text-sm font-semibold">
+                  {brandName.charAt(0).toUpperCase()}
+                </span>
+              )}
+              <div className="min-w-0">
+                <p className="truncate font-semibold">{brandName}</p>
+                <p className="text-xs text-muted-foreground">MedhaOne ERP</p>
+              </div>
+            </div>
             <button
               aria-label="Close navigation"
               className="rounded-md p-2 hover:bg-muted"
