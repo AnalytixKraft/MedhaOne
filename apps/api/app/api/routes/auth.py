@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.exceptions import AppException
+from app.core.permissions import require_permission
 from app.core.security import create_access_token, verify_password
 from app.crud.user import get_user_by_email
 from app.models.login_audit import LoginAudit
@@ -99,5 +99,5 @@ def login(
 
 
 @router.get("/me", response_model=UserRead)
-def me(current_user=Depends(get_current_user)) -> UserRead:
+def me(current_user: User = Depends(require_permission("dashboard:view"))) -> UserRead:
     return current_user
