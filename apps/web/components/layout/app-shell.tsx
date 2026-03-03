@@ -1,18 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 
 import { usePermissions } from "@/components/auth/permission-provider";
 import { AppHeader } from "@/components/layout/header";
 import { AppSidebar } from "@/components/layout/sidebar";
 import { apiClient, type CompanySettings } from "@/lib/api/client";
+import { getRequiredPermissionForPath } from "@/lib/route-permissions";
 
 type AppShellProps = {
   children: React.ReactNode;
 };
 
 export function AppShell({ children }: AppShellProps) {
-  const { user } = usePermissions();
+  const { user, hasPermission, loading: permissionsLoading } = usePermissions();
+  const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null);
@@ -28,7 +31,9 @@ export function AppShell({ children }: AppShellProps) {
     let cancelled = false;
 
     async function loadCompanySettings() {
-      if (!user?.organization_slug) {
+      const canReadCompanySettings =
+        !!user && (user.is_superuser || hasPermission("settings:view"));
+      if (!user?.organization_slug || !canReadCompanySettings) {
         setCompanySettings(null);
         return;
       }
@@ -49,7 +54,7 @@ export function AppShell({ children }: AppShellProps) {
     return () => {
       cancelled = true;
     };
-  }, [user?.organization_slug]);
+  }, [hasPermission, user]);
 
   const brandName = useMemo(() => {
     const companyName = companySettings?.company_name?.trim();
@@ -71,6 +76,14 @@ export function AppShell({ children }: AppShellProps) {
     return "MedhaOne";
   }, [companySettings?.company_name, companySettings?.organization_name, user?.organization_slug]);
 
+  const requiredPermission = getRequiredPermissionForPath(pathname);
+  const waitingForPermissions = !!requiredPermission && permissionsLoading;
+  const accessDenied =
+    !!requiredPermission &&
+    !!user &&
+    !user.is_superuser &&
+    !hasPermission(requiredPermission);
+
   return (
     <div className="flex min-h-screen bg-background text-foreground">
       <AppSidebar
@@ -86,7 +99,22 @@ export function AppShell({ children }: AppShellProps) {
           onToggleDesktopSidebar={() => setCollapsed((prev) => !prev)}
           onToggleMobileSidebar={() => setMobileOpen((prev) => !prev)}
         />
-        <main className="flex-1 p-4 md:p-6">{children}</main>
+        <main className="flex-1 p-4 md:p-6">
+          {waitingForPermissions ? (
+            <section className="rounded-3xl border bg-card p-6 text-sm text-muted-foreground">
+              Loading access...
+            </section>
+          ) : accessDenied ? (
+            <section className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-700">
+              <h1 className="text-lg font-semibold">403 Forbidden</h1>
+              <p className="mt-2 text-sm">
+                You do not have permission to access this module.
+              </p>
+            </section>
+          ) : (
+            children
+          )}
+        </main>
         <footer className="border-t px-4 py-3 text-xs text-muted-foreground md:px-6">
           Powered by MedhaOne
         </footer>

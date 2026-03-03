@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.deps import get_db
+from app.core.database import get_public_db
 from app.core.security import create_access_token
 from app.main import app
 from app.models.base import Base
@@ -70,6 +71,7 @@ def client_with_test_db() -> Generator[tuple[TestClient, Session], None, None]:
         yield session
 
     app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_public_db] = _override_get_db
     client = TestClient(app)
     try:
         yield client, session

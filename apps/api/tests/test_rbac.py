@@ -1,5 +1,6 @@
 from collections.abc import Generator
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,9 +11,11 @@ from sqlalchemy.pool import StaticPool
 
 from app.api.deps import get_db
 from app.core.config import get_settings
+from app.core.database import get_public_db
 from app.core.security import create_access_token, get_password_hash
 from app.main import app
 from app.models.base import Base
+from app.models.batch import Batch
 from app.models.user import User
 from app.services.external_auth import get_or_create_rbac_shadow_user
 from app.services.rbac import assign_roles_to_user, ensure_rbac_seeded
@@ -26,6 +29,7 @@ def _create_user(
     password: str = "ChangeMe123!",
     is_active: bool = True,
     is_superuser: bool = False,
+    organization_slug: str | None = "tenant_one",
 ) -> User:
     roles_by_name = ensure_rbac_seeded(db)
     role_ids = [roles_by_name[name].id for name in role_names]
@@ -35,6 +39,7 @@ def _create_user(
         hashed_password=get_password_hash(password),
         is_active=is_active,
         is_superuser=is_superuser,
+        organization_slug=organization_slug,
         role_id=role_ids[0] if role_ids else None,
     )
     db.add(user)
@@ -49,7 +54,9 @@ def _token_for(user: User) -> str:
     return create_access_token(str(user.id))
 
 
-def _rbac_token(*, email: str, full_name: str, role: str, organization_id: str, user_id: str = "tenant-user-1") -> str:
+def _rbac_token(
+    *, email: str, full_name: str, role: str, organization_id: str, user_id: str = "tenant-user-1"
+) -> str:
     settings = get_settings()
     payload = {
         "userId": user_id,
@@ -99,6 +106,20 @@ def _create_product(client: TestClient, headers: dict[str, str], sku: str) -> in
     return response.json()["id"]
 
 
+def _create_batch(db: Session, *, product_id: int, batch_no: str) -> int:
+    batch = Batch(
+        product_id=product_id,
+        batch_no=batch_no,
+        expiry_date=date(2031, 12, 31),
+        mfg_date=date(2026, 1, 1),
+        mrp=Decimal("10.00"),
+    )
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+    return batch.id
+
+
 def _create_po(
     client: TestClient,
     headers: dict[str, str],
@@ -127,6 +148,32 @@ def _create_po(
     return response.json()
 
 
+def _create_grn(
+    client: TestClient,
+    headers: dict[str, str],
+    *,
+    po_id: int,
+    po_line_id: int,
+    received_qty: str = "5",
+) -> dict:
+    response = client.post(
+        f"/purchase/grn/from-po/{po_id}",
+        headers=headers,
+        json={
+            "lines": [
+                {
+                    "po_line_id": po_line_id,
+                    "received_qty": received_qty,
+                    "batch_no": f"GRN-BATCH-{po_id}",
+                    "expiry_date": "2030-12-31",
+                }
+            ],
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
 @pytest.fixture()
 def client_with_test_db() -> Generator[tuple[TestClient, Session], None, None]:
     engine = create_engine(
@@ -143,6 +190,7 @@ def client_with_test_db() -> Generator[tuple[TestClient, Session], None, None]:
         yield session
 
     app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_public_db] = _override_get_db
     client = TestClient(app)
     try:
         yield client, session
@@ -202,7 +250,9 @@ def test_store_user_cannot_approve_po(client_with_test_db: tuple[TestClient, Ses
     assert response.json()["error_code"] == "FORBIDDEN"
 
 
-def test_view_only_user_cannot_create_party(client_with_test_db: tuple[TestClient, Session]) -> None:
+def test_view_only_user_cannot_create_party(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
     client, db = client_with_test_db
     view_only_user = _create_user(
         db,
@@ -318,6 +368,106 @@ def test_user_manage_permission_required_to_create_user(
     assert response.json()["error_code"] == "FORBIDDEN"
 
 
+def test_user_without_inventory_permissions_cannot_mutate_stock(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db = client_with_test_db
+    admin_user = _create_user(db, email="admin-inventory@medhaone.app", role_names=["ADMIN"])
+    restricted_user = _create_user(
+        db,
+        email="restricted-inventory@medhaone.app",
+        role_names=[],
+    )
+    admin_headers = {"Authorization": f"Bearer {_token_for(admin_user)}"}
+    restricted_headers = {"Authorization": f"Bearer {_token_for(restricted_user)}"}
+
+    warehouse_id = _create_warehouse(client, admin_headers, "INVWH")
+    product_id = _create_product(client, admin_headers, "INV-SKU-1")
+    batch_id = _create_batch(db, product_id=product_id, batch_no="INV-BATCH-1")
+
+    stock_in_response = client.post(
+        "/inventory/in",
+        headers=restricted_headers,
+        json={
+            "warehouse_id": warehouse_id,
+            "product_id": product_id,
+            "batch_id": batch_id,
+            "qty": "5",
+            "reason": "PURCHASE_GRN",
+        },
+    )
+    assert stock_in_response.status_code == 403
+    assert stock_in_response.json()["error_code"] == "FORBIDDEN"
+
+    adjust_response = client.post(
+        "/inventory/adjust",
+        headers=restricted_headers,
+        json={
+            "warehouse_id": warehouse_id,
+            "product_id": product_id,
+            "batch_id": batch_id,
+            "delta_qty": "1",
+            "reason": "STOCK_ADJUSTMENT",
+        },
+    )
+    assert adjust_response.status_code == 403
+    assert adjust_response.json()["error_code"] == "FORBIDDEN"
+
+
+def test_view_only_user_cannot_post_grn(client_with_test_db: tuple[TestClient, Session]) -> None:
+    client, db = client_with_test_db
+    admin_user = _create_user(db, email="admin-grn@medhaone.app", role_names=["ADMIN"])
+    view_only_user = _create_user(
+        db,
+        email="view-grn@medhaone.app",
+        role_names=["VIEW_ONLY"],
+    )
+    admin_headers = {"Authorization": f"Bearer {_token_for(admin_user)}"}
+    view_headers = {"Authorization": f"Bearer {_token_for(view_only_user)}"}
+
+    supplier_id = _create_supplier(client, admin_headers, "GRN Supplier")
+    warehouse_id = _create_warehouse(client, admin_headers, "GRNWH")
+    product_id = _create_product(client, admin_headers, "GRN-SKU-1")
+    po = _create_po(
+        client,
+        admin_headers,
+        supplier_id=supplier_id,
+        warehouse_id=warehouse_id,
+        product_id=product_id,
+    )
+    approve_response = client.post(f"/purchase/po/{po['id']}/approve", headers=admin_headers)
+    assert approve_response.status_code == 200, approve_response.text
+    grn = _create_grn(
+        client,
+        admin_headers,
+        po_id=po["id"],
+        po_line_id=po["lines"][0]["id"],
+    )
+
+    response = client.post(f"/purchase/grn/{grn['id']}/post", headers=view_headers)
+    assert response.status_code == 403
+    assert response.json()["error_code"] == "FORBIDDEN"
+
+
+def test_user_without_reports_view_cannot_access_reports(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db = client_with_test_db
+    restricted_user = _create_user(
+        db,
+        email="no-reports@medhaone.app",
+        role_names=[],
+    )
+
+    response = client.get(
+        "/reports/stock-inward",
+        headers={"Authorization": f"Bearer {_token_for(restricted_user)}"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error_code"] == "FORBIDDEN"
+
+
 def test_auth_me_accepts_rbac_token_and_creates_shadow_user(
     client_with_test_db: tuple[TestClient, Session],
 ) -> None:
@@ -396,6 +546,38 @@ def test_auth_login_discovers_tenant_without_org_slug(
 
     assert response.status_code == 200, response.text
     assert response.json()["access_token"] == brokered_token
+
+
+@pytest.mark.parametrize(
+    ("external_role", "expected_role", "expected_allowed", "expected_denied"),
+    [
+        ("PURCHASE_MANAGER", "PURCHASE_MANAGER", "purchase:approve", "inventory:adjust"),
+        ("STORE_EXECUTIVE", "STORE_EXECUTIVE", "grn:post", "purchase:approve"),
+        ("UNKNOWN_ROLE", "VIEW_ONLY", "reports:view", "purchase:approve"),
+    ],
+)
+def test_rbac_shadow_user_maps_external_roles_safely(
+    client_with_test_db: tuple[TestClient, Session],
+    external_role: str,
+    expected_role: str,
+    expected_allowed: str,
+    expected_denied: str,
+) -> None:
+    _client, db = client_with_test_db
+    user = get_or_create_rbac_shadow_user(
+        db,
+        {
+            "userId": f"{external_role.lower()}-user",
+            "email": f"{external_role.lower()}@kraft.app",
+            "fullName": "Mapped User",
+            "role": external_role,
+            "organizationId": "kraft",
+        },
+    )
+
+    assert [role.name for role in user.effective_roles] == [expected_role]
+    assert expected_allowed in user.permissions
+    assert expected_denied not in user.permissions
 
 
 def test_rbac_shadow_user_reuses_email_across_org_switches(

@@ -13,15 +13,22 @@ from app.models.role import Role
 from app.models.user import User
 
 CORE_PERMISSIONS = (
+    ("masters", "view", "masters:view"),
     ("masters", "manage", "masters:manage"),
+    ("purchase", "view", "purchase:view"),
     ("purchase", "create", "purchase:create"),
     ("purchase", "approve", "purchase:approve"),
     ("grn", "create", "grn:create"),
     ("grn", "post", "grn:post"),
+    ("inventory", "in", "inventory:in"),
+    ("inventory", "out", "inventory:out"),
+    ("inventory", "adjust", "inventory:adjust"),
     ("inventory", "view", "inventory:view"),
     ("reports", "view", "reports:view"),
+    ("dashboard", "view", "dashboard:view"),
     ("settings", "view", "settings:view"),
     ("settings", "update", "settings:update"),
+    ("users", "view", "users:view"),
     ("user", "manage", "user:manage"),
 )
 
@@ -59,18 +66,27 @@ CORE_ROLES = {
 ROLE_PERMISSION_CODES = {
     "ADMIN": {code for _, _, code in CORE_PERMISSIONS},
     "ORG_ADMIN": {
+        "dashboard:view",
+        "masters:view",
         "masters:manage",
+        "purchase:view",
         "purchase:create",
         "purchase:approve",
         "grn:create",
         "grn:post",
+        "inventory:in",
+        "inventory:out",
+        "inventory:adjust",
         "inventory:view",
         "reports:view",
         "settings:view",
         "settings:update",
     },
     "PURCHASE_MANAGER": {
+        "dashboard:view",
+        "masters:view",
         "masters:manage",
+        "purchase:view",
         "purchase:create",
         "purchase:approve",
         "grn:create",
@@ -80,21 +96,33 @@ ROLE_PERMISSION_CODES = {
         "settings:view",
     },
     "READ_WRITE": {
+        "dashboard:view",
+        "masters:view",
         "masters:manage",
+        "purchase:view",
         "purchase:create",
         "grn:create",
         "grn:post",
+        "inventory:in",
+        "inventory:out",
+        "inventory:adjust",
         "inventory:view",
         "reports:view",
         "settings:view",
     },
     "SERVICE_SUPPORT": {
+        "dashboard:view",
+        "masters:view",
+        "purchase:view",
         "inventory:view",
         "reports:view",
         "settings:view",
     },
     "STORE_EXECUTIVE": {
+        "dashboard:view",
+        "masters:view",
         "masters:manage",
+        "purchase:view",
         "grn:create",
         "grn:post",
         "inventory:view",
@@ -102,6 +130,9 @@ ROLE_PERMISSION_CODES = {
         "settings:view",
     },
     "VIEW_ONLY": {
+        "dashboard:view",
+        "masters:view",
+        "purchase:view",
         "inventory:view",
         "reports:view",
         "settings:view",
@@ -154,7 +185,11 @@ def ensure_rbac_seeded(db: Session) -> dict[str, Role]:
         existing_codes = {permission.code for permission in role.permissions}
         for code in existing_codes - permission_codes:
             permission = next(
-                (linked_permission for linked_permission in role.permissions if linked_permission.code == code),
+                (
+                    linked_permission
+                    for linked_permission in role.permissions
+                    if linked_permission.code == code
+                ),
                 None,
             )
             if permission is None:

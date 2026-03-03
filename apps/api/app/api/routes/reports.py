@@ -4,7 +4,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db_with_schema
+from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models.enums import PurchaseOrderStatus
 from app.models.user import User
@@ -29,7 +29,7 @@ def stock_inward_report(
     product_id: int | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
-    db: Session = Depends(get_db_with_schema),
+    db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("reports:view")),
 ) -> StockInwardReportResponse:
     _ = current_user
@@ -55,7 +55,7 @@ def purchase_register_report(
     date_to: date | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
-    db: Session = Depends(get_db_with_schema),
+    db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("reports:view")),
 ) -> PurchaseRegisterReportResponse:
     _ = current_user
@@ -81,7 +81,7 @@ def stock_movement_report(
     movement_type: Literal["inward", "outward"] | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
-    db: Session = Depends(get_db_with_schema),
+    db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("reports:view")),
 ) -> StockMovementReportResponse:
     _ = current_user

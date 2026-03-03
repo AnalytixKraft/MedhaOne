@@ -1,3 +1,5 @@
+from collections.abc import Generator
+
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -49,10 +51,19 @@ def reset_search_path(db: Session) -> None:
         db.info.pop("tenant_schema", None)
 
 
-def get_db():
+def _session_scope() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
     finally:
         reset_search_path(db)
         db.close()
+
+
+def get_db():
+    yield from _session_scope()
+
+
+def get_public_db():
+    # Distinct dependency callable so auth/public lookups do not share the tenant-bound session.
+    yield from _session_scope()

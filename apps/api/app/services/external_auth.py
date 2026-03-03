@@ -15,8 +15,10 @@ from app.services.rbac import assign_roles_to_user, ensure_rbac_seeded
 
 RBAC_TO_LOCAL_ROLE = {
     "ORG_ADMIN": "ORG_ADMIN",
+    "PURCHASE_MANAGER": "PURCHASE_MANAGER",
     "READ_WRITE": "READ_WRITE",
     "SERVICE_SUPPORT": "SERVICE_SUPPORT",
+    "STORE_EXECUTIVE": "STORE_EXECUTIVE",
     "VIEW_ONLY": "VIEW_ONLY",
 }
 
@@ -58,13 +60,7 @@ def login_via_rbac(*, email: str, password: str, organization_slug: str | None) 
 
 
 def get_or_create_rbac_shadow_user(db: Session, payload: dict[str, Any]) -> User:
-    role_name = RBAC_TO_LOCAL_ROLE.get(str(payload.get("role")))
-    if role_name is None:
-        raise AppException(
-            error_code="FORBIDDEN",
-            message="Role is not allowed in ERP",
-            status_code=403,
-        )
+    role_name = RBAC_TO_LOCAL_ROLE.get(str(payload.get("role")).strip(), "VIEW_ONLY")
 
     organization_slug = str(payload.get("organizationId") or "").strip()
     external_user_id = str(payload.get("userId") or "").strip()

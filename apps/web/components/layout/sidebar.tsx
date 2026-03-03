@@ -21,24 +21,28 @@ const navItems = [
     label: "Dashboard",
     icon: LayoutDashboard,
     testId: undefined,
+    requiredPermission: "dashboard:view",
   },
   {
     href: "/masters",
     label: "Masters",
     icon: Building2,
     testId: "nav-masters",
+    requiredPermission: "masters:view",
   },
   {
     href: "/purchase",
     label: "Purchase",
     icon: ShoppingCart,
     testId: "nav-purchase",
+    requiredPermission: "purchase:view",
   },
   {
     href: "/inventory",
     label: "Inventory",
     icon: Warehouse,
     testId: undefined,
+    requiredPermission: "inventory:view",
   },
   {
     href: "/reports",
@@ -47,7 +51,13 @@ const navItems = [
     testId: undefined,
     requiredPermission: "reports:view",
   },
-  { href: "/settings", label: "Settings", icon: Settings, testId: undefined },
+  {
+    href: "/settings",
+    label: "Settings",
+    icon: Settings,
+    testId: undefined,
+    requiredPermission: "settings:view",
+  },
 ];
 
 type AppSidebarProps = {
@@ -65,14 +75,14 @@ export function AppSidebar({
   mobileOpen,
   onCloseMobile,
 }: AppSidebarProps) {
-  const { hasPermission, loading } = usePermissions();
+  const { hasPermission: hasGrantedPermission, loading } = usePermissions();
   const pathname = usePathname();
-  const visibleItems = navItems.filter((item) => {
-    if (!("requiredPermission" in item) || !item.requiredPermission) {
-      return true;
-    }
-    return !loading && hasPermission(item.requiredPermission);
-  });
+
+  function hasPermission(code: string) {
+    return !loading && hasGrantedPermission(code);
+  }
+
+  const visibleItems = navItems.filter((item) => hasPermission(item.requiredPermission));
 
   return (
     <>

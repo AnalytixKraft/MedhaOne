@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db_with_schema
+from app.core.database import get_db
 from app.core.exceptions import AppException
 from app.core.permissions import require_permission
 from app.models.party import Party
@@ -51,8 +51,8 @@ def _get_or_404(db: Session, model, item_id: int, label: str):
 @router.get("/parties", response_model=list[PartyRead])
 def list_parties(
     include_inactive: bool = Query(default=False),
-    db: Session = Depends(get_db_with_schema),
-    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:view")),
 ) -> list[PartyRead]:
     _ = current_user
     query = db.query(Party).order_by(Party.name.asc())
@@ -64,7 +64,7 @@ def list_parties(
 @router.post("/parties", response_model=PartyRead, status_code=status.HTTP_201_CREATED)
 def create_party(
     payload: PartyCreate,
-    db: Session = Depends(get_db_with_schema),
+    db: Session = Depends(get_db),
     current_user=Depends(require_permission("masters:manage")),
 ) -> PartyRead:
     _ = current_user
@@ -78,8 +78,8 @@ def create_party(
 @router.get("/parties/{party_id}", response_model=PartyRead)
 def get_party(
     party_id: int,
-    db: Session = Depends(get_db_with_schema),
-    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:view")),
 ) -> PartyRead:
     _ = current_user
     return _get_or_404(db, Party, party_id, "Party")
@@ -89,7 +89,7 @@ def get_party(
 def update_party(
     party_id: int,
     payload: PartyUpdate,
-    db: Session = Depends(get_db_with_schema),
+    db: Session = Depends(get_db),
     current_user=Depends(require_permission("masters:manage")),
 ) -> PartyRead:
     _ = current_user
@@ -105,7 +105,7 @@ def update_party(
 @router.delete("/parties/{party_id}", response_model=PartyRead)
 def delete_party(
     party_id: int,
-    db: Session = Depends(get_db_with_schema),
+    db: Session = Depends(get_db),
     current_user=Depends(require_permission("masters:manage")),
 ) -> PartyRead:
     _ = current_user
@@ -119,8 +119,8 @@ def delete_party(
 @router.get("/products", response_model=list[ProductRead])
 def list_products(
     include_inactive: bool = Query(default=False),
-    db: Session = Depends(get_db_with_schema),
-    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:view")),
 ) -> list[ProductRead]:
     _ = current_user
     query = db.query(Product).order_by(Product.name.asc())
@@ -132,7 +132,7 @@ def list_products(
 @router.post("/products", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
 def create_product(
     payload: ProductCreate,
-    db: Session = Depends(get_db_with_schema),
+    db: Session = Depends(get_db),
     current_user=Depends(require_permission("masters:manage")),
 ) -> ProductRead:
     _ = current_user
@@ -150,8 +150,8 @@ def create_product(
 @router.get("/products/{product_id}", response_model=ProductRead)
 def get_product(
     product_id: int,
-    db: Session = Depends(get_db_with_schema),
-    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:view")),
 ) -> ProductRead:
     _ = current_user
     return _get_or_404(db, Product, product_id, "Product")
@@ -161,7 +161,7 @@ def get_product(
 def update_product(
     product_id: int,
     payload: ProductUpdate,
-    db: Session = Depends(get_db_with_schema),
+    db: Session = Depends(get_db),
     current_user=Depends(require_permission("masters:manage")),
 ) -> ProductRead:
     _ = current_user
@@ -177,7 +177,7 @@ def update_product(
 @router.delete("/products/{product_id}", response_model=ProductRead)
 def delete_product(
     product_id: int,
-    db: Session = Depends(get_db_with_schema),
+    db: Session = Depends(get_db),
     current_user=Depends(require_permission("masters:manage")),
 ) -> ProductRead:
     _ = current_user
@@ -191,8 +191,8 @@ def delete_product(
 @router.get("/warehouses", response_model=list[WarehouseRead])
 def list_warehouses(
     include_inactive: bool = Query(default=False),
-    db: Session = Depends(get_db_with_schema),
-    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:view")),
 ) -> list[WarehouseRead]:
     _ = current_user
     query = db.query(Warehouse).order_by(Warehouse.name.asc())
@@ -204,7 +204,7 @@ def list_warehouses(
 @router.post("/warehouses", response_model=WarehouseRead, status_code=status.HTTP_201_CREATED)
 def create_warehouse(
     payload: WarehouseCreate,
-    db: Session = Depends(get_db_with_schema),
+    db: Session = Depends(get_db),
     current_user=Depends(require_permission("masters:manage")),
 ) -> WarehouseRead:
     _ = current_user
@@ -222,8 +222,8 @@ def create_warehouse(
 @router.get("/warehouses/{warehouse_id}", response_model=WarehouseRead)
 def get_warehouse(
     warehouse_id: int,
-    db: Session = Depends(get_db_with_schema),
-    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:view")),
 ) -> WarehouseRead:
     _ = current_user
     return _get_or_404(db, Warehouse, warehouse_id, "Warehouse")
@@ -233,7 +233,7 @@ def get_warehouse(
 def update_warehouse(
     warehouse_id: int,
     payload: WarehouseUpdate,
-    db: Session = Depends(get_db_with_schema),
+    db: Session = Depends(get_db),
     current_user=Depends(require_permission("masters:manage")),
 ) -> WarehouseRead:
     _ = current_user
@@ -249,7 +249,7 @@ def update_warehouse(
 @router.delete("/warehouses/{warehouse_id}", response_model=WarehouseRead)
 def delete_warehouse(
     warehouse_id: int,
-    db: Session = Depends(get_db_with_schema),
+    db: Session = Depends(get_db),
     current_user=Depends(require_permission("masters:manage")),
 ) -> WarehouseRead:
     _ = current_user

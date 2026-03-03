@@ -1,10 +1,9 @@
+from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from fastapi import APIRouter, Depends
-
-from app.api.deps import get_db_with_schema, get_current_user
+from app.core.database import get_db
 from app.core.exceptions import AppException
 from app.core.permissions import require_permission
 from app.models.audit import AuditLog
@@ -18,7 +17,7 @@ router = APIRouter()
 @router.get("/company", response_model=CompanySettingsRead)
 def get_company_settings(
     current_user: User = Depends(require_permission("settings:view")),
-    db: Session = Depends(get_db_with_schema),
+    db: Session = Depends(get_db),
 ) -> CompanySettingsRead:
     _require_tenant_context(current_user)
     _ensure_company_settings_table(db)
@@ -37,7 +36,7 @@ def get_company_settings(
 def update_company_settings(
     payload: CompanySettingsUpdate,
     current_user: User = Depends(require_permission("settings:update")),
-    db: Session = Depends(get_db_with_schema),
+    db: Session = Depends(get_db),
 ) -> CompanySettingsRead:
     _require_tenant_context(current_user)
     _ensure_company_settings_table(db)
@@ -108,12 +107,10 @@ def _to_response(db: Session, current_user: User, settings: CompanySettings) -> 
     organization_name = None
     if current_user.organization_slug:
         try:
-            organization_name = (
-                db.execute(
-                    text("SELECT name FROM organizations WHERE id = :organization_slug"),
-                    {"organization_slug": current_user.organization_slug},
-                ).scalar_one_or_none()
-            )
+            organization_name = db.execute(
+                text("SELECT name FROM organizations WHERE id = :organization_slug"),
+                {"organization_slug": current_user.organization_slug},
+            ).scalar_one_or_none()
         except SQLAlchemyError:
             organization_name = current_user.organization_slug.replace("_", " ").title()
 

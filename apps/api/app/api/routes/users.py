@@ -1,7 +1,6 @@
+from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload, selectinload
-
-from fastapi import APIRouter, Depends
 
 from app.core.database import get_db
 from app.core.exceptions import AppException
@@ -62,7 +61,7 @@ def _count_active_user_managers(db: Session) -> int:
 @router.get("/", response_model=UserListResponse)
 def list_users(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission("user:manage")),
+    current_user: User = Depends(require_permission("users:view")),
 ) -> UserListResponse:
     _ = current_user
     users = _user_query(db).order_by(User.created_at.desc(), User.id.desc()).all()
@@ -123,7 +122,11 @@ def update_user(
     if payload.password is not None:
         user.hashed_password = get_password_hash(payload.password)
     if payload.is_active is not None:
-        if user.id == current_user.id and payload.is_active is False and _count_active_user_managers(db) <= 1:
+        if (
+            user.id == current_user.id
+            and payload.is_active is False
+            and _count_active_user_managers(db) <= 1
+        ):
             raise AppException(
                 error_code="FORBIDDEN",
                 message="Cannot deactivate the last active administrator",
@@ -187,7 +190,7 @@ def assign_user_roles(
 def get_user_roles(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission("user:manage")),
+    current_user: User = Depends(require_permission("users:view")),
 ) -> UserRolesResponse:
     _ = current_user
     user = _get_user_or_404(db, user_id)
