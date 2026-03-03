@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "packageManager": "pnpm@10.6.3",
   "scripts": {
+    "stack:up": "bash scripts/dev-up.sh",
+    "stack:down": "bash scripts/dev-down.sh",
     "dev": "concurrently -n web,api -c cyan,green \"pnpm --filter web dev\" \"pnpm --filter api dev\"",
     "rbac:db:up": "docker compose up -d rbac-postgres",
     "rbac:db:down": "docker compose stop rbac-postgres",

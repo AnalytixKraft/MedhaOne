@@ -21,3 +21,4 @@ __pycache__/
 # Misc
 .DS_Store
 coverage
+.run/
