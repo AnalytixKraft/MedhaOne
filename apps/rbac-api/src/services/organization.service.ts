@@ -97,7 +97,7 @@ export async function createOrganization(actorId: string, rawInput: unknown) {
         );
       }
 
-      await createOrganizationSchema(client, schemaName, {
+      await createOrganizationSchema(client, schemaName, input.name, {
         email: input.adminEmail,
         passwordHash,
         fullName: input.adminFullName,

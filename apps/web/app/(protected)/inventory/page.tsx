@@ -6,12 +6,14 @@ import { PageTitle } from "@/components/layout/page-title";
 const items = [
   {
     href: "/masters",
+    testId: "inventory-master-data",
     title: "Master Data",
     description: "Manage parties, products, and warehouse masters used by inventory and purchase flows.",
     icon: Building2,
   },
   {
     href: "/warehouse",
+    testId: "inventory-stock-operations",
     title: "Stock Operations",
     description: "Review warehouse operations and inventory workflows for the current organization.",
     icon: Warehouse,
@@ -33,6 +35,7 @@ export default function InventoryPage() {
             <Link
               key={item.href}
               href={item.href}
+              data-testid={item.testId}
               className="group rounded-3xl border bg-card p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
             >
               <div className="flex items-start justify-between gap-4">

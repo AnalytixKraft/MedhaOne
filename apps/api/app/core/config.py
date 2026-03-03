@@ -10,7 +10,7 @@ REPO_ROOT = APP_DIR.parents[1]
 
 class Settings(BaseSettings):
     app_name: str = "MedhaOne API"
-    database_url: str = "sqlite:///./medhaone.db"
+    database_url: str = "postgresql+psycopg://postgres:postgres@127.0.0.1:55432/medhaone_rbac"
     secret_key: str = "change-me-in-production"
     rbac_jwt_secret: str | None = None
     rbac_api_url: str = "http://localhost:1740"
@@ -34,6 +34,20 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def require_postgres_database(cls, value: str) -> str:
+        normalized = value.strip()
+        if normalized.startswith("postgresql://"):
+            normalized = normalized.replace("postgresql://", "postgresql+psycopg://", 1)
+
+        if not normalized.startswith("postgresql+psycopg://"):
+            raise ValueError(
+                "DATABASE_URL must point to the shared PostgreSQL tenant database (postgresql+psycopg://...)",
+            )
+
+        return normalized
 
 
 @lru_cache

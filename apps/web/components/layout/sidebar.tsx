@@ -20,7 +20,7 @@ const navItems = [
     href: "/dashboard",
     label: "Dashboard",
     icon: LayoutDashboard,
-    testId: undefined,
+    testId: "nav-dashboard",
     requiredPermission: "dashboard:view",
   },
   {
@@ -41,21 +41,21 @@ const navItems = [
     href: "/inventory",
     label: "Inventory",
     icon: Warehouse,
-    testId: undefined,
+    testId: "nav-inventory",
     requiredPermission: "inventory:view",
   },
   {
     href: "/reports",
     label: "Reports",
     icon: BarChart3,
-    testId: undefined,
+    testId: "nav-reports",
     requiredPermission: "reports:view",
   },
   {
     href: "/settings",
     label: "Settings",
     icon: Settings,
-    testId: undefined,
+    testId: "nav-settings",
     requiredPermission: "settings:view",
   },
 ];

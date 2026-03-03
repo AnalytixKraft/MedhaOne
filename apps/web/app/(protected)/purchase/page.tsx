@@ -6,11 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 const cards = [
   {
     href: "/purchase/po",
+    testId: "purchase-orders-card",
     title: "Purchase Orders",
     description: "Create and approve purchase orders.",
   },
   {
     href: "/purchase/grn",
+    testId: "purchase-grn-card",
     title: "Goods Receipt Notes",
     description: "Receive stock against approved purchase orders.",
   },
@@ -22,7 +24,7 @@ export default function PurchasePage() {
       <PageTitle title="Purchase" description="Phase 1 procurement workflow (PO -> GRN)." />
       <div className="grid gap-4 md:grid-cols-2">
         {cards.map((card) => (
-          <Link key={card.href} href={card.href}>
+          <Link key={card.href} href={card.href} data-testid={card.testId}>
             <Card className="h-full transition hover:border-primary">
               <CardHeader>
                 <CardTitle>{card.title}</CardTitle>

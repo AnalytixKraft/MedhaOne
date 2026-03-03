@@ -248,7 +248,6 @@ def test_simulated_postgres_schema_isolation_smoke_between_tenants(
 def test_invalid_schema_slug_in_request_header_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("app.core.tenant.IS_POSTGRES", False)
     token = _rbac_token("alpha-beta", schema_name="org_alpha-beta")
 
     with pytest.raises(AppException) as caught:

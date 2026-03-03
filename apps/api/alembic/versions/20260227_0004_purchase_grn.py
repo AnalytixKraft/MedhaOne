@@ -10,6 +10,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "20260227_0004"
@@ -17,20 +18,22 @@ down_revision: str | None = "20260226_0003"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-purchase_order_status_enum = sa.Enum(
+purchase_order_status_enum = postgresql.ENUM(
     "DRAFT",
     "APPROVED",
     "PARTIALLY_RECEIVED",
     "CLOSED",
     "CANCELLED",
     name="purchase_order_status_enum",
+    create_type=False,
 )
 
-grn_status_enum = sa.Enum(
+grn_status_enum = postgresql.ENUM(
     "DRAFT",
     "POSTED",
     "CANCELLED",
     name="grn_status_enum",
+    create_type=False,
 )
 
 

@@ -12,11 +12,7 @@
     "e2e:ui": "playwright test -c e2e/playwright.config.ts --ui",
     "e2e:debug": "playwright test -c e2e/playwright.config.ts --debug",
     "guided:test": "tsx e2e/guided/runner.ts",
-    "guided:test:po-grn": "tsx e2e/guided/runner.ts --script e2e/guided/scripts/po_grn_guided.json",
-    "ai:test": "tsx e2e/ai-agent/controller.ts",
-    "ai:test:acceptance": "AI_AGENT_MODE=acceptance pnpm ai:test",
-    "ai:test:regression": "AI_AGENT_MODE=regression pnpm ai:test",
-    "ai:test:chaos": "AI_AGENT_MODE=chaos pnpm ai:test"
+    "guided:test:po-grn": "tsx e2e/guided/runner.ts --script e2e/guided/scripts/po_grn_guided.json"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.0",
@@ -38,6 +34,7 @@
     "@types/react-dom": "^19.0.4",
     "@playwright/test": "^1.54.2",
     "autoprefixer": "^10.4.20",
+    "dotenv": "^16.5.0",
     "eslint": "^9.21.0",
     "eslint-config-next": "15.2.2",
     "postcss": "^8.5.3",

@@ -7,16 +7,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 const masterCards = [
   {
     href: "/masters/parties",
+    testId: "masters-parties-card",
     title: "Parties",
     description: "Manufacturers, distributors, hospitals, pharmacies and customers.",
   },
   {
     href: "/masters/products",
+    testId: "masters-products-card",
     title: "Products",
     description: "SKU catalog with brand, UOM, tax and barcode metadata.",
   },
   {
     href: "/masters/warehouses",
+    testId: "masters-warehouses-card",
     title: "Warehouses",
     description: "Storage locations used by stock ledger and summary.",
   },
@@ -29,7 +32,7 @@ export default function MastersPage() {
       <MastersNav />
       <div className="grid gap-4 md:grid-cols-3">
         {masterCards.map((card) => (
-          <Link key={card.href} href={card.href}>
+          <Link key={card.href} href={card.href} data-testid={card.testId}>
             <Card className="h-full transition hover:border-primary">
               <CardHeader>
                 <CardTitle>{card.title}</CardTitle>

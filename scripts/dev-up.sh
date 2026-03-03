@@ -129,7 +129,7 @@ wait_for_tunnel() {
   local try_count=0
 
   while (( try_count < attempts )); do
-    if ! cloudflared tunnel info "$tunnel_name" 2>/dev/null | rg -q 'does not have any active connection'; then
+    if ! cloudflared tunnel info "$tunnel_name" 2>/dev/null | grep -q 'does not have any active connection'; then
       log "Cloudflare tunnel connected ($tunnel_name)"
       return 0
     fi
@@ -169,7 +169,7 @@ require_command pnpm
 require_command docker
 require_command curl
 require_command cloudflared
-require_command rg
+require_command grep
 
 WEB_URL="${NEXT_PUBLIC_APP_URL:-http://localhost:1729}"
 API_URL="${NEXT_PUBLIC_API_BASE_URL:-http://localhost:1730}"
@@ -194,11 +194,17 @@ RBAC_DB_NAME="${RBAC_POSTGRES_DB:-medhaone_rbac}"
 RBAC_DB_USER="${RBAC_POSTGRES_USER:-postgres}"
 RBAC_DB_PASSWORD="${RBAC_POSTGRES_PASSWORD:-postgres}"
 RBAC_DATABASE_URL="postgresql://${RBAC_DB_USER}:${RBAC_DB_PASSWORD}@${RBAC_DB_HOST}:${RBAC_DB_PORT}/${RBAC_DB_NAME}?schema=public"
+ERP_DATABASE_URL="postgresql+psycopg://${RBAC_DB_USER}:${RBAC_DB_PASSWORD}@127.0.0.1:${RBAC_POSTGRES_PORT:-55432}/${RBAC_DB_NAME}"
+
+log "Running ERP migrations against shared PostgreSQL"
+(cd "$ROOT_DIR/apps/api" && env "DATABASE_URL=$ERP_DATABASE_URL" pnpm migrate >/dev/null)
 
 start_bg \
   "web+api" \
   "$PID_DIR/dev.pid" \
   "$LOG_DIR/dev.log" \
+  env \
+  "DATABASE_URL=$ERP_DATABASE_URL" \
   pnpm \
   --dir \
   "$ROOT_DIR" \

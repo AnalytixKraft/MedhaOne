@@ -29,8 +29,8 @@ function buildDatabaseUrl() {
     return explicitRbacUrl;
   }
 
-  const host = process.env.RBAC_POSTGRES_HOST ?? "localhost";
-  const port = process.env.RBAC_POSTGRES_PORT ?? "5432";
+  const host = process.env.RBAC_POSTGRES_HOST ?? "127.0.0.1";
+  const port = process.env.RBAC_POSTGRES_PORT ?? "55432";
   const database = process.env.RBAC_POSTGRES_DB;
   const user = process.env.RBAC_POSTGRES_USER;
   const password = process.env.RBAC_POSTGRES_PASSWORD;

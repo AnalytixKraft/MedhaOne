@@ -6,6 +6,7 @@
   "scripts": {
     "stack:up": "bash scripts/dev-up.sh",
     "stack:down": "bash scripts/dev-down.sh",
+    "ai:test": "ts-node apps/web/e2e/ai/runner.ts",
     "dev": "concurrently -n web,api -c cyan,green \"pnpm --filter web dev\" \"pnpm --filter api dev\"",
     "rbac:db:up": "docker compose up -d rbac-postgres",
     "rbac:db:down": "docker compose stop rbac-postgres",
@@ -21,13 +22,11 @@
     "e2e:ui": "pnpm --filter web e2e:ui",
     "e2e:debug": "pnpm --filter web e2e:debug",
     "guided:test": "pnpm --filter web guided:test",
-    "guided:test:po-grn": "pnpm --filter web guided:test:po-grn",
-    "ai:test": "pnpm --filter web ai:test",
-    "ai:test:acceptance": "AI_AGENT_MODE=acceptance pnpm ai:test",
-    "ai:test:regression": "AI_AGENT_MODE=regression pnpm ai:test",
-    "ai:test:chaos": "AI_AGENT_MODE=chaos pnpm ai:test"
+    "guided:test:po-grn": "pnpm --filter web guided:test:po-grn"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.2"
   }
 }

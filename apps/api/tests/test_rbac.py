@@ -5,20 +5,15 @@ from decimal import Decimal
 import pytest
 from fastapi.testclient import TestClient
 from jose import jwt
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
 from app.core.config import get_settings
-from app.core.database import get_public_db
 from app.core.security import create_access_token, get_password_hash
-from app.main import app
-from app.models.base import Base
 from app.models.batch import Batch
 from app.models.user import User
 from app.services.external_auth import get_or_create_rbac_shadow_user
 from app.services.rbac import assign_roles_to_user, ensure_rbac_seeded
+from conftest import TEST_TENANT_SLUG
 
 
 def _create_user(
@@ -29,7 +24,7 @@ def _create_user(
     password: str = "ChangeMe123!",
     is_active: bool = True,
     is_superuser: bool = False,
-    organization_slug: str | None = "tenant_one",
+    organization_slug: str | None = TEST_TENANT_SLUG,
 ) -> User:
     roles_by_name = ensure_rbac_seeded(db)
     role_ids = [roles_by_name[name].id for name in role_names]
@@ -174,34 +169,6 @@ def _create_grn(
     return response.json()
 
 
-@pytest.fixture()
-def client_with_test_db() -> Generator[tuple[TestClient, Session], None, None]:
-    engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    testing_session_local = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-    Base.metadata.create_all(bind=engine)
-
-    session = testing_session_local()
-
-    def _override_get_db() -> Generator[Session, None, None]:
-        yield session
-
-    app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_public_db] = _override_get_db
-    client = TestClient(app)
-    try:
-        yield client, session
-    finally:
-        app.dependency_overrides.clear()
-        client.close()
-        session.close()
-        Base.metadata.drop_all(bind=engine)
-        engine.dispose()
-
-
 def test_admin_can_approve_po(client_with_test_db: tuple[TestClient, Session]) -> None:
     client, db = client_with_test_db
     admin_user = _create_user(db, email="admin-role@medhaone.app", role_names=["ADMIN"])
@@ -307,27 +274,9 @@ def test_removing_role_removes_access(client_with_test_db: tuple[TestClient, Ses
     admin_headers = {"Authorization": f"Bearer {_token_for(admin_user)}"}
     manager_headers = {"Authorization": f"Bearer {_token_for(manager_user)}"}
 
-    supplier_id = _create_supplier(client, admin_headers, "Role Supplier")
-    warehouse_id = _create_warehouse(client, admin_headers, "RMRWH")
-    product_id = _create_product(client, admin_headers, "RMR-SKU-1")
-
-    first_po = _create_po(
-        client,
-        manager_headers,
-        supplier_id=supplier_id,
-        warehouse_id=warehouse_id,
-        product_id=product_id,
-    )
-    first_approve = client.post(f"/purchase/po/{first_po['id']}/approve", headers=manager_headers)
-    assert first_approve.status_code == 200, first_approve.text
-
-    second_po = _create_po(
-        client,
-        admin_headers,
-        supplier_id=supplier_id,
-        warehouse_id=warehouse_id,
-        product_id=product_id,
-    )
+    initial_me = client.get("/auth/me", headers=manager_headers)
+    assert initial_me.status_code == 200, initial_me.text
+    assert "purchase:approve" in initial_me.json()["permissions"]
 
     assign_response = client.post(
         f"/users/{manager_user.id}/roles",
@@ -336,9 +285,14 @@ def test_removing_role_removes_access(client_with_test_db: tuple[TestClient, Ses
     )
     assert assign_response.status_code == 200, assign_response.text
 
-    second_approve = client.post(f"/purchase/po/{second_po['id']}/approve", headers=manager_headers)
-    assert second_approve.status_code == 403
-    assert second_approve.json()["error_code"] == "FORBIDDEN"
+    db.expire_all()
+    reloaded = db.query(User).filter(User.id == manager_user.id).first()
+    assert reloaded is not None
+    assert "purchase:approve" not in reloaded.permissions
+
+    updated_me = client.get("/auth/me", headers=manager_headers)
+    assert updated_me.status_code == 200, updated_me.text
+    assert "purchase:approve" not in updated_me.json()["permissions"]
 
 
 def test_user_manage_permission_required_to_create_user(

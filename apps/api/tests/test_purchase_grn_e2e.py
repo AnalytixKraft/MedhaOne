@@ -1,18 +1,12 @@
-from collections.abc import Generator
 from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, func
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import func
+from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
-from app.core.database import get_public_db
 from app.core.security import create_access_token
-from app.main import app
 from app.models.audit import AuditLog
-from app.models.base import Base
 from app.models.enums import InventoryReason, PartyType
 from app.models.inventory import InventoryLedger, StockSummary
 from app.models.role import Role
@@ -139,34 +133,6 @@ def _post_grn(client: TestClient, headers: dict[str, str], grn_id: int) -> dict:
     response = client.post(f"/purchase/grn/{grn_id}/post", headers=headers)
     assert response.status_code == 200, response.text
     return response.json()
-
-
-@pytest.fixture()
-def client_with_test_db() -> Generator[tuple[TestClient, Session], None, None]:
-    engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    testing_session_local = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-    Base.metadata.create_all(bind=engine)
-
-    session = testing_session_local()
-
-    def _override_get_db() -> Generator[Session, None, None]:
-        yield session
-
-    app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_public_db] = _override_get_db
-    client = TestClient(app)
-    try:
-        yield client, session
-    finally:
-        app.dependency_overrides.clear()
-        client.close()
-        session.close()
-        Base.metadata.drop_all(bind=engine)
-        engine.dispose()
 
 
 def test_purchase_to_grn_end_to_end(client_with_test_db: tuple[TestClient, Session]) -> None:

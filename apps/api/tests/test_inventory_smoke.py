@@ -1,17 +1,11 @@
-from collections.abc import Generator
 from datetime import date
 from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
-from app.core.database import get_public_db
 from app.core.security import create_access_token
-from app.main import app
 from app.models.base import Base
 from app.models.batch import Batch
 from app.models.inventory import StockSummary
@@ -53,34 +47,6 @@ def _get_stock_summary(
     )
     assert summary is not None
     return summary
-
-
-@pytest.fixture()
-def client_with_test_db() -> Generator[tuple[TestClient, Session], None, None]:
-    engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    testing_session_local = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-    Base.metadata.create_all(bind=engine)
-
-    session = testing_session_local()
-
-    def _override_get_db() -> Generator[Session, None, None]:
-        yield session
-
-    app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_public_db] = _override_get_db
-    client = TestClient(app)
-    try:
-        yield client, session
-    finally:
-        app.dependency_overrides.clear()
-        client.close()
-        session.close()
-        Base.metadata.drop_all(bind=engine)
-        engine.dispose()
 
 
 def test_inventory_endpoints_smoke(client_with_test_db: tuple[TestClient, Session]) -> None:

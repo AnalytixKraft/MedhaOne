@@ -1,17 +1,10 @@
-from collections.abc import Generator
 from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
-from app.core.database import get_public_db
 from app.core.security import create_access_token
-from app.main import app
-from app.models.base import Base
 from app.models.enums import InventoryReason, PartyType
 from app.models.role import Role
 from app.models.user import User
@@ -137,34 +130,6 @@ def _create_and_post_grn(
     post_response = client.post(f"/purchase/grn/{grn['id']}/post", headers=headers)
     assert post_response.status_code == 200, post_response.text
     return post_response.json()
-
-
-@pytest.fixture()
-def client_with_test_db() -> Generator[tuple[TestClient, Session], None, None]:
-    engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    testing_session_local = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-    Base.metadata.create_all(bind=engine)
-
-    session = testing_session_local()
-
-    def _override_get_db() -> Generator[Session, None, None]:
-        yield session
-
-    app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_public_db] = _override_get_db
-    client = TestClient(app)
-    try:
-        yield client, session
-    finally:
-        app.dependency_overrides.clear()
-        client.close()
-        session.close()
-        Base.metadata.drop_all(bind=engine)
-        engine.dispose()
 
 
 def _seed_report_dataset(client: TestClient, db: Session) -> dict[str, object]:

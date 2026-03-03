@@ -10,6 +10,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "20260226_0002"
@@ -17,7 +18,7 @@ down_revision: str | None = "20260225_0001"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-party_type_enum = sa.Enum(
+party_type_enum = postgresql.ENUM(
     "MANUFACTURER",
     "SUPER_STOCKIST",
     "DISTRIBUTOR",
@@ -26,22 +27,25 @@ party_type_enum = sa.Enum(
     "RETAILER",
     "CONSUMER",
     name="party_type_enum",
+    create_type=False,
 )
 
-inventory_txn_type_enum = sa.Enum(
+inventory_txn_type_enum = postgresql.ENUM(
     "IN",
     "OUT",
     "ADJUST",
     "TRANSFER",
     name="inventory_txn_type_enum",
+    create_type=False,
 )
 
-inventory_reason_enum = sa.Enum(
+inventory_reason_enum = postgresql.ENUM(
     "PURCHASE_GRN",
     "SALES_DISPATCH",
     "STOCK_ADJUSTMENT",
     "OPENING_STOCK",
     name="inventory_reason_enum",
+    create_type=False,
 )
 
 

@@ -15,18 +15,31 @@ async function proxy(request: Request, path: string[]) {
     request.headers.get("authorization") ??
     (cookieToken ? `Bearer ${cookieToken}` : null);
 
-  const response = await fetch(target, {
-    method: request.method,
-    headers: {
-      ...(contentType ? { "Content-Type": contentType } : {}),
-      ...(authorization ? { Authorization: authorization } : {}),
-    },
-    body:
-      request.method === "GET" || request.method === "HEAD"
-        ? undefined
-        : await request.text(),
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(target, {
+      method: request.method,
+      headers: {
+        ...(contentType ? { "Content-Type": contentType } : {}),
+        ...(authorization ? { Authorization: authorization } : {}),
+      },
+      body:
+        request.method === "GET" || request.method === "HEAD"
+          ? undefined
+          : await request.text(),
+      cache: "no-store",
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown RBAC proxy failure";
+    return NextResponse.json(
+      {
+        error_code: "RBAC_SERVICE_UNAVAILABLE",
+        message: `RBAC service is unavailable at ${RBAC_API_BASE_URL}`,
+        details: message,
+      },
+      { status: 502 },
+    );
+  }
 
   const raw = await response.text();
   if (!raw) {

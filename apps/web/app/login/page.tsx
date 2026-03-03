@@ -129,6 +129,7 @@ export default function LoginPage() {
                 </label>
                 <select
                   id="organization"
+                  data-testid="organization-selector"
                   value={selectedOrganization}
                   onChange={(e) => setSelectedOrganization(e.target.value)}
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-slate-950 ring-offset-background"

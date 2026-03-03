@@ -9,11 +9,7 @@ from app.core.tenancy import quote_schema_name
 
 settings = get_settings()
 
-engine_kwargs = {}
-if settings.database_url.startswith("sqlite"):
-    engine_kwargs["connect_args"] = {"check_same_thread": False}
-
-engine = create_engine(settings.database_url, pool_pre_ping=True, **engine_kwargs)
+engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 IS_POSTGRES = settings.database_url.startswith("postgresql")
 

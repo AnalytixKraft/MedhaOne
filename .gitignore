@@ -22,3 +22,6 @@ __pycache__/
 .DS_Store
 coverage
 .run/
+*.tsbuildinfo
+apps/web/e2e/ai/artifacts/*
+!apps/web/e2e/ai/artifacts/.gitkeep

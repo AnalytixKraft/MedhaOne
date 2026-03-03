@@ -85,29 +85,6 @@ def _serialize_row(row, running_balance: Decimal) -> dict[str, object]:
     }
 
 
-def _sqlite_report(db: Session, filters: StockMovementFilters) -> tuple[int, list[dict[str, object]]]:
-    stmt = _movement_base_stmt(filters).order_by(
-        InventoryLedger.created_at.asc(),
-        InventoryLedger.id.asc(),
-    )
-    rows = list(db.execute(stmt).mappings())
-    total = len(rows)
-
-    start = (filters.page - 1) * filters.page_size
-    end = start + filters.page_size
-
-    balances: dict[tuple[int, int, int], Decimal] = {}
-    data: list[dict[str, object]] = []
-
-    for idx, row in enumerate(rows):
-        key = (row["warehouse_id"], row["product_id"], row["batch_id"])
-        balances[key] = balances.get(key, Decimal("0")) + (row["signed_qty"] or Decimal("0"))
-        if start <= idx < end:
-            data.append(_serialize_row(row, balances[key]))
-
-    return total, data
-
-
 def _postgres_report(db: Session, filters: StockMovementFilters) -> tuple[int, list[dict[str, object]]]:
     stmt = _movement_base_stmt(filters)
     total = int(db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one())
@@ -141,7 +118,6 @@ def get_stock_movement_report(
 ) -> tuple[int, list[dict[str, object]]]:
     bind = db.get_bind()
     dialect_name = bind.dialect.name if bind is not None else ""
-
-    if dialect_name == "postgresql":
-        return _postgres_report(db, filters)
-    return _sqlite_report(db, filters)
+    if dialect_name != "postgresql":
+        raise RuntimeError("Stock movement reporting requires PostgreSQL")
+    return _postgres_report(db, filters)
