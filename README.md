@@ -209,6 +209,21 @@ Artifacts are written under:
 - Protected pages guarded by `middleware.ts`
 - Dashboard loads authenticated profile via `/api/auth/me` -> backend `/auth/me`
 
+## Multi-Tenant Isolation Model
+
+- Tenant data lives in PostgreSQL schemas named `org_<slug>`.
+- FastAPI tenant routes are mounted under a dedicated tenant router that always applies schema binding before route logic runs.
+- The tenant binding utility validates the JWT tenant context, verifies the organization in `public.organizations`, and sets:
+  - `SET search_path TO org_<slug>, public`
+- Pooled connections are reset back to `public` on checkout and on session cleanup to prevent tenant bleed.
+- Background and scheduled work must use `app.core.tenant.run_in_tenant_schema()` (or `app.services.tenancy.run_tenant_job()`) so non-request code gets the same schema isolation.
+
+Developers must not:
+- Add tenant ERP routes outside the tenant router
+- Accept schema names from request bodies or query params
+- Reuse a global DB session for tenant work
+- Hardcode tenant schema names in SQL
+
 ## Code Quality Tooling
 
 ### Frontend
