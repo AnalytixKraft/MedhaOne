@@ -10,6 +10,41 @@ log() {
   printf '[stack:down] %s\n' "$*"
 }
 
+stop_stale_listeners() {
+  local name="$1"
+  local port="$2"
+  local pids=()
+
+  if ! command -v lsof >/dev/null 2>&1; then
+    return 0
+  fi
+
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] && pids+=("$pid")
+  done < <(lsof -nP -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+
+  if (( ${#pids[@]} == 0 )); then
+    return 0
+  fi
+
+  log "Stopping stale $name listener(s) on port $port (${pids[*]})"
+  kill "${pids[@]}" 2>/dev/null || true
+
+  local attempts=10
+  local try_count=0
+  while (( try_count < attempts )); do
+    if ! lsof -nP -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+      return 0
+    fi
+    try_count=$((try_count + 1))
+    sleep 1
+  done
+
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] && kill -9 "$pid" 2>/dev/null || true
+  done < <(lsof -nP -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+}
+
 stop_pid_file() {
   local name="$1"
   local pid_file="$2"
@@ -48,10 +83,13 @@ stop_pid_file() {
 stop_pid_file "cloudflared" "$PID_DIR/cloudflared.pid"
 stop_pid_file "rbac-api" "$PID_DIR/rbac-api.pid"
 stop_pid_file "web+api" "$PID_DIR/dev.pid"
+stop_stale_listeners "web" "1729"
+stop_stale_listeners "api" "1730"
+stop_stale_listeners "rbac-api" "1740"
 
 if command -v pnpm >/dev/null 2>&1; then
   log "Stopping RBAC PostgreSQL"
-  (cd "$ROOT_DIR" && pnpm rbac:db:down >/dev/null) || true
+  (cd "$ROOT_DIR" && pnpm --config.engine-strict=false rbac:db:down >/dev/null) || true
 fi
 
 log "Stack is stopped"

@@ -13,6 +13,11 @@ export async function POST(request: NextRequest) {
   if (!email || !password) {
     return NextResponse.json({ detail: "Email and password are required" }, { status: 400 });
   }
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedOrganizationSlug = organization_slug?.trim().toLowerCase();
+  if (!normalizedEmail) {
+    return NextResponse.json({ detail: "Email and password are required" }, { status: 400 });
+  }
 
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:1730";
   const forwardedFor = request.headers.get("x-forwarded-for");
@@ -29,7 +34,11 @@ export async function POST(request: NextRequest) {
         ...(realIp ? { "x-real-ip": realIp } : {}),
         ...(userAgent ? { "user-agent": userAgent } : {}),
       },
-      body: JSON.stringify({ email, password, organization_slug }),
+      body: JSON.stringify({
+        email: normalizedEmail,
+        password,
+        organization_slug: normalizedOrganizationSlug || undefined,
+      }),
     });
   } catch {
     return NextResponse.json(

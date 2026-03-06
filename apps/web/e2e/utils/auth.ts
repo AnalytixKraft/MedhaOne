@@ -1,12 +1,11 @@
 import { expect, Page } from "@playwright/test";
 
-const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL ?? "admin@medhaone.app";
-const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? "ChangeMe123!";
+import { E2E_USER_EMAIL, E2E_USER_PASSWORD } from "./api";
 
 export async function loginAsAdmin(page: Page): Promise<void> {
   await page.goto("/login");
-  await page.getByTestId("login-email").fill(ADMIN_EMAIL);
-  await page.getByTestId("login-password").fill(ADMIN_PASSWORD);
+  await page.getByTestId("login-email").fill(E2E_USER_EMAIL);
+  await page.getByTestId("login-password").fill(E2E_USER_PASSWORD);
   await page.getByTestId("login-submit").click();
 
   await expect(page).toHaveURL(/\/dashboard/);

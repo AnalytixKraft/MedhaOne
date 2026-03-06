@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Date, ForeignKey, Numeric, String, UniqueConstraint
+from sqlalchemy import Date, ForeignKey, Index, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -13,6 +13,7 @@ class Batch(Base):
         UniqueConstraint(
             "product_id", "batch_no", "expiry_date", name="uq_batch_product_no_expiry"
         ),
+        Index("ix_batches_expiry_date", "expiry_date"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)

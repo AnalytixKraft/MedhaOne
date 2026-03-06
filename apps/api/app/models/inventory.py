@@ -12,6 +12,13 @@ class InventoryLedger(Base):
     __tablename__ = "inventory_ledger"
     __table_args__ = (
         Index("ix_inventory_ledger_wh_prod", "warehouse_id", "product_id"),
+        Index(
+            "ix_inventory_ledger_wh_prod_batch_created",
+            "warehouse_id",
+            "product_id",
+            "batch_id",
+            "created_at",
+        ),
         Index("ix_inventory_ledger_batch_id", "batch_id"),
         Index("ix_inventory_ledger_created_at", "created_at"),
         Index("ix_inventory_ledger_reason", "reason"),
@@ -49,6 +56,7 @@ class StockSummary(Base):
             "batch_id",
             name="uq_stock_summary_wh_product_batch",
         ),
+        Index("ix_stock_summary_wh_prod_qty", "warehouse_id", "product_id", "qty_on_hand"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)

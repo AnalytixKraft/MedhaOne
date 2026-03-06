@@ -48,5 +48,17 @@ export function buildCreateTenantSchemaSql(schemaName: string) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       CONSTRAINT ${schemaName}_company_settings_single_row CHECK (id = 1)
     );
+
+    CREATE TABLE IF NOT EXISTS ${schema}.tax_rates (
+      id SERIAL PRIMARY KEY,
+      code TEXT NOT NULL UNIQUE,
+      label TEXT NOT NULL,
+      rate_percent NUMERIC(5, 2) NOT NULL CHECK (rate_percent >= 0 AND rate_percent <= 100),
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS ${schemaName}_tax_rates_rate_idx ON ${schema}.tax_rates(rate_percent);
+    CREATE INDEX IF NOT EXISTS ${schemaName}_tax_rates_active_idx ON ${schema}.tax_rates(is_active);
   `;
 }

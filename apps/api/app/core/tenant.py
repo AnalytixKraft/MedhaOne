@@ -9,6 +9,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.database import (
     IS_POSTGRES,
     SessionLocal,
@@ -18,12 +19,14 @@ from app.core.database import (
 )
 from app.core.exceptions import AppException
 from app.core.security import decode_access_token
-from app.core.tenancy import build_tenant_schema_name, validate_org_slug
+from app.core.tenancy import build_tenant_schema_name, quote_schema_name, validate_org_slug
 from app.models.user import User
 
 bearer_scheme = HTTPBearer(auto_error=False)
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
+_SCHEMA_COMPATIBILITY_CHECKED: set[str] = set()
+settings = get_settings()
 
 
 def get_token_payload(
@@ -61,6 +64,7 @@ def ensure_tenant_db_context(
         return
 
     set_tenant_search_path(db, tenant_schema)
+    _ensure_runtime_schema_compatibility(db, tenant_schema)
     _assert_tenant_search_path(db, tenant_schema)
 
 
@@ -98,6 +102,27 @@ def validate_tenant_header_or_raise(authorization_header: str | None) -> None:
         _resolve_tenant_schema_from_payload(payload=payload, db=db, allow_superuser_bypass=True)
 
 
+def bootstrap_schema_compatibility() -> None:
+    if not IS_POSTGRES:
+        return
+
+    with SessionLocal() as db:
+        _ensure_runtime_schema_compatibility(db, "public")
+        tenant_schemas = db.execute(
+            text(
+                """
+                SELECT schema_name
+                FROM public.organizations
+                WHERE is_active IS TRUE
+                """
+            )
+        ).scalars().all()
+
+        for tenant_schema in tenant_schemas:
+            if isinstance(tenant_schema, str):
+                _ensure_runtime_schema_compatibility(db, tenant_schema)
+
+
 def run_in_tenant_schema(schema_slug: str, func: Callable[[Session], T]) -> T:
     if not IS_POSTGRES:
         raise AppException(
@@ -112,6 +137,7 @@ def run_in_tenant_schema(schema_slug: str, func: Callable[[Session], T]) -> T:
     with SessionLocal() as db:
         _validate_tenant_organization(db, safe_slug, schema_name)
         set_tenant_search_path(db, schema_name)
+        _ensure_runtime_schema_compatibility(db, schema_name)
         _assert_tenant_search_path(db, schema_name)
         logger.info(
             "Running tenant-scoped unit of work",
@@ -143,6 +169,8 @@ def _resolve_tenant_schema_from_payload(
             expected_schema = build_tenant_schema_name(org_slug)
             if not IS_POSTGRES:
                 return expected_schema
+            if _allow_ephemeral_test_schema(db, org_slug, expected_schema):
+                return expected_schema
             _validate_tenant_organization(db, org_slug, expected_schema)
             return expected_schema
         raise AppException(
@@ -162,6 +190,9 @@ def _resolve_tenant_schema_from_payload(
         )
 
     if not IS_POSTGRES:
+        return expected_schema
+
+    if _allow_ephemeral_test_schema(db, org_slug, expected_schema):
         return expected_schema
 
     _validate_tenant_organization(db, org_slug, expected_schema)
@@ -258,3 +289,229 @@ def _assert_tenant_search_path(db: Session, expected_schema: str) -> None:
             message="Database search_path is not bound to the expected tenant",
             status_code=500,
         )
+
+
+def _ensure_runtime_schema_compatibility(db: Session, schema_name: str) -> None:
+    if not IS_POSTGRES or schema_name in _SCHEMA_COMPATIBILITY_CHECKED:
+        return
+
+    products_table_exists = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = :schema_name
+              AND table_name = 'products'
+            """
+        ),
+        {"schema_name": schema_name},
+    ).scalar_one_or_none()
+
+    if products_table_exists is None:
+        return
+
+    quantity_precision_exists = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = :schema_name
+              AND table_name = 'products'
+              AND column_name = 'quantity_precision'
+            """
+        ),
+        {"schema_name": schema_name},
+    ).scalar_one_or_none()
+
+    if quantity_precision_exists is None:
+        db.execute(
+            text(
+                f"""
+                ALTER TABLE {_build_quoted_schema_table(schema_name, "products")}
+                ADD COLUMN IF NOT EXISTS quantity_precision INTEGER NOT NULL DEFAULT 0
+                """
+            )
+        )
+        db.commit()
+        logger.warning(
+            "Auto-repaired tenant schema to add missing products.quantity_precision",
+            extra={"schema": schema_name},
+        )
+
+    parties_table_exists = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = :schema_name
+              AND table_name = 'parties'
+            """
+        ),
+        {"schema_name": schema_name},
+    ).scalar_one_or_none()
+
+    if parties_table_exists is not None:
+        gstin_exists = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = :schema_name
+                  AND table_name = 'parties'
+                  AND column_name = 'gstin'
+                """
+            ),
+            {"schema_name": schema_name},
+        ).scalar_one_or_none()
+
+        if gstin_exists is None:
+            db.execute(
+                text(
+                    f"""
+                    ALTER TABLE {_build_quoted_schema_table(schema_name, "parties")}
+                    ADD COLUMN IF NOT EXISTS gstin VARCHAR(15)
+                    """
+                )
+            )
+            db.commit()
+            logger.warning(
+                "Auto-repaired tenant schema to add missing parties.gstin",
+                extra={"schema": schema_name},
+            )
+
+        pan_exists = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = :schema_name
+                  AND table_name = 'parties'
+                  AND column_name = 'pan_number'
+                """
+            ),
+            {"schema_name": schema_name},
+        ).scalar_one_or_none()
+
+        if pan_exists is None:
+            db.execute(
+                text(
+                    f"""
+                    ALTER TABLE {_build_quoted_schema_table(schema_name, "parties")}
+                    ADD COLUMN IF NOT EXISTS pan_number VARCHAR(10)
+                    """
+                )
+            )
+            db.commit()
+            logger.warning(
+                "Auto-repaired tenant schema to add missing parties.pan_number",
+                extra={"schema": schema_name},
+            )
+
+        state_exists = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = :schema_name
+                  AND table_name = 'parties'
+                  AND column_name = 'state'
+                """
+            ),
+            {"schema_name": schema_name},
+        ).scalar_one_or_none()
+
+        if state_exists is None:
+            db.execute(
+                text(
+                    f"""
+                    ALTER TABLE {_build_quoted_schema_table(schema_name, "parties")}
+                    ADD COLUMN IF NOT EXISTS state VARCHAR(120)
+                    """
+                )
+            )
+            db.commit()
+            logger.warning(
+                "Auto-repaired tenant schema to add missing parties.state",
+                extra={"schema": schema_name},
+            )
+
+        city_exists = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = :schema_name
+                  AND table_name = 'parties'
+                  AND column_name = 'city'
+                """
+            ),
+            {"schema_name": schema_name},
+        ).scalar_one_or_none()
+
+        if city_exists is None:
+            db.execute(
+                text(
+                    f"""
+                    ALTER TABLE {_build_quoted_schema_table(schema_name, "parties")}
+                    ADD COLUMN IF NOT EXISTS city VARCHAR(120)
+                    """
+                )
+            )
+            db.commit()
+            logger.warning(
+                "Auto-repaired tenant schema to add missing parties.city",
+                extra={"schema": schema_name},
+            )
+
+        pincode_exists = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = :schema_name
+                  AND table_name = 'parties'
+                  AND column_name = 'pincode'
+                """
+            ),
+            {"schema_name": schema_name},
+        ).scalar_one_or_none()
+
+        if pincode_exists is None:
+            db.execute(
+                text(
+                    f"""
+                    ALTER TABLE {_build_quoted_schema_table(schema_name, "parties")}
+                    ADD COLUMN IF NOT EXISTS pincode VARCHAR(10)
+                    """
+                )
+            )
+            db.commit()
+            logger.warning(
+                "Auto-repaired tenant schema to add missing parties.pincode",
+                extra={"schema": schema_name},
+            )
+
+    _SCHEMA_COMPATIBILITY_CHECKED.add(schema_name)
+
+
+def _build_quoted_schema_table(schema_name: str, table_name: str) -> str:
+    return f'{quote_schema_name(schema_name)}.{table_name}'
+
+
+def _allow_ephemeral_test_schema(db: Session, org_slug: str, expected_schema: str) -> bool:
+    if not settings.enable_test_endpoints:
+        return False
+    if not org_slug.startswith("e2e_"):
+        return False
+
+    schema_exists = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.schemata
+            WHERE schema_name = :schema_name
+            """
+        ),
+        {"schema_name": expected_schema},
+    ).scalar_one_or_none()
+    return schema_exists is not None

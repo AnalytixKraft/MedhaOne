@@ -11,6 +11,7 @@ import {
   Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import Link from "next/link";
 
 import { usePermissions } from "@/components/auth/permission-provider";
 import { PageTitle } from "@/components/layout/page-title";
@@ -18,10 +19,16 @@ import {
   apiClient,
   type CompanySettings,
   type CompanySettingsPayload,
+  type TaxRate,
 } from "@/lib/api/client";
 import { rbacClient, type OrgUserRecord } from "@/lib/rbac/client";
 
-type SettingsTab = "overview" | "company-profile" | "organization-users" | "branding";
+type SettingsTab =
+  | "overview"
+  | "company-profile"
+  | "organization-users"
+  | "taxes"
+  | "branding";
 
 type FormState = {
   company_name: string;
@@ -40,6 +47,13 @@ type UserFormState = {
   email: string;
   password: string;
   role: "READ_WRITE" | "SERVICE_SUPPORT" | "VIEW_ONLY";
+};
+
+type TaxRateFormState = {
+  code: string;
+  label: string;
+  rate_percent: string;
+  is_active: boolean;
 };
 
 const emptyForm: FormState = {
@@ -61,10 +75,18 @@ const emptyUserForm: UserFormState = {
   role: "READ_WRITE",
 };
 
+const emptyTaxRateForm: TaxRateFormState = {
+  code: "",
+  label: "",
+  rate_percent: "",
+  is_active: true,
+};
+
 const tabs: Array<{ id: SettingsTab; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "company-profile", label: "Company Profile" },
   { id: "organization-users", label: "Organization Users" },
+  { id: "taxes", label: "Taxes" },
   { id: "branding", label: "Branding" },
 ];
 
@@ -85,11 +107,24 @@ export default function SettingsPage() {
   const [creatingUser, setCreatingUser] = useState(false);
   const [userForm, setUserForm] = useState<UserFormState>(emptyUserForm);
   const [userFormTouched, setUserFormTouched] = useState(false);
+  const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
+  const [taxesLoading, setTaxesLoading] = useState(true);
+  const [savingTaxRate, setSavingTaxRate] = useState(false);
+  const [taxRateForm, setTaxRateForm] = useState<TaxRateFormState>(emptyTaxRateForm);
+  const [taxRateFormTouched, setTaxRateFormTouched] = useState(false);
+  const [editingTaxRateId, setEditingTaxRateId] = useState<number | null>(null);
 
   const hasTenantContext = Boolean(user?.organization_slug);
+  const isOrgAdmin =
+    !!user &&
+    (user.role?.name === "ORG_ADMIN" ||
+      user.roles.some((role) => role.name === "ORG_ADMIN"));
   const canEditCompany = !!user && (user.is_superuser || hasPermission("settings:update"));
   const canManageUsers = !!user && (user.is_superuser || hasPermission("settings:update"));
-  const tabLoading = companyLoading || usersLoading;
+  const canViewTaxes = !!user && (user.is_superuser || isOrgAdmin || hasPermission("tax:view"));
+  const canManageTaxes =
+    !!user && (user.is_superuser || isOrgAdmin || hasPermission("tax:manage"));
+  const tabLoading = companyLoading || usersLoading || taxesLoading;
 
   useEffect(() => {
     if (!canEditCompany) {
@@ -112,20 +147,24 @@ export default function SettingsPage() {
       if (!hasTenantContext) {
         setCompanyLoading(false);
         setUsersLoading(false);
+        setTaxesLoading(false);
         return;
       }
 
       setCompanyLoading(true);
       setUsersLoading(true);
+      setTaxesLoading(true);
       try {
-        const [company, users] = await Promise.all([
+        const [company, users, taxes] = await Promise.all([
           apiClient.getCompanySettings(),
           rbacClient.listUsers(),
+          canViewTaxes ? apiClient.listTaxRates(true) : Promise.resolve([] as TaxRate[]),
         ]);
         if (!cancelled) {
           hydrateCompany(company);
           setCompanySettings(company);
           setOrgUsers(users);
+          setTaxRates(taxes);
           setError(null);
         }
       } catch (caught) {
@@ -136,6 +175,7 @@ export default function SettingsPage() {
         if (!cancelled) {
           setCompanyLoading(false);
           setUsersLoading(false);
+          setTaxesLoading(false);
         }
       }
     }
@@ -144,7 +184,7 @@ export default function SettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [hasTenantContext]);
+  }, [canViewTaxes, hasTenantContext]);
 
   const fieldErrors = useMemo(() => {
     const errors: Partial<Record<keyof FormState, string>> = {};
@@ -174,8 +214,47 @@ export default function SettingsPage() {
     return errors;
   }, [userForm.email, userForm.fullName, userForm.password]);
 
+  const taxRateFormErrors = useMemo(() => {
+    const errors: Partial<Record<keyof TaxRateFormState, string>> = {};
+    const normalizedCode = taxRateForm.code.trim().toUpperCase();
+    if (!normalizedCode) {
+      errors.code = "Code is required.";
+    } else if (!/^[A-Z0-9_]+$/.test(normalizedCode)) {
+      errors.code = "Use uppercase letters, numbers, and underscore only.";
+    }
+
+    if (!taxRateForm.label.trim()) {
+      errors.label = "Label is required.";
+    }
+
+    const rate = Number.parseFloat(taxRateForm.rate_percent);
+    if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
+      errors.rate_percent = "Rate must be between 0 and 100.";
+    } else {
+      const hasDuplicateActiveRate = taxRates.some(
+        (rateRecord) =>
+          rateRecord.is_active &&
+          rateRecord.id !== editingTaxRateId &&
+          Math.abs(Number.parseFloat(rateRecord.rate_percent) - rate) < 0.000_001,
+      );
+      if (hasDuplicateActiveRate && taxRateForm.is_active) {
+        errors.rate_percent = "An active tax rate with this percent already exists.";
+      }
+    }
+
+    return errors;
+  }, [
+    editingTaxRateId,
+    taxRateForm.code,
+    taxRateForm.is_active,
+    taxRateForm.label,
+    taxRateForm.rate_percent,
+    taxRates,
+  ]);
+
   const companyIsValid = Object.keys(fieldErrors).length === 0;
   const userFormIsValid = Object.keys(userFormErrors).length === 0;
+  const taxRateFormIsValid = Object.keys(taxRateFormErrors).length === 0;
 
   const adminCount = useMemo(
     () => orgUsers.filter((member) => member.role === "ORG_ADMIN").length,
@@ -184,6 +263,10 @@ export default function SettingsPage() {
   const pendingInvites = useMemo(
     () => orgUsers.filter((member) => !member.lastLoginAt).length,
     [orgUsers],
+  );
+  const activeTaxRatesCount = useMemo(
+    () => taxRates.filter((taxRate) => taxRate.is_active).length,
+    [taxRates],
   );
   const companyName =
     companySettings?.company_name?.trim() ||
@@ -281,6 +364,83 @@ export default function SettingsPage() {
     }
   };
 
+  const resetTaxRateForm = () => {
+    setTaxRateForm(emptyTaxRateForm);
+    setTaxRateFormTouched(false);
+    setEditingTaxRateId(null);
+  };
+
+  const handleSaveTaxRate = async () => {
+    setTaxRateFormTouched(true);
+    if (!canManageTaxes || !taxRateFormIsValid) {
+      return;
+    }
+
+    const normalizedCode = taxRateForm.code.trim().toUpperCase();
+    const payload = {
+      code: normalizedCode,
+      label: taxRateForm.label.trim(),
+      rate_percent: Number.parseFloat(taxRateForm.rate_percent),
+      is_active: taxRateForm.is_active,
+    };
+
+    setSavingTaxRate(true);
+    setError(null);
+    try {
+      const saved = editingTaxRateId
+        ? await apiClient.updateTaxRate(editingTaxRateId, payload)
+        : await apiClient.createTaxRate(payload);
+
+      setTaxRates((current) => {
+        if (editingTaxRateId) {
+          return current.map((item) => (item.id === saved.id ? saved : item));
+        }
+        return [saved, ...current];
+      });
+
+      setToast(editingTaxRateId ? "Tax rate updated" : "Tax rate added");
+      resetTaxRateForm();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to save tax rate");
+    } finally {
+      setSavingTaxRate(false);
+    }
+  };
+
+  const handleEditTaxRate = (taxRate: TaxRate) => {
+    setEditingTaxRateId(taxRate.id);
+    setTaxRateFormTouched(false);
+    setTaxRateForm({
+      code: taxRate.code,
+      label: taxRate.label,
+      rate_percent: Number.parseFloat(taxRate.rate_percent).toString(),
+      is_active: taxRate.is_active,
+    });
+    setActiveTab("taxes");
+  };
+
+  const handleToggleTaxRate = async (taxRate: TaxRate) => {
+    if (!canManageTaxes) {
+      return;
+    }
+
+    setSavingTaxRate(true);
+    setError(null);
+    try {
+      const updated = await apiClient.updateTaxRate(taxRate.id, {
+        is_active: !taxRate.is_active,
+      });
+      setTaxRates((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setToast(updated.is_active ? "Tax rate activated" : "Tax rate deactivated");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to update tax rate");
+    } finally {
+      setSavingTaxRate(false);
+    }
+  };
+
   if (permissionsLoading) {
     return (
       <div className="space-y-6">
@@ -316,6 +476,14 @@ export default function SettingsPage() {
         title="Settings"
         description="Company profile, users, and branding controls for the current organization."
       />
+      <div className="flex justify-end">
+        <Link
+          href="/settings/bulk-import"
+          className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+        >
+          Bulk Import
+        </Link>
+      </div>
 
       {toast ? (
         <div className="fixed right-4 top-20 z-50 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 shadow-lg">
@@ -350,13 +518,13 @@ export default function SettingsPage() {
 
       {activeTab === "overview" ? (
         tabLoading ? (
-          <div className="grid gap-4 lg:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, index) => (
+          <div className="grid gap-4 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, index) => (
               <div key={index} className="h-48 animate-pulse rounded-3xl bg-muted" />
             ))}
           </div>
         ) : (
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-4">
           <OverviewCard
             icon={Building2}
             title="Company Summary"
@@ -386,6 +554,20 @@ export default function SettingsPage() {
             <OverviewRow label="Total Users" value={String(orgUsers.length)} />
             <OverviewRow label="Admin Count" value={String(adminCount)} />
             <OverviewRow label="Pending Invites" value={String(pendingInvites)} />
+          </OverviewCard>
+
+          <OverviewCard
+            icon={Shield}
+            title="Tax Master"
+            actionLabel={canViewTaxes ? "Manage Taxes" : "View Taxes"}
+            onAction={() => setActiveTab("taxes")}
+          >
+            <OverviewRow label="Total Slabs" value={String(taxRates.length)} />
+            <OverviewRow label="Active Slabs" value={String(activeTaxRatesCount)} />
+            <OverviewRow
+              label="Manage Access"
+              value={canManageTaxes ? "tax:manage" : "Read only"}
+            />
           </OverviewCard>
 
           <OverviewCard
@@ -691,6 +873,170 @@ export default function SettingsPage() {
                 </tbody>
               </table>
             </div>
+          )}
+        </section>
+      ) : null}
+
+      {activeTab === "taxes" ? (
+        <section className="rounded-3xl border bg-card p-6 shadow-sm">
+          <div className="flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Tax Rates</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Tenant-scoped GST rates used by purchase transactions.
+              </p>
+            </div>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600">
+              {activeTaxRatesCount} active / {taxRates.length} total
+            </span>
+          </div>
+
+          {!canViewTaxes ? (
+            <p className="mt-5 text-sm text-muted-foreground">
+              You do not have permission to view tax rates.
+            </p>
+          ) : (
+            <>
+              <div className="mt-5 rounded-3xl border bg-background p-5">
+                <div className="grid gap-4 md:grid-cols-4">
+                  <Field
+                    label="Code"
+                    value={taxRateForm.code}
+                    onChange={(value) =>
+                      setTaxRateForm((current) => ({ ...current, code: value.toUpperCase() }))
+                    }
+                    disabled={!canManageTaxes}
+                    error={taxRateFormTouched ? taxRateFormErrors.code : undefined}
+                  />
+                  <Field
+                    label="Label"
+                    value={taxRateForm.label}
+                    onChange={(value) =>
+                      setTaxRateForm((current) => ({ ...current, label: value }))
+                    }
+                    disabled={!canManageTaxes}
+                    error={taxRateFormTouched ? taxRateFormErrors.label : undefined}
+                    className="md:col-span-2"
+                  />
+                  <Field
+                    label="Rate %"
+                    value={taxRateForm.rate_percent}
+                    onChange={(value) =>
+                      setTaxRateForm((current) => ({ ...current, rate_percent: value }))
+                    }
+                    disabled={!canManageTaxes}
+                    error={taxRateFormTouched ? taxRateFormErrors.rate_percent : undefined}
+                  />
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <label className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={taxRateForm.is_active}
+                      disabled={!canManageTaxes}
+                      onChange={(event) =>
+                        setTaxRateForm((current) => ({
+                          ...current,
+                          is_active: event.target.checked,
+                        }))
+                      }
+                    />
+                    Active
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveTaxRate}
+                    disabled={savingTaxRate || !canManageTaxes}
+                    className="inline-flex items-center gap-2 rounded-2xl bg-foreground px-4 py-2.5 text-sm font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {savingTaxRate ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    <span>{editingTaxRateId ? "Update Tax Rate" : "Add Tax Rate"}</span>
+                  </button>
+                  {editingTaxRateId ? (
+                    <button
+                      type="button"
+                      onClick={resetTaxRateForm}
+                      className="rounded-2xl border px-4 py-2.5 text-sm font-medium"
+                    >
+                      Cancel
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              {taxesLoading ? (
+                <div className="mt-6 grid gap-3">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <div key={index} className="h-14 animate-pulse rounded-2xl bg-muted" />
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-6 overflow-x-auto">
+                  <table className="min-w-full">
+                    <thead>
+                      <tr className="border-b text-left text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                        <th className="px-2 py-3">Code</th>
+                        <th className="px-2 py-3">Label</th>
+                        <th className="px-2 py-3 text-right">Rate %</th>
+                        <th className="px-2 py-3">Status</th>
+                        <th className="px-2 py-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {taxRates
+                        .slice()
+                        .sort(
+                          (left, right) =>
+                            Number.parseFloat(left.rate_percent) -
+                            Number.parseFloat(right.rate_percent),
+                        )
+                        .map((taxRate) => (
+                          <tr key={taxRate.id} className="border-b last:border-b-0">
+                            <td className="px-2 py-4 text-sm font-medium">{taxRate.code}</td>
+                            <td className="px-2 py-4 text-sm">{taxRate.label}</td>
+                            <td className="px-2 py-4 text-right text-sm tabular-nums">
+                              {Number.parseFloat(taxRate.rate_percent).toFixed(2)}
+                            </td>
+                            <td className="px-2 py-4">
+                              <span
+                                className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                                  taxRate.is_active
+                                    ? "bg-emerald-50 text-emerald-700"
+                                    : "bg-slate-100 text-slate-700"
+                                }`}
+                              >
+                                {taxRate.is_active ? "Active" : "Inactive"}
+                              </span>
+                            </td>
+                            <td className="px-2 py-4 text-right">
+                              <div className="inline-flex items-center gap-3 text-sm">
+                                <button
+                                  type="button"
+                                  onClick={() => handleEditTaxRate(taxRate)}
+                                  disabled={!canManageTaxes}
+                                  className="font-medium text-sky-600 disabled:cursor-not-allowed disabled:text-slate-400"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleToggleTaxRate(taxRate)}
+                                  disabled={!canManageTaxes || savingTaxRate}
+                                  className="font-medium text-slate-600 disabled:cursor-not-allowed disabled:text-slate-400"
+                                >
+                                  {taxRate.is_active ? "Deactivate" : "Activate"}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
           )}
         </section>
       ) : null}

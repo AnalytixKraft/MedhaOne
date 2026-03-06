@@ -16,7 +16,12 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.enums import GrnStatus, PurchaseOrderStatus
+from app.models.enums import (
+    GrnStatus,
+    PurchaseCreditNoteStatus,
+    PurchaseOrderStatus,
+    PurchaseReturnStatus,
+)
 
 
 class PurchaseOrder(Base):
@@ -138,3 +143,97 @@ class GRNLine(Base):
     po_line = relationship("PurchaseOrderLine", back_populates="grn_lines")
     product = relationship("Product")
     batch = relationship("Batch")
+
+
+class PurchaseReturn(Base):
+    __tablename__ = "purchase_returns"
+    __table_args__ = (
+        Index("ix_purchase_returns_supplier_id", "supplier_id"),
+        Index("ix_purchase_returns_warehouse_id", "warehouse_id"),
+        Index("ix_purchase_returns_status", "status"),
+        Index("ix_purchase_returns_posted_at", "posted_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    return_number: Mapped[str] = mapped_column(String(60), nullable=False, unique=True, index=True)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("parties.id"), nullable=False)
+    warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), nullable=False)
+    status: Mapped[PurchaseReturnStatus] = mapped_column(
+        Enum(PurchaseReturnStatus, name="purchase_return_status_enum"),
+        nullable=False,
+        default=PurchaseReturnStatus.DRAFT,
+    )
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    posted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    supplier = relationship("Party")
+    warehouse = relationship("Warehouse")
+    creator = relationship("User", foreign_keys=[created_by])
+    poster = relationship("User", foreign_keys=[posted_by])
+    lines = relationship(
+        "PurchaseReturnLine",
+        back_populates="purchase_return",
+        cascade="all, delete-orphan",
+    )
+    credit_note = relationship(
+        "PurchaseCreditNote",
+        back_populates="purchase_return",
+        uselist=False,
+    )
+
+
+class PurchaseReturnLine(Base):
+    __tablename__ = "purchase_return_lines"
+    __table_args__ = (
+        Index("ix_purchase_return_lines_purchase_return_id", "purchase_return_id"),
+        CheckConstraint("quantity > 0", name="ck_purchase_return_line_quantity_gt_zero"),
+        CheckConstraint("unit_cost >= 0", name="ck_purchase_return_line_unit_cost_non_negative"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    purchase_return_id: Mapped[int] = mapped_column(
+        ForeignKey("purchase_returns.id"), nullable=False
+    )
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False)
+    batch_id: Mapped[int] = mapped_column(ForeignKey("batches.id"), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
+    unit_cost: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False)
+
+    purchase_return = relationship("PurchaseReturn", back_populates="lines")
+    product = relationship("Product")
+    batch = relationship("Batch")
+
+
+class PurchaseCreditNote(Base):
+    __tablename__ = "purchase_credit_notes"
+    __table_args__ = (
+        Index("ix_purchase_credit_notes_supplier_id", "supplier_id"),
+        Index("ix_purchase_credit_notes_warehouse_id", "warehouse_id"),
+        Index("ix_purchase_credit_notes_status", "status"),
+        Index("ix_purchase_credit_notes_created_at", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    credit_note_number: Mapped[str] = mapped_column(
+        String(60), nullable=False, unique=True, index=True
+    )
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("parties.id"), nullable=False)
+    warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), nullable=False)
+    purchase_return_id: Mapped[int] = mapped_column(
+        ForeignKey("purchase_returns.id"), nullable=False, unique=True
+    )
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    status: Mapped[PurchaseCreditNoteStatus] = mapped_column(
+        Enum(PurchaseCreditNoteStatus, name="purchase_credit_note_status_enum"),
+        nullable=False,
+        default=PurchaseCreditNoteStatus.GENERATED,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+
+    supplier = relationship("Party")
+    warehouse = relationship("Warehouse")
+    purchase_return = relationship("PurchaseReturn", back_populates="credit_note")
+    creator = relationship("User")

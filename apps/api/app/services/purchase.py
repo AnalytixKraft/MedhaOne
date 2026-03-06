@@ -11,10 +11,24 @@ from app.core.exceptions import AppException
 from app.domain.state_machine import PurchaseStateMachine
 from app.models.audit import AuditLog
 from app.models.batch import Batch
-from app.models.enums import GrnStatus, InventoryReason, PurchaseOrderStatus
+from app.models.enums import (
+    GrnStatus,
+    InventoryReason,
+    PurchaseCreditNoteStatus,
+    PurchaseOrderStatus,
+    PurchaseReturnStatus,
+)
 from app.models.party import Party
 from app.models.product import Product
-from app.models.purchase import GRN, GRNLine, PurchaseOrder, PurchaseOrderLine
+from app.models.purchase import (
+    GRN,
+    GRNLine,
+    PurchaseCreditNote,
+    PurchaseOrder,
+    PurchaseOrderLine,
+    PurchaseReturn,
+    PurchaseReturnLine,
+)
 from app.models.warehouse import Warehouse
 from app.schemas.purchase import GRNCreateFromPO, PurchaseOrderCreate
 from app.services.inventory import stock_in
@@ -30,6 +44,14 @@ def _new_po_number() -> str:
 
 def _new_grn_number() -> str:
     return f"GRN-{uuid4().hex[:10].upper()}"
+
+
+def _new_purchase_return_number() -> str:
+    return f"PRN-{uuid4().hex[:10].upper()}"
+
+
+def _new_credit_note_number() -> str:
+    return f"PCN-{uuid4().hex[:10].upper()}"
 
 
 def _raise_purchase_error(
@@ -65,6 +87,24 @@ def _get_grn_with_lines(db: Session, grn_id: int, lock: bool = False) -> GRN | N
     return db.execute(stmt).scalar_one_or_none()
 
 
+def _get_purchase_return_with_lines(
+    db: Session,
+    purchase_return_id: int,
+    lock: bool = False,
+) -> PurchaseReturn | None:
+    stmt = (
+        select(PurchaseReturn)
+        .where(PurchaseReturn.id == purchase_return_id)
+        .options(
+            selectinload(PurchaseReturn.lines),
+            selectinload(PurchaseReturn.credit_note),
+        )
+    )
+    if lock:
+        stmt = stmt.with_for_update()
+    return db.execute(stmt).scalar_one_or_none()
+
+
 def _assert_master_refs(db: Session, *, supplier_id: int, warehouse_id: int) -> None:
     if not db.get(Party, supplier_id):
         _raise_purchase_error(
@@ -87,6 +127,23 @@ def _assert_product_exists(db: Session, product_id: int) -> None:
             message=f"Product not found: {product_id}",
             status_code=404,
         )
+
+
+def _assert_batch_exists_for_product(db: Session, *, batch_id: int, product_id: int) -> Batch:
+    batch = db.get(Batch, batch_id)
+    if not batch:
+        _raise_purchase_error(
+            error_code="NOT_FOUND",
+            message="Batch not found",
+            status_code=404,
+        )
+    if batch.product_id != product_id:
+        _raise_purchase_error(
+            error_code="INVALID_STATE",
+            message="Batch does not belong to the selected product",
+            status_code=400,
+        )
+    return batch
 
 
 def _assert_po_receivable(po: PurchaseOrder) -> None:
@@ -177,6 +234,68 @@ def create_po(db: Session, payload: PurchaseOrderCreate, created_by: int) -> Pur
         raise
 
     return _get_po_with_lines(db, po.id)  # type: ignore[return-value]
+
+
+def create_purchase_return(
+    db: Session,
+    *,
+    supplier_id: int,
+    warehouse_id: int,
+    lines: list[dict[str, object]],
+    created_by: int,
+) -> PurchaseReturn:
+    if not lines:
+        _raise_purchase_error(
+            error_code="INVALID_STATE",
+            message="Purchase return must include at least one line",
+            status_code=400,
+        )
+
+    _assert_master_refs(db, supplier_id=supplier_id, warehouse_id=warehouse_id)
+
+    try:
+        purchase_return = PurchaseReturn(
+            return_number=_new_purchase_return_number(),
+            supplier_id=supplier_id,
+            warehouse_id=warehouse_id,
+            status=PurchaseReturnStatus.DRAFT,
+            created_by=created_by,
+        )
+        db.add(purchase_return)
+        db.flush()
+
+        for line in lines:
+            product_id = int(line["product_id"])
+            batch_id = int(line["batch_id"])
+            quantity = _as_decimal(line["quantity"])
+            unit_cost = _as_decimal(line["unit_cost"])
+
+            _assert_product_exists(db, product_id)
+            _assert_batch_exists_for_product(db, batch_id=batch_id, product_id=product_id)
+
+            purchase_return.lines.append(
+                PurchaseReturnLine(
+                    product_id=product_id,
+                    batch_id=batch_id,
+                    quantity=quantity,
+                    unit_cost=unit_cost,
+                )
+            )
+
+        _add_audit_log(
+            db,
+            entity_type="PURCHASE_RETURN",
+            entity_id=purchase_return.id,
+            action="CREATE",
+            performed_by=created_by,
+            metadata={"return_number": purchase_return.return_number},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    return _get_purchase_return_with_lines(db, purchase_return.id)  # type: ignore[return-value]
 
 
 def approve_po(db: Session, po_id: int, user_id: int) -> PurchaseOrder:
@@ -511,3 +630,85 @@ def post_grn(db: Session, grn_id: int, user_id: int) -> GRN:
 
     return _get_grn_with_lines(db, grn_id)  # type: ignore[return-value]
 
+
+def post_purchase_return(db: Session, purchase_return_id: int, user_id: int) -> PurchaseReturn:
+    try:
+        purchase_return = _get_purchase_return_with_lines(db, purchase_return_id, lock=True)
+        if not purchase_return:
+            _raise_purchase_error(
+                error_code="NOT_FOUND",
+                message="Purchase return not found",
+                status_code=404,
+            )
+
+        if purchase_return.status == PurchaseReturnStatus.POSTED:
+            _raise_purchase_error(
+                error_code="INVALID_STATE",
+                message="Purchase return already posted",
+                status_code=409,
+            )
+        if purchase_return.status == PurchaseReturnStatus.CANCELLED:
+            _raise_purchase_error(
+                error_code="INVALID_STATE",
+                message="Cancelled purchase return cannot be posted",
+                status_code=409,
+            )
+        if not purchase_return.lines:
+            _raise_purchase_error(
+                error_code="INVALID_STATE",
+                message="Cannot post an empty purchase return",
+                status_code=409,
+            )
+        if purchase_return.credit_note is not None:
+            _raise_purchase_error(
+                error_code="INVALID_STATE",
+                message="Purchase credit note already exists for this return",
+                status_code=409,
+            )
+
+        total_amount = sum(
+            (_as_decimal(line.quantity) * _as_decimal(line.unit_cost))
+            for line in purchase_return.lines
+        )
+
+        purchase_return.status = PurchaseReturnStatus.POSTED
+        purchase_return.posted_at = datetime.now(timezone.utc)
+        purchase_return.posted_by = user_id
+
+        credit_note = PurchaseCreditNote(
+            credit_note_number=_new_credit_note_number(),
+            supplier_id=purchase_return.supplier_id,
+            warehouse_id=purchase_return.warehouse_id,
+            purchase_return_id=purchase_return.id,
+            total_amount=total_amount,
+            status=PurchaseCreditNoteStatus.GENERATED,
+            created_by=user_id,
+        )
+        db.add(credit_note)
+        db.flush()
+
+        _add_audit_log(
+            db,
+            entity_type="PURCHASE_RETURN",
+            entity_id=purchase_return.id,
+            action="POST",
+            performed_by=user_id,
+            metadata={"return_number": purchase_return.return_number},
+        )
+        _add_audit_log(
+            db,
+            entity_type="PURCHASE_CREDIT_NOTE",
+            entity_id=credit_note.id,
+            action="GENERATE",
+            performed_by=user_id,
+            metadata={
+                "purchase_return_id": purchase_return.id,
+                "credit_note_number": credit_note.credit_note_number,
+            },
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    return _get_purchase_return_with_lines(db, purchase_return_id)  # type: ignore[return-value]

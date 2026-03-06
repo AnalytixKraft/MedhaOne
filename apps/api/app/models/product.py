@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, Numeric, String, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Integer, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -9,12 +9,24 @@ from app.core.database import Base
 
 class Product(Base):
     __tablename__ = "products"
+    __table_args__ = (
+        CheckConstraint(
+            "quantity_precision >= 0 AND quantity_precision <= 3",
+            name="ck_products_quantity_precision_range",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     sku: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     brand: Mapped[str | None] = mapped_column(String(120), nullable=True)
     uom: Mapped[str] = mapped_column(String(30), nullable=False)
+    quantity_precision: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
     barcode: Mapped[str | None] = mapped_column(String(120), nullable=True)
     hsn: Mapped[str | None] = mapped_column(String(50), nullable=True)
     gst_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)

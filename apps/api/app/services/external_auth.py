@@ -26,10 +26,11 @@ RBAC_TO_LOCAL_ROLE = {
 def login_via_rbac(*, email: str, password: str, organization_slug: str | None) -> str:
     settings = get_settings()
     base_url = settings.rbac_api_url.rstrip("/")
+    normalized_email = email.strip().lower()
 
     try:
         request_payload: dict[str, Any] = {
-            "email": email,
+            "email": normalized_email,
             "password": password,
         }
         if organization_slug:

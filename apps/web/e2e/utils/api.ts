@@ -1,6 +1,19 @@
 import { APIRequestContext, expect } from "@playwright/test";
 
 const API_BASE_URL = process.env.E2E_API_BASE_URL ?? "http://localhost:1730";
+export const E2E_ORG_SLUG = process.env.E2E_ORG_SLUG ?? "e2e_local";
+export const E2E_USER_EMAIL =
+  process.env.E2E_USER_EMAIL ?? "e2e.admin@medhaone.app";
+export const E2E_USER_PASSWORD =
+  process.env.E2E_USER_PASSWORD ?? "ChangeMe123!";
+
+type ResetAndSeedResponse = {
+  ok: boolean;
+  admin_email: string;
+  admin_password: string;
+  org_slug: string;
+  seed_minimal: boolean;
+};
 
 type StockSummaryParams = {
   warehouse_id?: number;
@@ -15,9 +28,13 @@ type StockSummaryParams = {
 export async function resetAndSeed(
   request: APIRequestContext,
   seedMinimal = false,
-): Promise<void> {
+): Promise<ResetAndSeedResponse> {
   const response = await request.post(`${API_BASE_URL}/test/reset-and-seed`, {
-    data: { seed_minimal: seedMinimal },
+    data: {
+      seed_minimal: seedMinimal,
+      org_slug: E2E_ORG_SLUG,
+      org_name: "E2E Isolated Workspace",
+    },
   });
 
   if (!response.ok()) {
@@ -26,6 +43,8 @@ export async function resetAndSeed(
       `Failed to reset and seed test DB (${response.status()}): ${text}`,
     );
   }
+
+  return (await response.json()) as ResetAndSeedResponse;
 }
 
 export async function expectStockQty(
@@ -39,6 +58,7 @@ export async function expectStockQty(
       search.set(key, String(value));
     }
   });
+  search.set("org_slug", E2E_ORG_SLUG);
 
   const response = await request.get(
     `${API_BASE_URL}/test/stock-summary?${search.toString()}`,

@@ -6,9 +6,18 @@ from app.models.inventory import InventoryLedger, StockSummary
 from app.models.login_audit import LoginAudit
 from app.models.party import Party
 from app.models.product import Product
-from app.models.purchase import GRN, GRNLine, PurchaseOrder, PurchaseOrderLine
+from app.models.purchase import (
+    GRN,
+    GRNLine,
+    PurchaseCreditNote,
+    PurchaseOrder,
+    PurchaseOrderLine,
+    PurchaseReturn,
+    PurchaseReturnLine,
+)
 from app.models.rbac import Permission, RolePermission, UserRole
 from app.models.role import Role
+from app.models.tax_rate import TaxRate
 from app.models.user import User
 from app.models.warehouse import Warehouse
 
@@ -27,10 +36,14 @@ __all__ = [
     "PurchaseOrderLine",
     "GRN",
     "GRNLine",
+    "PurchaseReturn",
+    "PurchaseReturnLine",
+    "PurchaseCreditNote",
     "Permission",
     "UserRole",
     "RolePermission",
     "LoginAudit",
     "InventoryLedger",
     "StockSummary",
+    "TaxRate",
 ]

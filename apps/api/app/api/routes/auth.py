@@ -28,19 +28,20 @@ def login(
     bootstrap_rbac_if_ready()
     if db.query(User).filter(User.auth_provider == "LOCAL").first() is None:
         ensure_admin_user(db)
+    normalized_email = payload.email.strip().lower()
 
     if payload.organization_slug:
         token = login_via_rbac(
-            email=payload.email,
+            email=normalized_email,
             password=payload.password,
             organization_slug=payload.organization_slug,
         )
         return TokenResponse(access_token=token)
 
-    user = get_user_by_email(db, payload.email)
+    user = get_user_by_email(db, normalized_email)
     try:
         token = login_via_rbac(
-            email=payload.email,
+            email=normalized_email,
             password=payload.password,
             organization_slug=None,
         )
@@ -49,6 +50,8 @@ def login(
         if exc.error_code == "ORG_SELECTION_REQUIRED":
             raise
         if user is None:
+            raise
+        if user.auth_provider != "LOCAL":
             raise
 
     if not verify_password(payload.password, user.hashed_password):

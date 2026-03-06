@@ -1,3 +1,4 @@
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.role import Role
@@ -12,10 +13,11 @@ def _user_query(db: Session):
 
 
 def get_user_by_email(db: Session, email: str) -> User | None:
+    normalized_email = email.strip().lower()
     return (
         _user_query(db)
         .filter(User.auth_provider == "LOCAL")
-        .filter(User.email == email)
+        .filter(func.lower(User.email) == normalized_email)
         .first()
     )
 
@@ -29,9 +31,10 @@ def get_user_by_external_subject(db: Session, external_subject: str) -> User | N
 
 
 def get_any_user_by_email(db: Session, email: str) -> User | None:
+    normalized_email = email.strip().lower()
     return (
         _user_query(db)
-        .filter(User.email == email)
+        .filter(func.lower(User.email) == normalized_email)
         .first()
     )
 

@@ -36,10 +36,11 @@ export default function LoginPage() {
     setError(null);
 
     try {
+      const normalizedEmail = email.trim().toLowerCase();
       await apiClient.login({
-        email,
+        email: normalizedEmail,
         password,
-        organization_slug: selectedOrganization || undefined,
+        organization_slug: selectedOrganization.trim().toLowerCase() || undefined,
       });
       await refreshPermissions();
       router.replace("/dashboard");

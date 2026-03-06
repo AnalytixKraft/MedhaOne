@@ -22,17 +22,19 @@ export default function RbacLoginPage() {
     setError(null);
 
     try {
+      const normalizedEmail = email.trim().toLowerCase();
+      const normalizedOrganizationId = organizationId.trim().toLowerCase();
       const session = await rbacClient.login({
-        email,
+        email: normalizedEmail,
         password,
-        organizationId: organizationId || undefined,
+        organizationId: normalizedOrganizationId || undefined,
       });
 
       if (session.user.role !== "SUPER_ADMIN") {
         await apiClient.login({
-          email,
+          email: normalizedEmail,
           password,
-          organization_slug: organizationId || undefined,
+          organization_slug: normalizedOrganizationId || undefined,
         });
         setSession(null);
         router.push("/dashboard");

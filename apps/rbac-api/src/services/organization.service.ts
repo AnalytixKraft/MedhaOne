@@ -15,7 +15,7 @@ export const createOrganizationSchemaInput = z.object({
   id: z.string().regex(/^[a-z0-9_]+$/),
   name: z.string().min(2),
   maxUsers: z.number().int().min(1),
-  adminEmail: z.string().email(),
+  adminEmail: z.string().email().transform((value) => value.trim().toLowerCase()),
   adminPassword: z.string().min(12),
   adminFullName: z.string().min(2),
 });

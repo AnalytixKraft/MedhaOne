@@ -54,6 +54,16 @@ export type OrgUserRecord = {
   updatedAt?: string;
 };
 
+export type GlobalTaxRateTemplate = {
+  id: number;
+  code: string;
+  label: string;
+  ratePercent: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 const baseUrl = "/api/rbac";
 const storageKey = "medhaone-rbac-session";
 
@@ -112,6 +122,23 @@ export const rbacClient = {
     request<{ organizationId: string; adminEmail: string }>(
       `/superadmin/org/${organizationId}/reset-admin-password`,
       { method: "POST", body: JSON.stringify({ password }) },
+      token,
+    ),
+  listGlobalTaxRates: (token: string | undefined) =>
+    request<GlobalTaxRateTemplate[]>("/superadmin/tax-rates", { method: "GET" }, token),
+  createGlobalTaxRate: (
+    token: string | undefined,
+    payload: { code: string; label: string; ratePercent: number; isActive?: boolean },
+  ) =>
+    request<GlobalTaxRateTemplate>("/superadmin/tax-rates", { method: "POST", body: JSON.stringify(payload) }, token),
+  updateGlobalTaxRate: (
+    token: string | undefined,
+    id: number,
+    payload: Partial<{ code: string; label: string; ratePercent: number; isActive: boolean }>,
+  ) =>
+    request<GlobalTaxRateTemplate>(
+      `/superadmin/tax-rates/${id}`,
+      { method: "PATCH", body: JSON.stringify(payload) },
       token,
     ),
   listOrganizationAuditLogs: (token: string | undefined, organizationId?: string) =>

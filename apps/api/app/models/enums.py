@@ -37,3 +37,14 @@ class GrnStatus(str, Enum):
     DRAFT = "DRAFT"
     POSTED = "POSTED"
     CANCELLED = "CANCELLED"
+
+
+class PurchaseReturnStatus(str, Enum):
+    DRAFT = "DRAFT"
+    POSTED = "POSTED"
+    CANCELLED = "CANCELLED"
+
+
+class PurchaseCreditNoteStatus(str, Enum):
+    GENERATED = "GENERATED"
+    ADJUSTED = "ADJUSTED"

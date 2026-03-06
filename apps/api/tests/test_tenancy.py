@@ -279,11 +279,16 @@ def test_provision_organization_schema_creates_schema_and_runs_migrations(
     monkeypatch.setattr("app.services.tenancy.IS_POSTGRES", True)
     session = _FakeSession()
     called: dict[str, Any] = {}
+    seeded: dict[str, Any] = {}
 
     def _fake_run(schema_name: str) -> None:
         called["schema"] = schema_name
 
+    def _fake_seed(schema_name: str) -> None:
+        seeded["schema"] = schema_name
+
     monkeypatch.setattr("app.services.tenancy.run_tenant_schema_migrations", _fake_run)
+    monkeypatch.setattr("app.services.tenancy.seed_tenant_tax_rates_for_schema", _fake_seed)
 
     schema_name = tenancy_service.provision_organization_schema(
         session,
@@ -298,3 +303,4 @@ def test_provision_organization_schema_creates_schema_and_runs_migrations(
     assert any("INSERT INTO public.organizations" in sql for sql, _ in session.statements)
     assert any('CREATE SCHEMA IF NOT EXISTS "org_kraft"' in sql for sql, _ in session.statements)
     assert called["schema"] == "org_kraft"
+    assert seeded["schema"] == "org_kraft"

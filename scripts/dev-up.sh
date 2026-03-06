@@ -23,6 +23,37 @@ require_command() {
   command -v "$command_name" >/dev/null 2>&1 || fail "Missing required command: $command_name"
 }
 
+stop_stale_listeners() {
+  local name="$1"
+  local port="$2"
+  local pids=()
+
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] && pids+=("$pid")
+  done < <(lsof -nP -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+
+  if (( ${#pids[@]} == 0 )); then
+    return 0
+  fi
+
+  log "Stopping stale $name listener(s) on port $port (${pids[*]})"
+  kill "${pids[@]}" 2>/dev/null || true
+
+  local attempts=10
+  local try_count=0
+  while (( try_count < attempts )); do
+    if ! lsof -nP -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+      return 0
+    fi
+    try_count=$((try_count + 1))
+    sleep 1
+  done
+
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] && kill -9 "$pid" 2>/dev/null || true
+  done < <(lsof -nP -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+}
+
 load_env() {
   if [[ -f "$ROOT_DIR/.env" ]]; then
     set -a
@@ -110,19 +141,6 @@ wait_for_rbac_postgres() {
   fail "RBAC PostgreSQL container did not become ready"
 }
 
-resolve_rbac_postgres_host() {
-  local container_id="$1"
-  local container_ip
-
-  container_ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$container_id" 2>/dev/null || true)"
-  if [[ -n "$container_ip" ]]; then
-    printf '%s\n' "$container_ip"
-    return 0
-  fi
-
-  printf '%s\n' "${RBAC_POSTGRES_HOST:-localhost}"
-}
-
 wait_for_tunnel() {
   local tunnel_name="$1"
   local attempts=30
@@ -170,6 +188,9 @@ require_command docker
 require_command curl
 require_command cloudflared
 require_command grep
+require_command lsof
+
+PNPM_CMD=(pnpm --config.engine-strict=false)
 
 WEB_URL="${NEXT_PUBLIC_APP_URL:-http://localhost:1729}"
 API_URL="${NEXT_PUBLIC_API_BASE_URL:-http://localhost:1730}"
@@ -182,14 +203,14 @@ CLOUDFLARE_TUNNEL_CONFIG="${CLOUDFLARE_TUNNEL_CONFIG:-$HOME/.cloudflared/config.
 ensure_docker
 
 log "Starting RBAC PostgreSQL"
-(cd "$ROOT_DIR" && pnpm rbac:db:up >/dev/null)
+(cd "$ROOT_DIR" && "${PNPM_CMD[@]}" rbac:db:up >/dev/null)
 
 RBAC_CONTAINER_ID="$(cd "$ROOT_DIR" && docker compose ps -q rbac-postgres)"
 [[ -n "$RBAC_CONTAINER_ID" ]] || fail "Unable to resolve rbac-postgres container id"
 wait_for_rbac_postgres "$RBAC_CONTAINER_ID"
 
-RBAC_DB_HOST="$(resolve_rbac_postgres_host "$RBAC_CONTAINER_ID")"
-RBAC_DB_PORT="5432"
+RBAC_DB_HOST="${RBAC_POSTGRES_HOST:-127.0.0.1}"
+RBAC_DB_PORT="${RBAC_POSTGRES_PORT:-55432}"
 RBAC_DB_NAME="${RBAC_POSTGRES_DB:-medhaone_rbac}"
 RBAC_DB_USER="${RBAC_POSTGRES_USER:-postgres}"
 RBAC_DB_PASSWORD="${RBAC_POSTGRES_PASSWORD:-postgres}"
@@ -197,7 +218,10 @@ RBAC_DATABASE_URL="postgresql://${RBAC_DB_USER}:${RBAC_DB_PASSWORD}@${RBAC_DB_HO
 ERP_DATABASE_URL="postgresql+psycopg://${RBAC_DB_USER}:${RBAC_DB_PASSWORD}@127.0.0.1:${RBAC_POSTGRES_PORT:-55432}/${RBAC_DB_NAME}"
 
 log "Running ERP migrations against shared PostgreSQL"
-(cd "$ROOT_DIR/apps/api" && env "DATABASE_URL=$ERP_DATABASE_URL" pnpm migrate >/dev/null)
+(cd "$ROOT_DIR/apps/api" && env "DATABASE_URL=$ERP_DATABASE_URL" "${PNPM_CMD[@]}" migrate >/dev/null)
+
+stop_stale_listeners "web" "1729"
+stop_stale_listeners "api" "1730"
 
 start_bg \
   "web+api" \
@@ -205,7 +229,7 @@ start_bg \
   "$LOG_DIR/dev.log" \
   env \
   "DATABASE_URL=$ERP_DATABASE_URL" \
-  pnpm \
+  "${PNPM_CMD[@]}" \
   --dir \
   "$ROOT_DIR" \
   dev
@@ -213,13 +237,15 @@ start_bg \
 wait_for_url "API" "$API_URL/health" "200"
 wait_for_url "Web" "$WEB_URL" "200 307"
 
+stop_stale_listeners "rbac-api" "${RBAC_PORT:-1740}"
+
 start_bg \
   "rbac-api" \
   "$PID_DIR/rbac-api.pid" \
   "$LOG_DIR/rbac-api.log" \
   env \
   "RBAC_DATABASE_URL=$RBAC_DATABASE_URL" \
-  pnpm \
+  "${PNPM_CMD[@]}" \
   --dir \
   "$ROOT_DIR" \
   rbac:dev

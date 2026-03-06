@@ -43,7 +43,7 @@ Phase 1 scope implemented:
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 24.14.0
 - pnpm 10+
 - Python 3.10+
 
@@ -245,7 +245,7 @@ ruff check .
 ## Docker (Scaffold)
 
 ```bash
-docker compose up --build
+docker compose up
 ```
 
 This scaffold is provided for deployment-ready direction; local dev remains `pnpm dev` + Python venv.

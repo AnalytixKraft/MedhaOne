@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import GrnStatus, PurchaseOrderStatus
+from app.models.enums import GrnStatus, PurchaseCreditNoteStatus, PurchaseOrderStatus
 
 
 class PurchaseOrderLineCreate(BaseModel):
@@ -102,5 +102,19 @@ class GRNResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     lines: list[GRNLineResponse]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PurchaseCreditNoteResponse(BaseModel):
+    id: int
+    credit_note_number: str
+    supplier_id: int
+    warehouse_id: int
+    purchase_return_id: int
+    total_amount: Decimal
+    status: PurchaseCreditNoteStatus
+    created_at: datetime
+    created_by: int
 
     model_config = ConfigDict(from_attributes=True)

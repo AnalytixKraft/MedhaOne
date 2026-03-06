@@ -18,6 +18,7 @@ class StockInwardReportRow(BaseModel):
     free_qty: Decimal
     received_date: date
     posted_by: str | None = None
+    quantity_precision: int
 
 
 class StockInwardReportResponse(BaseModel):
@@ -57,6 +58,7 @@ class StockMovementReportRow(BaseModel):
     qty_in: Decimal
     qty_out: Decimal
     running_balance: Decimal
+    quantity_precision: int
 
 
 class StockMovementReportResponse(BaseModel):
@@ -64,3 +66,54 @@ class StockMovementReportResponse(BaseModel):
     page: int
     page_size: int
     data: list[StockMovementReportRow]
+
+
+class ExpiryReportRow(BaseModel):
+    product: str
+    batch: str
+    warehouse: str
+    expiry_date: date
+    days_to_expiry: int
+    current_qty: Decimal
+    quantity_precision: int
+
+
+class ExpiryReportResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    data: list[ExpiryReportRow]
+
+
+class DeadStockReportRow(BaseModel):
+    product: str
+    warehouse: str
+    current_qty: Decimal
+    last_movement_date: datetime | None = None
+    days_since_movement: int | None = None
+    quantity_precision: int
+
+
+class DeadStockReportResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    data: list[DeadStockReportRow]
+
+
+class StockAgeingReportRow(BaseModel):
+    product: str
+    warehouse: str
+    bucket_0_30: Decimal
+    bucket_31_60: Decimal
+    bucket_61_90: Decimal
+    bucket_90_plus: Decimal
+    total_qty: Decimal
+    quantity_precision: int
+
+
+class StockAgeingReportResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    data: list[StockAgeingReportRow]

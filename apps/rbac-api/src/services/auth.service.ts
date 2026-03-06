@@ -31,9 +31,17 @@ export async function seedSuperAdminIfMissing(email: string, passwordHash: strin
 
 export async function login(rawInput: unknown) {
   const input = loginInputSchema.parse(rawInput);
+  const normalizedEmail = input.email.trim().toLowerCase();
 
   if (!input.organizationId) {
-    const admin = await prisma.superAdmin.findUnique({ where: { email: input.email } });
+    const admin = await prisma.superAdmin.findFirst({
+      where: {
+        email: {
+          equals: normalizedEmail,
+          mode: "insensitive",
+        },
+      },
+    });
     if (admin) {
       if (!admin.isActive) {
         throw new Error("Invalid credentials");
@@ -75,7 +83,7 @@ export async function login(rawInput: unknown) {
       };
     }
 
-    const matches = await findTenantMatches(input.email, input.password);
+    const matches = await findTenantMatches(normalizedEmail, input.password);
     if (matches.length === 0) {
       throw new Error("Invalid credentials");
     }
@@ -97,7 +105,7 @@ export async function login(rawInput: unknown) {
   }
 
   const organization = await prisma.organization.findUniqueOrThrow({ where: { id: input.organizationId } });
-  const match = await findTenantMatchInOrganization(organization, input.email, input.password);
+  const match = await findTenantMatchInOrganization(organization, normalizedEmail, input.password);
   if (!match) {
     throw new Error("Invalid credentials");
   }
@@ -220,7 +228,7 @@ async function findTenantMatchInOrganization(
     }>(
       `SELECT id, email, password_hash, full_name, role, is_active
        FROM ${quoteIdentifier(organization.schemaName)}.users
-       WHERE email = $1
+       WHERE lower(email) = lower($1)
        LIMIT 1`,
       [email],
     );

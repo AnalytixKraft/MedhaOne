@@ -6,7 +6,7 @@ import { writeOrgAuditLog } from "./audit.service.js";
 import { hashPassword } from "../utils/password.js";
 
 const createUserInput = z.object({
-  email: z.string().email(),
+  email: z.string().email().transform((value) => value.trim().toLowerCase()),
   password: z.string().min(12),
   fullName: z.string().min(2),
   role: z.enum(["VIEW_ONLY", "READ_WRITE", "SERVICE_SUPPORT"]),

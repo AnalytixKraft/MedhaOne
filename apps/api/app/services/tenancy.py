@@ -15,6 +15,7 @@ from app.core.database import IS_POSTGRES
 from app.core.exceptions import AppException
 from app.core.tenancy import build_tenant_schema_name, quote_schema_name, validate_org_slug
 from app.core.tenant import run_in_tenant_schema
+from app.services.tax_rates import seed_tenant_tax_rates_for_schema
 
 logger = logging.getLogger(__name__)
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -72,6 +73,7 @@ def provision_organization_schema(
     db.commit()
 
     run_tenant_schema_migrations(schema_name)
+    seed_tenant_tax_rates_for_schema(schema_name)
     logger.info(
         "Provisioned tenant schema",
         extra={"organization_slug": safe_slug, "schema": schema_name},

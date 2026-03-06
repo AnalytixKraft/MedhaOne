@@ -3,14 +3,18 @@
   "private": true,
   "version": "0.1.0",
   "packageManager": "pnpm@10.6.3",
+  "engines": {
+    "node": "24.14.0"
+  },
   "scripts": {
     "stack:up": "bash scripts/dev-up.sh",
     "stack:down": "bash scripts/dev-down.sh",
+    "stack:restart": "bash scripts/dev-restart.sh",
     "ai:test": "ts-node apps/web/e2e/ai/runner.ts",
-    "dev": "concurrently -n web,api -c cyan,green \"pnpm --filter web dev\" \"pnpm --filter api dev\"",
-    "rbac:db:up": "docker compose up -d rbac-postgres",
+    "dev": "concurrently -n web,api -c cyan,green \"pnpm --config.engine-strict=false --filter web dev\" \"pnpm --config.engine-strict=false --filter api dev\"",
+    "rbac:db:up": "docker compose up -d --no-build --remove-orphans rbac-postgres",
     "rbac:db:down": "docker compose stop rbac-postgres",
-    "rbac:dev": "pnpm --filter rbac-api dev",
+    "rbac:dev": "pnpm --config.engine-strict=false --filter rbac-api dev",
     "rbac:build": "pnpm --filter rbac-api build",
     "rbac:prisma:generate": "pnpm --filter rbac-api prisma:generate",
     "rbac:prisma:migrate": "pnpm --filter rbac-api prisma:migrate",

@@ -56,6 +56,11 @@ export type Party = {
   phone: string | null;
   email: string | null;
   address: string | null;
+  state: string | null;
+  city: string | null;
+  pincode: string | null;
+  gstin: string | null;
+  pan_number: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -77,9 +82,20 @@ export type Product = {
   name: string;
   brand: string | null;
   uom: string;
+  quantity_precision: number;
   barcode: string | null;
   hsn: string | null;
   gst_rate: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TaxRate = {
+  id: number;
+  code: string;
+  label: string;
+  rate_percent: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -119,13 +135,37 @@ export type CompanySettingsPayload = {
   logo_url?: string | null;
 };
 
+export type TaxRatePayload = {
+  code: string;
+  label: string;
+  rate_percent: number;
+  is_active?: boolean;
+};
+
 export type PartyPayload = {
   name: string;
   party_type: PartyType;
   phone?: string;
   email?: string;
   address?: string;
+  state?: string;
+  city?: string;
+  pincode?: string;
+  gstin?: string;
+  pan_number?: string;
   is_active: boolean;
+};
+
+export type BulkImportError = {
+  row: number;
+  field: string | null;
+  message: string;
+};
+
+export type BulkImportResult = {
+  created_count: number;
+  failed_count: number;
+  errors: BulkImportError[];
 };
 
 export type WarehousePayload = {
@@ -140,6 +180,7 @@ export type ProductPayload = {
   name: string;
   brand?: string;
   uom: string;
+  quantity_precision?: number;
   barcode?: string;
   hsn?: string;
   gst_rate?: string;
@@ -154,6 +195,8 @@ export type PurchaseOrderStatus =
   | "CANCELLED";
 
 export type GrnStatus = "DRAFT" | "POSTED" | "CANCELLED";
+
+export type PurchaseTaxType = "TDS" | "TCS";
 
 export type PurchaseOrderLine = {
   id: number;
@@ -195,6 +238,15 @@ export type PurchaseOrderPayload = {
   order_date: string;
   expected_date?: string;
   notes?: string;
+  subtotal: number;
+  discount_percent: number;
+  discount_amount: number;
+  tax_type: PurchaseTaxType;
+  tax_name?: string;
+  tax_percent: number;
+  tax_amount: number;
+  adjustment: number;
+  total: number;
   lines: PurchaseOrderLinePayload[];
 };
 
@@ -224,6 +276,20 @@ export type Grn = {
   created_at: string;
   updated_at: string;
   lines: GrnLine[];
+};
+
+export type PurchaseCreditNoteStatus = "GENERATED" | "ADJUSTED";
+
+export type PurchaseCreditNote = {
+  id: number;
+  credit_note_number: string;
+  supplier_id: number;
+  warehouse_id: number;
+  purchase_return_id: number;
+  total_amount: string;
+  status: PurchaseCreditNoteStatus;
+  created_at: string;
+  created_by: number;
 };
 
 export type GrnLinePayload = {
@@ -263,6 +329,36 @@ export type PagedResponse<T> = {
   data: T[];
 };
 
+export type ExpiryReportRow = {
+  product: string;
+  batch: string;
+  warehouse: string;
+  expiry_date: string;
+  days_to_expiry: number;
+  current_qty: string;
+  quantity_precision: number;
+};
+
+export type DeadStockReportRow = {
+  product: string;
+  warehouse: string;
+  current_qty: string;
+  last_movement_date: string | null;
+  days_since_movement: number | null;
+  quantity_precision: number;
+};
+
+export type StockAgeingReportRow = {
+  product: string;
+  warehouse: string;
+  bucket_0_30: string;
+  bucket_31_60: string;
+  bucket_61_90: string;
+  bucket_90_plus: string;
+  total_qty: string;
+  quantity_precision: number;
+};
+
 export type StockInwardReportRow = {
   grn_number: string;
   po_number: string;
@@ -275,6 +371,7 @@ export type StockInwardReportRow = {
   free_qty: string;
   received_date: string;
   posted_by: string | null;
+  quantity_precision: number;
 };
 
 export type PurchaseRegisterReportRow = {
@@ -300,6 +397,7 @@ export type StockMovementReportRow = {
   qty_in: string;
   qty_out: string;
   running_balance: string;
+  quantity_precision: number;
 };
 
 function toErrorMessage(errorBody: ApiError): string {
@@ -365,7 +463,10 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-function withQuery(path: string, query?: Record<string, string | number | undefined | null>) {
+function withQuery(
+  path: string,
+  query?: Record<string, string | number | boolean | undefined | null>,
+) {
   if (!query) {
     return path;
   }
@@ -400,6 +501,25 @@ export const apiClient = {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
+  listTaxRates: (includeInactive = false) =>
+    request<TaxRate[]>(
+      withQuery("/api/tax-rates", { include_inactive: includeInactive }),
+      { method: "GET" },
+    ),
+  createTaxRate: (payload: TaxRatePayload) =>
+    request<TaxRate>("/api/tax-rates", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateTaxRate: (id: number, payload: Partial<TaxRatePayload>) =>
+    request<TaxRate>(`/api/tax-rates/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  deactivateTaxRate: (id: number) =>
+    request<TaxRate>(`/api/tax-rates/${id}`, {
+      method: "DELETE",
+    }),
 
   listParties: () =>
     request<Party[]>("/api/masters/parties", { method: "GET" }),
@@ -413,6 +533,11 @@ export const apiClient = {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
+  bulkCreateParties: (payload: { rows?: Record<string, unknown>[]; csv_data?: string }) =>
+    request<BulkImportResult>("/api/masters/parties/bulk", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 
   listProducts: () =>
     request<Product[]>("/api/masters/products", { method: "GET" }),
@@ -424,6 +549,11 @@ export const apiClient = {
   updateProduct: (id: number, payload: Partial<ProductPayload>) =>
     request<Product>(`/api/masters/products/${id}`, {
       method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  bulkCreateItems: (payload: { rows?: Record<string, unknown>[]; csv_data?: string }) =>
+    request<BulkImportResult>("/api/masters/items/bulk", {
+      method: "POST",
       body: JSON.stringify(payload),
     }),
 
@@ -466,6 +596,10 @@ export const apiClient = {
     request<Grn>(`/api/purchase/grn/${id}/post`, {
       method: "POST",
     }),
+  listPurchaseCreditNotes: () =>
+    request<PurchaseCreditNote[]>("/api/purchase-credit-notes", {
+      method: "GET",
+    }),
 
   getStockInwardReport: (query?: Record<string, string | number | undefined | null>) =>
     request<PagedResponse<StockInwardReportRow>>(withQuery("/api/reports/stock-inward", query), {
@@ -477,6 +611,18 @@ export const apiClient = {
     }),
   getStockMovementReport: (query?: Record<string, string | number | undefined | null>) =>
     request<PagedResponse<StockMovementReportRow>>(withQuery("/api/reports/stock-movement", query), {
+      method: "GET",
+    }),
+  getExpiryReport: (query?: Record<string, string | number | boolean | undefined | null>) =>
+    request<PagedResponse<ExpiryReportRow>>(withQuery("/api/reports/expiry", query), {
+      method: "GET",
+    }),
+  getDeadStockReport: (query?: Record<string, string | number | undefined | null>) =>
+    request<PagedResponse<DeadStockReportRow>>(withQuery("/api/reports/dead-stock", query), {
+      method: "GET",
+    }),
+  getStockAgeingReport: (query?: Record<string, string | number | undefined | null>) =>
+    request<PagedResponse<StockAgeingReportRow>>(withQuery("/api/reports/stock-ageing", query), {
       method: "GET",
     }),
 

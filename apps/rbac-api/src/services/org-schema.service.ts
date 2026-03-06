@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import type { PoolClient } from "pg";
 
 import { buildCreateTenantSchemaSql } from "../sql/tenant-schema.js";
+import { seedTenantTaxRatesFromGlobalDefaults } from "./tax-rate.service.js";
 
 export async function createOrganizationSchema(
   client: PoolClient,
@@ -31,4 +32,5 @@ export async function createOrganizationSchema(
      ON CONFLICT (email) DO NOTHING`,
     [randomUUID(), admin.email, admin.passwordHash, admin.fullName],
   );
+  await seedTenantTaxRatesFromGlobalDefaults(client, schemaName);
 }

@@ -17,7 +17,7 @@ Tenant-schema operations use `pg` transactions plus `SET LOCAL search_path` beca
 
 1. Start PostgreSQL from the repo:
    - `cd /Users/lijolawrance/work/analytixkraft/MedhaOne`
-   - `docker compose up -d rbac-postgres`
+   - `docker compose up -d --no-build --remove-orphans rbac-postgres`
 2. Copy environment file:
    - `cp apps/rbac-api/.env.example apps/rbac-api/.env`
 3. Install dependencies:

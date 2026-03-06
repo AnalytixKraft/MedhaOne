@@ -8,6 +8,7 @@ from jose import jwt
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.exceptions import AppException
 from app.core.security import create_access_token, get_password_hash
 from app.models.batch import Batch
 from app.models.user import User
@@ -500,6 +501,105 @@ def test_auth_login_discovers_tenant_without_org_slug(
 
     assert response.status_code == 200, response.text
     assert response.json()["access_token"] == brokered_token
+
+
+def test_auth_login_normalizes_email_before_broker_call(
+    client_with_test_db: tuple[TestClient, Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _db = client_with_test_db
+    brokered_token = "rbac-token-normalized-email"
+
+    def _fake_login_via_rbac(*, email: str, password: str, organization_slug: str | None) -> str:
+        assert email == "shared-admin@kraft.app"
+        assert password == "TenantPass123!"
+        assert organization_slug is None
+        return brokered_token
+
+    monkeypatch.setattr("app.api.routes.auth.login_via_rbac", _fake_login_via_rbac)
+
+    response = client.post(
+        "/auth/login",
+        json={
+            "email": "SHARED-ADMIN@KRAFT.APP",
+            "password": "TenantPass123!",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["access_token"] == brokered_token
+
+
+def test_auth_login_local_fallback_is_case_insensitive(
+    client_with_test_db: tuple[TestClient, Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, db = client_with_test_db
+    local_user = _create_user(db, email="local.user@medhaone.app", role_names=["ADMIN"])
+
+    def _fake_login_via_rbac(*, email: str, password: str, organization_slug: str | None) -> str:
+        _ = (email, password, organization_slug)
+        raise AppException(
+            error_code="UNAUTHORIZED",
+            message="Invalid credentials",
+            status_code=401,
+        )
+
+    monkeypatch.setattr("app.api.routes.auth.login_via_rbac", _fake_login_via_rbac)
+
+    response = client.post(
+        "/auth/login",
+        json={
+            "email": "LOCAL.USER@MEDHAONE.APP",
+            "password": "ChangeMe123!",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert isinstance(response.json().get("access_token"), str)
+    assert response.json()["access_token"]
+    db.refresh(local_user)
+    assert local_user.last_login_at is not None
+
+
+def test_auth_login_does_not_fallback_local_for_rbac_shadow_user(
+    client_with_test_db: tuple[TestClient, Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, db = client_with_test_db
+    get_or_create_rbac_shadow_user(
+        db,
+        {
+            "userId": "tenant-user-42",
+            "email": "org-user@kraft.app",
+            "fullName": "Org User",
+            "role": "READ_WRITE",
+            "organizationId": "kraft",
+        },
+    )
+
+    def _fake_login_via_rbac(*, email: str, password: str, organization_slug: str | None) -> str:
+        _ = (email, password, organization_slug)
+        raise AppException(
+            error_code="UNAUTHORIZED",
+            message="Organization selection required",
+            status_code=401,
+            details={"source": "rbac"},
+        )
+
+    monkeypatch.setattr("app.api.routes.auth.login_via_rbac", _fake_login_via_rbac)
+
+    response = client.post(
+        "/auth/login",
+        json={
+            "email": "org-user@kraft.app",
+            "password": "TenantPass123!",
+        },
+    )
+
+    assert response.status_code == 401, response.text
+    assert response.json()["message"] == "Organization selection required"
+    assert response.json()["details"] == {"source": "rbac"}
 
 
 @pytest.mark.parametrize(

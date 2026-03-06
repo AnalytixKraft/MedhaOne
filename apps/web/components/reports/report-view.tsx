@@ -8,14 +8,33 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   apiClient,
+  DeadStockReportRow,
+  ExpiryReportRow,
+  PurchaseCreditNote,
   PurchaseRegisterReportRow,
+  StockAgeingReportRow,
   StockInwardReportRow,
   StockMovementReportRow,
 } from "@/lib/api/client";
+import { formatQuantity } from "@/lib/quantity";
 
-type ReportKind = "stock-inward" | "purchase-register" | "stock-movement";
+type ReportKind =
+  | "purchase-credit-notes"
+  | "stock-inward"
+  | "purchase-register"
+  | "stock-movement"
+  | "expiry"
+  | "dead-stock"
+  | "stock-ageing";
 
-type Row = StockInwardReportRow | PurchaseRegisterReportRow | StockMovementReportRow;
+type Row =
+  | PurchaseCreditNote
+  | StockInwardReportRow
+  | PurchaseRegisterReportRow
+  | StockMovementReportRow
+  | ExpiryReportRow
+  | DeadStockReportRow
+  | StockAgeingReportRow;
 
 const reportMeta: Record<
   ReportKind,
@@ -25,6 +44,11 @@ const reportMeta: Record<
     columns: string[];
   }
 > = {
+  "purchase-credit-notes": {
+    title: "Purchase Credit Notes",
+    description: "Informational supplier credit notes generated from posted purchase returns.",
+    columns: ["Credit Note", "Supplier", "Warehouse", "Return", "Amount", "Status", "Created"],
+  },
   "stock-inward": {
     title: "Stock Inward Report",
     description: "Incoming stock posted through purchase GRNs.",
@@ -39,6 +63,21 @@ const reportMeta: Record<
     title: "Stock Movement Report",
     description: "Immutable inventory ledger movement across all transaction reasons.",
     columns: ["Date", "Reason", "Reference", "Product", "Batch", "Warehouse", "In", "Out", "Balance"],
+  },
+  expiry: {
+    title: "Expiry Report",
+    description: "Current stock that is near expiry or already expired.",
+    columns: ["Product", "Batch", "Warehouse", "Expiry", "Days", "Qty"],
+  },
+  "dead-stock": {
+    title: "Dead Stock Report",
+    description: "Products with no inventory movement beyond the inactivity threshold.",
+    columns: ["Product", "Warehouse", "Qty", "Last Movement", "Days Idle"],
+  },
+  "stock-ageing": {
+    title: "Stock Ageing Report",
+    description: "Current stock bucketed by age using posted GRN receipt dates.",
+    columns: ["Product", "Warehouse", "0-30", "31-60", "61-90", "90+", "Total"],
   },
 };
 
@@ -57,12 +96,28 @@ export function ReportView({ kind }: { kind: ReportKind }) {
       setLoading(true);
       setError(null);
       try {
+        if (kind === "purchase-credit-notes") {
+          const response = await apiClient.listPurchaseCreditNotes();
+          if (cancelled) {
+            return;
+          }
+          setRows(response);
+          setTotal(response.length);
+          return;
+        }
+
         const response =
           kind === "stock-inward"
             ? await apiClient.getStockInwardReport()
             : kind === "purchase-register"
               ? await apiClient.getPurchaseRegisterReport()
-              : await apiClient.getStockMovementReport();
+              : kind === "stock-movement"
+                ? await apiClient.getStockMovementReport()
+                : kind === "expiry"
+                  ? await apiClient.getExpiryReport()
+                  : kind === "dead-stock"
+                    ? await apiClient.getDeadStockReport()
+                    : await apiClient.getStockAgeingReport();
 
         if (cancelled) {
           return;
@@ -89,6 +144,20 @@ export function ReportView({ kind }: { kind: ReportKind }) {
   }, [kind]);
 
   const renderedRows = useMemo(() => {
+    if (kind === "purchase-credit-notes") {
+      return (rows as PurchaseCreditNote[]).map((row) => (
+        <TableRow key={row.id}>
+          <TableCell className="font-medium">{row.credit_note_number}</TableCell>
+          <TableCell>{row.supplier_id}</TableCell>
+          <TableCell>{row.warehouse_id}</TableCell>
+          <TableCell>{row.purchase_return_id}</TableCell>
+          <TableCell>{row.total_amount}</TableCell>
+          <TableCell>{row.status}</TableCell>
+          <TableCell>{new Date(row.created_at).toLocaleString()}</TableCell>
+        </TableRow>
+      ));
+    }
+
     if (kind === "stock-inward") {
       return (rows as StockInwardReportRow[]).map((row) => (
         <TableRow key={`${row.grn_number}-${row.batch_no}-${row.product_name}`}>
@@ -98,7 +167,7 @@ export function ReportView({ kind }: { kind: ReportKind }) {
           <TableCell>{row.warehouse_name}</TableCell>
           <TableCell>{row.product_name}</TableCell>
           <TableCell>{row.batch_no}</TableCell>
-          <TableCell>{row.qty_received}</TableCell>
+          <TableCell>{formatQuantity(row.qty_received, row.quantity_precision)}</TableCell>
           <TableCell>{row.received_date}</TableCell>
         </TableRow>
       ));
@@ -119,6 +188,47 @@ export function ReportView({ kind }: { kind: ReportKind }) {
       ));
     }
 
+    if (kind === "expiry") {
+      return (rows as ExpiryReportRow[]).map((row) => (
+        <TableRow key={`${row.product}-${row.batch}-${row.warehouse}`}>
+          <TableCell className="font-medium">{row.product}</TableCell>
+          <TableCell>{row.batch}</TableCell>
+          <TableCell>{row.warehouse}</TableCell>
+          <TableCell>{row.expiry_date}</TableCell>
+          <TableCell>{row.days_to_expiry}</TableCell>
+          <TableCell>{formatQuantity(row.current_qty, row.quantity_precision)}</TableCell>
+        </TableRow>
+      ));
+    }
+
+    if (kind === "dead-stock") {
+      return (rows as DeadStockReportRow[]).map((row) => (
+        <TableRow key={`${row.product}-${row.warehouse}`}>
+          <TableCell className="font-medium">{row.product}</TableCell>
+          <TableCell>{row.warehouse}</TableCell>
+          <TableCell>{formatQuantity(row.current_qty, row.quantity_precision)}</TableCell>
+          <TableCell>
+            {row.last_movement_date ? new Date(row.last_movement_date).toLocaleString() : "-"}
+          </TableCell>
+          <TableCell>{row.days_since_movement ?? "-"}</TableCell>
+        </TableRow>
+      ));
+    }
+
+    if (kind === "stock-ageing") {
+      return (rows as StockAgeingReportRow[]).map((row) => (
+        <TableRow key={`${row.product}-${row.warehouse}`}>
+          <TableCell className="font-medium">{row.product}</TableCell>
+          <TableCell>{row.warehouse}</TableCell>
+          <TableCell>{formatQuantity(row.bucket_0_30, row.quantity_precision)}</TableCell>
+          <TableCell>{formatQuantity(row.bucket_31_60, row.quantity_precision)}</TableCell>
+          <TableCell>{formatQuantity(row.bucket_61_90, row.quantity_precision)}</TableCell>
+          <TableCell>{formatQuantity(row.bucket_90_plus, row.quantity_precision)}</TableCell>
+          <TableCell>{formatQuantity(row.total_qty, row.quantity_precision)}</TableCell>
+        </TableRow>
+      ));
+    }
+
     return (rows as StockMovementReportRow[]).map((row) => (
       <TableRow key={`${row.transaction_date}-${row.reference_id}-${row.batch}`}>
         <TableCell className="font-medium">{new Date(row.transaction_date).toLocaleString()}</TableCell>
@@ -127,9 +237,9 @@ export function ReportView({ kind }: { kind: ReportKind }) {
         <TableCell>{row.product}</TableCell>
         <TableCell>{row.batch}</TableCell>
         <TableCell>{row.warehouse}</TableCell>
-        <TableCell>{row.qty_in}</TableCell>
-        <TableCell>{row.qty_out}</TableCell>
-        <TableCell>{row.running_balance}</TableCell>
+        <TableCell>{formatQuantity(row.qty_in, row.quantity_precision)}</TableCell>
+        <TableCell>{formatQuantity(row.qty_out, row.quantity_precision)}</TableCell>
+        <TableCell>{formatQuantity(row.running_balance, row.quantity_precision)}</TableCell>
       </TableRow>
     ));
   }, [kind, rows]);

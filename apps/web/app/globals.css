@@ -36,3 +36,13 @@
 body {
   @apply bg-background text-foreground antialiased;
 }
+
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
+button:disabled,
+[role="button"][aria-disabled="true"] {
+  cursor: not-allowed;
+}

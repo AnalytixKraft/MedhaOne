@@ -14,13 +14,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Product, ProductPayload, apiClient } from "@/lib/api/client";
+import { Product, ProductPayload, TaxRate, apiClient } from "@/lib/api/client";
+import {
+  inferQuantityPrecisionFromUom,
+  normalizeQuantityPrecision,
+} from "@/lib/quantity";
 
 type FormState = {
   sku: string;
   name: string;
   brand: string;
   uom: string;
+  quantity_precision: string;
   barcode: string;
   hsn: string;
   gst_rate: string;
@@ -32,6 +37,7 @@ const initialState: FormState = {
   name: "",
   brand: "",
   uom: "BOX",
+  quantity_precision: "0",
   barcode: "",
   hsn: "",
   gst_rate: "",
@@ -41,6 +47,7 @@ const initialState: FormState = {
 export function ProductsManager() {
   const { user, hasPermission, loading: permissionsLoading } = usePermissions();
   const [items, setItems] = useState<Product[]>([]);
+  const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -52,16 +59,51 @@ export function ProductsManager() {
     [editingId],
   );
   const canManage = !!user && (user.is_superuser || hasPermission("masters:manage"));
+  const taxRateOptions = useMemo(() => {
+    return [...taxRates].sort(
+      (left, right) =>
+        Number.parseFloat(left.rate_percent) - Number.parseFloat(right.rate_percent),
+    );
+  }, [taxRates]);
+  const gstLabelByRate = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const taxRate of taxRateOptions) {
+      map.set(
+        Number.parseFloat(taxRate.rate_percent).toFixed(2),
+        taxRate.label,
+      );
+    }
+    return map;
+  }, [taxRateOptions]);
 
   const load = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const data = await apiClient.listProducts();
-      setItems(data);
+      const [productsResult, taxRatesResult] = await Promise.allSettled([
+        apiClient.listProducts(),
+        apiClient.listTaxRates(false),
+      ]);
+
+      if (productsResult.status === "rejected") {
+        throw productsResult.reason;
+      }
+
+      setItems(productsResult.value);
+
+      if (taxRatesResult.status === "fulfilled") {
+        setTaxRates(taxRatesResult.value);
+      } else {
+        setTaxRates([]);
+        setError("Tax rates could not be loaded. GST dropdown is unavailable.");
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load products");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to load products and tenant tax rates",
+      );
     } finally {
       setLoading(false);
     }
@@ -86,6 +128,9 @@ export function ProductsManager() {
       name: form.name,
       brand: form.brand || undefined,
       uom: form.uom,
+      quantity_precision: normalizeQuantityPrecision(
+        Number.parseInt(form.quantity_precision || "0", 10),
+      ),
       barcode: form.barcode || undefined,
       hsn: form.hsn || undefined,
       gst_rate: form.gst_rate || undefined,
@@ -117,6 +162,7 @@ export function ProductsManager() {
       name: item.name,
       brand: item.brand ?? "",
       uom: item.uom,
+      quantity_precision: String(item.quantity_precision),
       barcode: item.barcode ?? "",
       hsn: item.hsn ?? "",
       gst_rate: item.gst_rate ?? "",
@@ -165,10 +211,30 @@ export function ProductsManager() {
             <Input
               value={form.uom}
               onChange={(event) =>
-                setForm((prev) => ({ ...prev, uom: event.target.value }))
+                setForm((prev) => ({
+                  ...prev,
+                  uom: event.target.value,
+                  quantity_precision: String(
+                    inferQuantityPrecisionFromUom(event.target.value),
+                  ),
+                }))
               }
               placeholder="UOM"
               required
+            />
+            <Input
+              value={form.quantity_precision}
+              onChange={(event) =>
+                setForm((prev) => ({
+                  ...prev,
+                  quantity_precision: event.target.value.replace(/[^0-9]/g, "").slice(0, 1),
+                }))
+              }
+              placeholder="Qty precision"
+              type="number"
+              min="0"
+              max="3"
+              step="1"
             />
             <Input
               value={form.barcode}
@@ -184,14 +250,30 @@ export function ProductsManager() {
               }
               placeholder="HSN"
             />
-            <Input
-              value={form.gst_rate}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, gst_rate: event.target.value }))
-              }
-              placeholder="GST Rate"
-              type="number"
-            />
+            <label className="space-y-2">
+              <span className="text-xs text-muted-foreground">GST Rate</span>
+              <select
+                value={
+                  form.gst_rate
+                    ? Number.parseFloat(form.gst_rate).toFixed(2)
+                    : ""
+                }
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, gst_rate: event.target.value }))
+                }
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="">Select GST rate</option>
+                {taxRateOptions.map((taxRate) => {
+                  const normalized = Number.parseFloat(taxRate.rate_percent).toFixed(2);
+                  return (
+                    <option key={taxRate.code} value={normalized}>
+                      {taxRate.label} ({normalized}%)
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -240,6 +322,7 @@ export function ProductsManager() {
                   <TableHead>SKU</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>UOM</TableHead>
+                  <TableHead>Qty Precision</TableHead>
                   <TableHead>GST</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Action</TableHead>
@@ -251,7 +334,14 @@ export function ProductsManager() {
                     <TableCell>{item.sku}</TableCell>
                     <TableCell>{item.name}</TableCell>
                     <TableCell>{item.uom}</TableCell>
-                    <TableCell>{item.gst_rate ?? "-"}</TableCell>
+                    <TableCell>{item.quantity_precision}</TableCell>
+                    <TableCell>
+                      {item.gst_rate
+                        ? `${gstLabelByRate.get(
+                            Number.parseFloat(item.gst_rate).toFixed(2),
+                          ) ?? "GST"} (${Number.parseFloat(item.gst_rate).toFixed(2)}%)`
+                        : "-"}
+                    </TableCell>
                     <TableCell>
                       {item.is_active ? "Active" : "Inactive"}
                     </TableCell>

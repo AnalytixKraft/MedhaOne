@@ -1,8 +1,27 @@
 import { expect, Page, test } from "@playwright/test";
 
-import { expectStockQty, resetAndSeed } from "../utils/api";
+import { E2E_ORG_SLUG, expectStockQty, resetAndSeed } from "../utils/api";
 import { loginAsAdmin } from "../utils/auth";
 import { GeneratedData, generateData } from "../utils/testData";
+
+async function selectFromErpCombobox(
+  page: Page,
+  testId: string,
+  searchValue?: string,
+): Promise<void> {
+  await page.getByTestId(testId).click();
+
+  const search = page.locator(
+    `[data-combobox-search="${testId}-search"]`,
+  );
+  await expect(search).toBeVisible();
+
+  if (searchValue) {
+    await search.fill(searchValue);
+  }
+
+  await search.press("Enter");
+}
 
 async function createMasters(page: Page, data: GeneratedData): Promise<void> {
   await page.getByTestId("nav-masters").click();
@@ -36,15 +55,15 @@ async function createAndApprovePo(
   qty: string,
 ): Promise<void> {
   await page.goto("/purchase/po");
-  await page
-    .getByTestId("po-supplier-select")
-    .selectOption({ label: data.supplierName });
-  await page
-    .getByTestId("po-warehouse-select")
-    .selectOption({ label: data.warehouseName });
-  await page
-    .getByTestId("po-line-product-0")
-    .selectOption({ label: `${data.productSku} - ${data.productName}` });
+  await selectFromErpCombobox(page, "po-supplier-select", data.supplierName);
+  await selectFromErpCombobox(page, "po-warehouse-select", data.warehouseName);
+  await page.getByTestId("po-line-product-0").click();
+  const productSearch = page.locator(
+    '[data-combobox-search="po-line-product-0-search"]',
+  );
+  await expect(productSearch).toBeVisible();
+  await productSearch.fill(`${data.productSku} - ${data.productName}`);
+  await productSearch.press("Enter");
   await page.getByTestId("po-line-qty-0").fill(qty);
   await page.getByTestId("create-po").click();
 
@@ -66,7 +85,7 @@ async function createGrnFromPo(
 ): Promise<void> {
   await page.goto("/purchase/grn");
 
-  await page.getByTestId("grn-po-select").selectOption({ index: 1 });
+  await selectFromErpCombobox(page, "grn-po-select");
   await page.locator('[data-testid^="grn-line-qty-"]').first().fill(qty);
   await page
     .locator('[data-testid^="grn-line-batch-"]')
@@ -196,7 +215,7 @@ test("Over-receipt is blocked in GRN creation", async ({ page, request }) => {
   await createAndApprovePo(page, data, "5");
 
   await page.goto("/purchase/grn");
-  await page.getByTestId("grn-po-select").selectOption({ index: 1 });
+  await selectFromErpCombobox(page, "grn-po-select");
   await page.locator('[data-testid^="grn-line-qty-"]').first().fill("6");
   await page
     .locator('[data-testid^="grn-line-batch-"]')
@@ -213,7 +232,7 @@ test("Over-receipt is blocked in GRN creation", async ({ page, request }) => {
   const stockResp = await request.get(
     `${process.env.E2E_API_BASE_URL ?? "http://localhost:1730"}/test/stock-summary?warehouse_code=${encodeURIComponent(
       data.warehouseCode,
-    )}&product_sku=${encodeURIComponent(data.productSku)}&batch_no=${encodeURIComponent(data.batchNo)}&expiry_date=${data.expiryDate}`,
+    )}&product_sku=${encodeURIComponent(data.productSku)}&batch_no=${encodeURIComponent(data.batchNo)}&expiry_date=${data.expiryDate}&org_slug=${encodeURIComponent(E2E_ORG_SLUG)}`,
   );
   expect(stockResp.status()).toBe(404);
 });

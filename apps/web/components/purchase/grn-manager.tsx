@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePermissions } from "@/components/auth/permission-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ErpCombobox } from "@/components/ui/erp-combobox";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -75,6 +76,15 @@ export function GrnManager() {
   const selectedPo = useMemo(
     () => availablePos.find((po) => String(po.id) === selectedPoId) ?? null,
     [availablePos, selectedPoId],
+  );
+
+  const availablePoOptions = useMemo(
+    () =>
+      availablePos.map((po) => ({
+        label: `${po.po_number} (${po.status})`,
+        value: String(po.id),
+      })),
+    [availablePos],
   );
 
   useEffect(() => {
@@ -170,105 +180,100 @@ export function GrnManager() {
             <p className="text-sm text-muted-foreground">Loading permissions...</p>
           ) : hasPermission("grn:create") ? (
             <form className="space-y-3" onSubmit={handleCreateGrn}>
-            <select
-              data-testid="grn-po-select"
-              value={selectedPoId}
-              onChange={(event) => setSelectedPoId(event.target.value)}
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              required
-            >
-              <option value="">Select approved PO</option>
-              {availablePos.map((po) => (
-                <option key={po.id} value={po.id}>
-                  {po.po_number} ({po.status})
-                </option>
-              ))}
-            </select>
+              <ErpCombobox
+                data-testid="grn-po-select"
+                options={availablePoOptions}
+                value={selectedPoId}
+                onValueChange={setSelectedPoId}
+                placeholder="Select approved PO"
+                searchPlaceholder="Search PO number"
+                emptyMessage="No approved PO found"
+              />
 
-            <Input
-              type="date"
-              value={receivedDate}
-              onChange={(event) => setReceivedDate(event.target.value)}
-              required
-            />
+              <Input
+                type="date"
+                value={receivedDate}
+                onChange={(event) => setReceivedDate(event.target.value)}
+                required
+              />
 
-            {selectedPo ? (
-              <div className="space-y-2">
-                {selectedPo.lines.map((line) => {
-                  const draft = lineDrafts[line.id];
-                  const remaining = Math.max(
-                    Number(line.ordered_qty) - Number(line.received_qty),
-                    0,
-                  );
+              {selectedPo ? (
+                <div className="space-y-2">
+                  {selectedPo.lines.map((line) => {
+                    const draft = lineDrafts[line.id];
+                    const remaining = Math.max(
+                      Number(line.ordered_qty) - Number(line.received_qty),
+                      0,
+                    );
 
-                  return (
-                    <div
-                      key={line.id}
-                      className="space-y-2 rounded-md border p-2"
-                    >
-                      <p className="text-xs text-muted-foreground">
-                        PO Line #{line.id} | Remaining: {remaining}
-                      </p>
-                      <div className="grid grid-cols-2 gap-2">
-                        <Input
-                          data-testid={`grn-line-qty-${line.id}`}
-                          value={draft?.received_qty ?? "0"}
-                          onChange={(event) =>
-                            updateLine(line.id, {
-                              received_qty: event.target.value,
-                            })
-                          }
-                          placeholder="Received qty"
-                          type="number"
-                          step="0.001"
-                        />
-                        <Input
-                          value={draft?.free_qty ?? "0"}
-                          onChange={(event) =>
-                            updateLine(line.id, {
-                              free_qty: event.target.value,
-                            })
-                          }
-                          placeholder="Free qty"
-                          type="number"
-                          step="0.001"
-                        />
+                    return (
+                      <div
+                        key={line.id}
+                        className="space-y-2 rounded-md border p-2"
+                      >
+                        <p className="text-xs text-muted-foreground">
+                          PO Line #{line.id} | Remaining: {remaining}
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input
+                            data-testid={`grn-line-qty-${line.id}`}
+                            value={draft?.received_qty ?? "0"}
+                            onChange={(event) =>
+                              updateLine(line.id, {
+                                received_qty: event.target.value,
+                              })
+                            }
+                            placeholder="Received qty"
+                            type="number"
+                            step="0.001"
+                          />
+                          <Input
+                            value={draft?.free_qty ?? "0"}
+                            onChange={(event) =>
+                              updateLine(line.id, {
+                                free_qty: event.target.value,
+                              })
+                            }
+                            placeholder="Free qty"
+                            type="number"
+                            step="0.001"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input
+                            data-testid={`grn-line-batch-${line.id}`}
+                            value={draft?.batch_no ?? ""}
+                            onChange={(event) =>
+                              updateLine(line.id, {
+                                batch_no: event.target.value,
+                              })
+                            }
+                            placeholder="Batch no"
+                          />
+                          <Input
+                            data-testid={`grn-line-expiry-${line.id}`}
+                            value={draft?.expiry_date ?? ""}
+                            onChange={(event) =>
+                              updateLine(line.id, {
+                                expiry_date: event.target.value,
+                              })
+                            }
+                            type="date"
+                          />
+                        </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <Input
-                          data-testid={`grn-line-batch-${line.id}`}
-                          value={draft?.batch_no ?? ""}
-                          onChange={(event) =>
-                            updateLine(line.id, {
-                              batch_no: event.target.value,
-                            })
-                          }
-                          placeholder="Batch no"
-                        />
-                        <Input
-                          data-testid={`grn-line-expiry-${line.id}`}
-                          value={draft?.expiry_date ?? ""}
-                          onChange={(event) =>
-                            updateLine(line.id, {
-                              expiry_date: event.target.value,
-                            })
-                          }
-                          type="date"
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
+                    );
+                  })}
+                </div>
+              ) : null}
 
-            <Button
-              data-testid="create-grn-from-po"
-              type="submit"
-              disabled={saving || !selectedPo}
-            >
-              {saving ? "Saving..." : "Create GRN"}
-            </Button>
+              <Button
+                data-testid="create-grn-from-po"
+                type="submit"
+                disabled={saving || !selectedPo}
+              >
+                {saving ? "Saving..." : "Create GRN"}
+              </Button>
             </form>
           ) : (
             <p className="text-sm text-muted-foreground">
