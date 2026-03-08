@@ -1,11 +1,14 @@
 from fastapi import APIRouter, Depends
 
+from app.api.routes.audit import router as audit_router
 from app.api.routes.dashboard import router as dashboard_router
 from app.api.routes.inventory import router as inventory_router
 from app.api.routes.masters import router as masters_router
 from app.api.routes.purchase import router as purchase_router
+from app.api.routes.purchase_bills import router as purchase_bills_router
 from app.api.routes.purchase_credit_notes import router as purchase_credit_notes_router
 from app.api.routes.reports import router as reports_router
+from app.api.routes.sales import router as sales_router
 from app.api.routes.settings import router as settings_router
 from app.api.routes.tax_rates import router as tax_rates_router
 from app.api.routes.users import router as users_router
@@ -16,7 +19,11 @@ TENANT_SCOPED_PREFIXES = (
     "/masters",
     "/inventory",
     "/purchase",
+    "/purchase-bills",
     "/purchase-credit-notes",
+    "/sales-orders",
+    "/dispatch-notes",
+    "/reservations",
     "/reports",
     "/settings",
     "/tax-rates",
@@ -28,12 +35,15 @@ tenant_router.include_router(dashboard_router)
 tenant_router.include_router(masters_router, prefix="/masters", tags=["Masters"])
 tenant_router.include_router(inventory_router, prefix="/inventory", tags=["Inventory"])
 tenant_router.include_router(purchase_router, prefix="/purchase", tags=["Purchase"])
+tenant_router.include_router(purchase_bills_router, tags=["Purchase Bills"])
+tenant_router.include_router(sales_router, tags=["Sales"])
 tenant_router.include_router(
     purchase_credit_notes_router,
     prefix="/purchase-credit-notes",
     tags=["Purchase Credit Notes"],
 )
 tenant_router.include_router(reports_router, prefix="/reports", tags=["Reports"])
+tenant_router.include_router(audit_router, prefix="/settings", tags=["Audit"])
 tenant_router.include_router(settings_router, prefix="/settings", tags=["Settings"])
 tenant_router.include_router(tax_rates_router, prefix="/tax-rates", tags=["Tax Rates"])
 tenant_router.include_router(users_router, prefix="/users", tags=["Users"])

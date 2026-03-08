@@ -1,0 +1,13 @@
+name,party_type,phone,email,address,state,city,pincode,gstin,pan_number,is_active
+KTST Manufacturer Prime,MANUFACTURER,9876500001,mf.prime@ktst.example.com,"Plot 11, MIDC, Pune",Maharashtra,Pune,411045,27ABCDE1234F1Z5,ABCDE1234F,True
+KTST Manufacturer Basic,MANUFACTURER,,,"Industrial Road, Ahmedabad",Gujarat,Ahmedabad,380001,,AAACM1234K,True
+KTST Super Stockist West,SUPER_STOCKIST,9876500002,stockist.west@ktst.example.com,"Ring Road, Surat",Gujarat,Surat,395003,24AAAPL1234C1Z8,AAAPL1234C,True
+KTST Distributor Metro,DISTRIBUTOR,9876500003,dist.metro@ktst.example.com,"Connaught Place, New Delhi",Delhi,New Delhi,110001,07AABCT4321D1Z9,AABCT4321D,True
+KTST Distributor Lite,DISTRIBUTOR,9876500004,,"Race Course Road, Indore",Madhya Pradesh,Indore,452001,,,True
+KTST Hospital CityCare,HOSPITAL,9876500005,purchase.citycare@ktst.example.com,"MG Road, Bengaluru",Karnataka,Bengaluru,560001,29AACCH6789J1Z2,AACCH6789J,True
+KTST Hospital Rural,HOSPITAL,,,"Main Bazaar, Belagavi",Karnataka,Belagavi,590001,,,True
+KTST Pharmacy One,PHARMACY,9876500006,owner.pharmacy1@ktst.example.com,"Camp Area, Nashik",Maharashtra,Nashik,422001,27AAACR1111Q1Z4,AAACR1111Q,True
+KTST Pharmacy Two,PHARMACY,9876500007,owner.pharmacy2@ktst.example.com,"Lalbagh Road, Bengaluru",Karnataka,Bengaluru,560027,,AABCP2222R,True
+KTST Retailer Corner,RETAILER,9876500008,retail.corner@ktst.example.com,"Station Road, Jaipur",Rajasthan,Jaipur,302001,08AAECR3333S1Z6,AAECR3333S,True
+KTST Retailer Local,RETAILER,9876500009,,"Market Road, Mysuru",Karnataka,Mysuru,570001,,,False
+KTST Consumer Direct,CONSUMER,9876500010,consumer.direct@ktst.example.com,"Koregaon Park, Pune",Maharashtra,Pune,411001,,,True

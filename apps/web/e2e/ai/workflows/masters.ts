@@ -33,7 +33,7 @@ export const mastersWorkflow: WorkflowDefinition = {
   goalSummary:
     "Login, create one supplier and one product using the provided dataset, and verify both exist.",
   buildGuidance: (context: WorkflowContext) => [
-    "Login with admin@medhaone.app / ChangeMe123! if you are not authenticated.",
+    "Login with e2e.admin@medhaone.app / ChangeMe123! if you are not authenticated.",
     "Navigate to Masters.",
     `Create a supplier named '${context.generatedData.supplierName}' with type SUPER_STOCKIST.`,
     `Create a product with SKU '${context.generatedData.productSku}' and name '${context.generatedData.productName}'.`,

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 
 import { PermissionProvider } from "@/components/auth/permission-provider";
+import { ThemePreferenceProvider } from "@/components/theme-preference-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 
 import "./globals.css";
@@ -18,7 +19,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <PermissionProvider>{children}</PermissionProvider>
+          <PermissionProvider>
+            <ThemePreferenceProvider>{children}</ThemePreferenceProvider>
+          </PermissionProvider>
         </ThemeProvider>
       </body>
     </html>

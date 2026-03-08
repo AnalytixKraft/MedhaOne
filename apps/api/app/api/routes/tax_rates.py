@@ -11,6 +11,7 @@ from app.core.permissions import require_permission
 from app.models.tax_rate import TaxRate
 from app.models.user import User
 from app.schemas.tax_rate import TaxRateCreate, TaxRateRead, TaxRateUpdate
+from app.services.audit import snapshot_model, write_audit_log
 from app.services.tax_rates import initialize_tenant_tax_rates
 
 router = APIRouter()
@@ -37,13 +38,23 @@ def create_tax_rate(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("tax:manage")),
 ) -> TaxRateRead:
-    _ = current_user
     initialize_tenant_tax_rates(db)
     _guard_duplicate_active_rate(db, payload.rate_percent)
 
     record = TaxRate(**payload.model_dump())
     db.add(record)
     _commit_or_validation_error(db, "Failed to create tax rate")
+    _write_tax_audit_log_safe(
+        db,
+        module="Tax",
+        entity_type="TAX_RATE",
+        entity_id=record.id,
+        action="CREATE",
+        performed_by=current_user.id,
+        summary=f"Created tax rate {record.code}",
+        source_screen="Settings / Taxes",
+        after_snapshot=snapshot_model(record),
+    )
     db.refresh(record)
     return record
 
@@ -55,7 +66,6 @@ def update_tax_rate(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("tax:manage")),
 ) -> TaxRateRead:
-    _ = current_user
     initialize_tenant_tax_rates(db)
 
     record = db.get(TaxRate, tax_rate_id)
@@ -72,10 +82,23 @@ def update_tax_rate(
     if target_active:
         _guard_duplicate_active_rate(db, target_rate, exclude_id=record.id)
 
+    before_snapshot = snapshot_model(record)
     for field, value in updates.items():
         setattr(record, field, value)
 
     _commit_or_validation_error(db, "Failed to update tax rate")
+    _write_tax_audit_log_safe(
+        db,
+        module="Tax",
+        entity_type="TAX_RATE",
+        entity_id=record.id,
+        action="UPDATE",
+        performed_by=current_user.id,
+        summary=f"Updated tax rate {record.code}",
+        source_screen="Settings / Taxes",
+        before_snapshot=before_snapshot,
+        after_snapshot=snapshot_model(record),
+    )
     db.refresh(record)
     return record
 
@@ -86,7 +109,6 @@ def deactivate_tax_rate(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("tax:manage")),
 ) -> TaxRateRead:
-    _ = current_user
     initialize_tenant_tax_rates(db)
 
     record = db.get(TaxRate, tax_rate_id)
@@ -97,8 +119,21 @@ def deactivate_tax_rate(
             status_code=status.HTTP_404_NOT_FOUND,
         )
 
+    before_snapshot = snapshot_model(record)
     record.is_active = False
     _commit_or_validation_error(db, "Failed to deactivate tax rate")
+    _write_tax_audit_log_safe(
+        db,
+        module="Tax",
+        entity_type="TAX_RATE",
+        entity_id=record.id,
+        action="DEACTIVATE",
+        performed_by=current_user.id,
+        summary=f"Deactivated tax rate {record.code}",
+        source_screen="Settings / Taxes",
+        before_snapshot=before_snapshot,
+        after_snapshot=snapshot_model(record),
+    )
     db.refresh(record)
     return record
 
@@ -140,3 +175,15 @@ def _commit_or_validation_error(db: Session, message: str) -> None:
             message=message,
             status_code=status.HTTP_400_BAD_REQUEST,
         ) from error
+
+
+def _write_tax_audit_log_safe(db: Session, **kwargs) -> None:
+    try:
+        write_audit_log(db, **kwargs)
+        db.commit()
+        tenant_schema = db.info.get("tenant_schema")
+        if isinstance(tenant_schema, str) and tenant_schema:
+            set_tenant_search_path(db, tenant_schema)
+    except Exception:
+        # Tax operations must succeed even if audit persistence fails in legacy schemas.
+        db.rollback()

@@ -6,9 +6,10 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 const links = [
-  { href: "/masters/parties", label: "Parties" },
+  { href: "/masters/parties", label: "Party Master" },
   { href: "/masters/products", label: "Products" },
   { href: "/masters/warehouses", label: "Warehouses" },
+  { href: "/masters/bulk-import", label: "Bulk Import" },
 ];
 
 export function MastersNav() {

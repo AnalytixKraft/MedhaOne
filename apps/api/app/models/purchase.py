@@ -31,6 +31,12 @@ class PurchaseOrder(Base):
         Index("ix_purchase_orders_warehouse_id", "warehouse_id"),
         Index("ix_purchase_orders_status", "status"),
         Index("ix_purchase_orders_order_date", "order_date"),
+        CheckConstraint(
+            "discount_percent >= 0 AND discount_percent <= 100",
+            name="ck_purchase_orders_discount_percent_range",
+        ),
+        CheckConstraint("gst_percent >= 0", name="ck_purchase_orders_gst_percent_non_negative"),
+        CheckConstraint("final_total >= 0", name="ck_purchase_orders_final_total_non_negative"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
@@ -45,6 +51,20 @@ class PurchaseOrder(Base):
     order_date: Mapped[date] = mapped_column(Date, nullable=False)
     expected_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tax_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    discount_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0)
+    discount_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    taxable_value: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    gst_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0)
+    cgst_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0)
+    sgst_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0)
+    igst_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0)
+    cgst_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    sgst_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    igst_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    adjustment: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    final_total: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

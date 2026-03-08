@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.database import set_tenant_search_path
 from app.core.exceptions import AppException
 from app.domain.state_machine import PurchaseStateMachine
-from app.models.audit import AuditLog
+from app.domain.tax_identity import derive_state_from_gstin, normalize_and_validate_gstin
 from app.models.batch import Batch
+from app.models.company_settings import CompanySettings
 from app.models.enums import (
     GrnStatus,
     InventoryReason,
@@ -31,11 +34,18 @@ from app.models.purchase import (
 )
 from app.models.warehouse import Warehouse
 from app.schemas.purchase import GRNCreateFromPO, PurchaseOrderCreate
+from app.services.audit import write_audit_log
 from app.services.inventory import stock_in
+
+logger = logging.getLogger(__name__)
 
 
 def _as_decimal(value: Decimal | float | int) -> Decimal:
     return Decimal(str(value))
+
+
+def _money(value: Decimal | float | int) -> Decimal:
+    return _as_decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def _new_po_number() -> str:
@@ -120,6 +130,116 @@ def _assert_master_refs(db: Session, *, supplier_id: int, warehouse_id: int) -> 
         )
 
 
+def _company_settings_table_exists(db: Session) -> bool:
+    return (
+        db.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = current_schema()
+                  AND table_name = 'company_settings'
+                """
+            )
+        ).scalar_one_or_none()
+        is not None
+    )
+
+
+def _get_company_gstin(db: Session) -> str | None:
+    if not _company_settings_table_exists(db):
+        return None
+    settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
+    if settings is None or not settings.gst_number:
+        return None
+    return normalize_and_validate_gstin(settings.gst_number)
+
+
+def _calculate_po_financials(
+    db: Session,
+    *,
+    payload: PurchaseOrderCreate,
+    supplier: Party,
+) -> dict[str, Decimal | str]:
+    subtotal = _money(
+        sum(
+            _as_decimal(line.ordered_qty) * _as_decimal(line.unit_cost or Decimal("0"))
+            for line in payload.lines
+        )
+    )
+    discount_percent = _money(payload.discount_percent)
+    discount_amount = _money((subtotal * discount_percent) / Decimal("100"))
+    taxable_value = _money(subtotal - discount_amount)
+    gst_percent = _money(payload.gst_percent)
+    adjustment = _money(payload.adjustment)
+
+    supplier_gstin = normalize_and_validate_gstin(supplier.gstin) if supplier.gstin else None
+    company_gstin = _get_company_gstin(db)
+    supplier_state = derive_state_from_gstin(supplier_gstin) if supplier_gstin else None
+    company_state = derive_state_from_gstin(company_gstin) if company_gstin else None
+
+    if gst_percent > 0:
+        if not company_gstin or not company_state:
+            _raise_purchase_error(
+                error_code="VALIDATION_ERROR",
+                message="Company GSTIN not configured. Cannot determine CGST/SGST/IGST automatically.",
+                status_code=400,
+                details={"field": "company_gstin"},
+            )
+        if not supplier_gstin or not supplier_state:
+            _raise_purchase_error(
+                error_code="VALIDATION_ERROR",
+                message="Supplier GSTIN not configured. Cannot determine CGST/SGST/IGST automatically.",
+                status_code=400,
+                details={"field": "supplier_gstin"},
+            )
+
+    tax_type = "UNDETERMINED"
+    cgst_percent = Decimal("0.00")
+    sgst_percent = Decimal("0.00")
+    igst_percent = Decimal("0.00")
+
+    if gst_percent > 0 and company_state and supplier_state:
+        if company_state == supplier_state:
+            half_rate = _money(gst_percent / Decimal("2"))
+            cgst_percent = half_rate
+            sgst_percent = half_rate
+            tax_type = "INTRA_STATE"
+        else:
+            igst_percent = gst_percent
+            tax_type = "INTER_STATE"
+
+    cgst_amount = _money((taxable_value * cgst_percent) / Decimal("100"))
+    sgst_amount = _money((taxable_value * sgst_percent) / Decimal("100"))
+    igst_amount = _money((taxable_value * igst_percent) / Decimal("100"))
+    final_total = _money(taxable_value + cgst_amount + sgst_amount + igst_amount + adjustment)
+
+    if final_total < 0:
+        _raise_purchase_error(
+            error_code="VALIDATION_ERROR",
+            message="Final total cannot be negative",
+            status_code=400,
+            details={"field": "final_total"},
+        )
+
+    return {
+        "tax_type": tax_type,
+        "subtotal": subtotal,
+        "discount_percent": discount_percent,
+        "discount_amount": discount_amount,
+        "taxable_value": taxable_value,
+        "gst_percent": gst_percent,
+        "cgst_percent": cgst_percent,
+        "sgst_percent": sgst_percent,
+        "igst_percent": igst_percent,
+        "cgst_amount": cgst_amount,
+        "sgst_amount": sgst_amount,
+        "igst_amount": igst_amount,
+        "adjustment": adjustment,
+        "final_total": final_total,
+    }
+
+
 def _assert_product_exists(db: Session, product_id: int) -> None:
     if not db.get(Product, product_id):
         _raise_purchase_error(
@@ -171,15 +291,24 @@ def _add_audit_log(
     performed_by: int,
     metadata: dict | None = None,
 ) -> None:
-    db.add(
-        AuditLog(
-            entity_type=entity_type,
-            entity_id=entity_id,
-            action=action,
-            performed_by=performed_by,
-            metadata_json=metadata,
-        )
+    write_audit_log(
+        db,
+        module="Purchase",
+        entity_type=entity_type,
+        entity_id=entity_id,
+        action=action,
+        performed_by=performed_by,
+        summary=metadata.get("summary") if metadata else None,
+        source_reference=metadata.get("reference") if metadata else None,
+        metadata=metadata,
     )
+
+
+def _commit_with_tenant_context(db: Session) -> None:
+    db.commit()
+    tenant_schema = db.info.get("tenant_schema")
+    if isinstance(tenant_schema, str) and tenant_schema:
+        set_tenant_search_path(db, tenant_schema)
 
 
 def create_po(db: Session, payload: PurchaseOrderCreate, created_by: int) -> PurchaseOrder:
@@ -191,8 +320,16 @@ def create_po(db: Session, payload: PurchaseOrderCreate, created_by: int) -> Pur
         )
 
     _assert_master_refs(db, supplier_id=payload.supplier_id, warehouse_id=payload.warehouse_id)
+    supplier = db.get(Party, payload.supplier_id)
+    if supplier is None:
+        _raise_purchase_error(
+            error_code="NOT_FOUND",
+            message="Supplier not found",
+            status_code=404,
+        )
 
     try:
+        financials = _calculate_po_financials(db, payload=payload, supplier=supplier)
         po = PurchaseOrder(
             po_number=_new_po_number(),
             supplier_id=payload.supplier_id,
@@ -201,6 +338,20 @@ def create_po(db: Session, payload: PurchaseOrderCreate, created_by: int) -> Pur
             order_date=payload.order_date,
             expected_date=payload.expected_date,
             notes=payload.notes,
+            tax_type=str(financials["tax_type"]),
+            subtotal=_as_decimal(financials["subtotal"]),
+            discount_percent=_as_decimal(financials["discount_percent"]),
+            discount_amount=_as_decimal(financials["discount_amount"]),
+            taxable_value=_as_decimal(financials["taxable_value"]),
+            gst_percent=_as_decimal(financials["gst_percent"]),
+            cgst_percent=_as_decimal(financials["cgst_percent"]),
+            sgst_percent=_as_decimal(financials["sgst_percent"]),
+            igst_percent=_as_decimal(financials["igst_percent"]),
+            cgst_amount=_as_decimal(financials["cgst_amount"]),
+            sgst_amount=_as_decimal(financials["sgst_amount"]),
+            igst_amount=_as_decimal(financials["igst_amount"]),
+            adjustment=_as_decimal(financials["adjustment"]),
+            final_total=_as_decimal(financials["final_total"]),
             created_by=created_by,
         )
 
@@ -228,10 +379,26 @@ def create_po(db: Session, payload: PurchaseOrderCreate, created_by: int) -> Pur
             performed_by=created_by,
             metadata={"po_number": po.po_number},
         )
-        db.commit()
-    except Exception:
+        _commit_with_tenant_context(db)
+    except AppException:
         db.rollback()
         raise
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "Purchase order creation failed",
+            extra={
+                "supplier_id": payload.supplier_id,
+                "warehouse_id": payload.warehouse_id,
+                "line_count": len(payload.lines),
+                "created_by": created_by,
+            },
+        )
+        raise AppException(
+            error_code="PURCHASE_ORDER_CREATE_FAILED",
+            message="Failed to create purchase order",
+            status_code=500,
+        )
 
     return _get_po_with_lines(db, po.id)  # type: ignore[return-value]
 
@@ -290,7 +457,7 @@ def create_purchase_return(
             performed_by=created_by,
             metadata={"return_number": purchase_return.return_number},
         )
-        db.commit()
+        _commit_with_tenant_context(db)
     except Exception:
         db.rollback()
         raise
@@ -327,7 +494,7 @@ def approve_po(db: Session, po_id: int, user_id: int) -> PurchaseOrder:
     )
 
     try:
-        db.commit()
+        _commit_with_tenant_context(db)
     except Exception:
         db.rollback()
         raise
@@ -510,7 +677,7 @@ def create_grn_from_po(db: Session, po_id: int, payload: GRNCreateFromPO, create
             performed_by=created_by,
             metadata={"grn_number": grn.grn_number, "purchase_order_id": po.id},
         )
-        db.commit()
+        _commit_with_tenant_context(db)
     except Exception:
         db.rollback()
         raise
@@ -623,7 +790,7 @@ def post_grn(db: Session, grn_id: int, user_id: int) -> GRN:
             performed_by=user_id,
             metadata={"grn_number": grn.grn_number, "purchase_order_id": po.id},
         )
-        db.commit()
+        _commit_with_tenant_context(db)
     except Exception:
         db.rollback()
         raise
@@ -706,7 +873,7 @@ def post_purchase_return(db: Session, purchase_return_id: int, user_id: int) -> 
                 "credit_note_number": credit_note.credit_note_number,
             },
         )
-        db.commit()
+        _commit_with_tenant_context(db)
     except Exception:
         db.rollback()
         raise

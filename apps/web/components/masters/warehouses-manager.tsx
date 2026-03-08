@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { usePermissions } from "@/components/auth/permission-provider";
+import { AppFormGrid, AppSectionCard, AppTable } from "@/components/erp/app-primitives";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -112,42 +112,43 @@ export function WarehousesManager() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[320px,1fr]">
-      <Card>
-        <CardHeader>
-          <CardTitle>{modeLabel}</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <AppSectionCard
+        title={modeLabel}
+        description="Maintain warehouse master data using the shared ERP form layout."
+      >
           {!permissionsLoading && !canManage ? (
             <p className="text-sm text-muted-foreground">
               You have read-only access. Master data changes are disabled for your role.
             </p>
           ) : (
           <form className="space-y-3" onSubmit={handleSubmit}>
-            <Input
-              data-testid="warehouse-name"
-              value={form.name}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, name: event.target.value }))
-              }
-              placeholder="Warehouse name"
-              required
-            />
-            <Input
-              data-testid="warehouse-code"
-              value={form.code}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, code: event.target.value }))
-              }
-              placeholder="Code"
-              required
-            />
-            <Input
-              value={form.address}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, address: event.target.value }))
-              }
-              placeholder="Address"
-            />
+            <AppFormGrid className="grid-cols-1">
+              <Input
+                data-testid="warehouse-name"
+                value={form.name}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, name: event.target.value }))
+                }
+                placeholder="Warehouse name"
+                required
+              />
+              <Input
+                data-testid="warehouse-code"
+                value={form.code}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, code: event.target.value }))
+                }
+                placeholder="Code"
+                required
+              />
+              <Input
+                value={form.address}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, address: event.target.value }))
+                }
+                placeholder="Address"
+              />
+            </AppFormGrid>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -178,22 +179,17 @@ export function WarehousesManager() {
             </div>
           </form>
           )}
-        </CardContent>
-      </Card>
+      </AppSectionCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Warehouses</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <AppTable title="Warehouses" description="Review warehouse records and edit existing entries.">
           {error ? <p className="mb-3 text-sm text-red-500">{error}</p> : null}
           {loading ? (
-            <p className="text-sm text-muted-foreground">
+            <p className="p-4 text-sm text-muted-foreground">
               Loading warehouses...
             </p>
           ) : (
             <Table>
-              <TableHeader>
+              <TableHeader className="bg-[hsl(var(--table-header-bg))]">
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Code</TableHead>
@@ -229,8 +225,7 @@ export function WarehousesManager() {
               </TableBody>
             </Table>
           )}
-        </CardContent>
-      </Card>
+      </AppTable>
     </div>
   );
 }

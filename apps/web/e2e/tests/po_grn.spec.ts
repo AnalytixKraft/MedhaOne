@@ -2,69 +2,90 @@ import { expect, Page, test } from "@playwright/test";
 
 import { E2E_ORG_SLUG, expectStockQty, resetAndSeed } from "../utils/api";
 import { loginAsAdmin } from "../utils/auth";
+import { selectErpComboboxOption } from "../utils/erpCombobox";
 import { GeneratedData, generateData } from "../utils/testData";
 
-async function selectFromErpCombobox(
+type GstSetup = {
+  companyGstin?: string | null;
+  companyState?: string | null;
+  supplierGstin?: string | null;
+  supplierState?: string | null;
+};
+
+async function createMasters(
   page: Page,
-  testId: string,
-  searchValue?: string,
+  data: GeneratedData,
+  gstSetup: GstSetup = {},
 ): Promise<void> {
-  await page.getByTestId(testId).click();
+  const companyResponse = await page.request.patch("/api/settings/company", {
+    data: {
+      company_name: "E2E Isolated Workspace",
+      gst_number: gstSetup.companyGstin ?? "27AAAAA1111A1Z1",
+      state: gstSetup.companyState ?? "Maharashtra",
+    },
+  });
+  expect(companyResponse.ok()).toBeTruthy();
 
-  const search = page.locator(
-    `[data-combobox-search="${testId}-search"]`,
-  );
-  await expect(search).toBeVisible();
+  const supplierResponse = await page.request.post("/api/masters/parties", {
+    data: {
+      name: data.supplierName,
+      party_type: "SUPER_STOCKIST",
+      state: gstSetup.supplierState ?? "Maharashtra",
+      gstin: gstSetup.supplierGstin ?? "27ABCDE1234F1Z5",
+      is_active: true,
+    },
+  });
+  expect(supplierResponse.ok()).toBeTruthy();
 
-  if (searchValue) {
-    await search.fill(searchValue);
-  }
+  const warehouseResponse = await page.request.post("/api/masters/warehouses", {
+    data: {
+      name: data.warehouseName,
+      code: data.warehouseCode,
+      is_active: true,
+    },
+  });
+  expect(warehouseResponse.ok()).toBeTruthy();
 
-  await search.press("Enter");
-}
-
-async function createMasters(page: Page, data: GeneratedData): Promise<void> {
-  await page.getByTestId("nav-masters").click();
-
-  await page.goto("/masters/parties");
-  await page.getByTestId("party-name").fill(data.supplierName);
-  await page.getByTestId("party-type").selectOption("SUPER_STOCKIST");
-  await page.getByTestId("create-party").click();
-  await expect(
-    page.getByRole("cell", { name: data.supplierName }),
-  ).toBeVisible();
-
-  await page.goto("/masters/warehouses");
-  await page.getByTestId("warehouse-name").fill(data.warehouseName);
-  await page.getByTestId("warehouse-code").fill(data.warehouseCode);
-  await page.getByTestId("create-warehouse").click();
-  await expect(
-    page.getByRole("cell", { name: data.warehouseCode }),
-  ).toBeVisible();
-
-  await page.goto("/masters/products");
-  await page.getByTestId("product-sku").fill(data.productSku);
-  await page.getByTestId("product-name").fill(data.productName);
-  await page.getByTestId("create-product").click();
-  await expect(page.getByRole("cell", { name: data.productSku })).toBeVisible();
+  const productResponse = await page.request.post("/api/masters/products", {
+    data: {
+      sku: data.productSku,
+      name: data.productName,
+      uom: "EA",
+      gst_rate: "12.00",
+      is_active: true,
+    },
+  });
+  expect(productResponse.ok()).toBeTruthy();
 }
 
 async function createAndApprovePo(
   page: Page,
   data: GeneratedData,
   qty: string,
+  unitCost = "100",
 ): Promise<void> {
   await page.goto("/purchase/po");
-  await selectFromErpCombobox(page, "po-supplier-select", data.supplierName);
-  await selectFromErpCombobox(page, "po-warehouse-select", data.warehouseName);
-  await page.getByTestId("po-line-product-0").click();
-  const productSearch = page.locator(
-    '[data-combobox-search="po-line-product-0-search"]',
+  await selectErpComboboxOption(
+    page,
+    "po-supplier-select",
+    data.supplierName,
+    data.supplierName,
   );
-  await expect(productSearch).toBeVisible();
-  await productSearch.fill(`${data.productSku} - ${data.productName}`);
-  await productSearch.press("Enter");
+  await selectErpComboboxOption(
+    page,
+    "po-warehouse-select",
+    data.warehouseName,
+    data.warehouseName,
+  );
+  await selectErpComboboxOption(
+    page,
+    "po-line-product-0",
+    `${data.productSku} - ${data.productName}`,
+    data.productSku,
+  );
+  await expect(page.getByTestId("po-tax-select")).toContainText("12");
   await page.getByTestId("po-line-qty-0").fill(qty);
+  await page.getByTestId("po-line-cost-0").fill(unitCost);
   await page.getByTestId("create-po").click();
 
   const poRow = page
@@ -85,7 +106,7 @@ async function createGrnFromPo(
 ): Promise<void> {
   await page.goto("/purchase/grn");
 
-  await selectFromErpCombobox(page, "grn-po-select");
+  await selectErpComboboxOption(page, "grn-po-select");
   await page.locator('[data-testid^="grn-line-qty-"]').first().fill(qty);
   await page
     .locator('[data-testid^="grn-line-batch-"]')
@@ -118,6 +139,127 @@ async function postCurrentGrn(page: Page): Promise<number> {
 
 test.beforeEach(async ({ request }) => {
   await resetAndSeed(request, false);
+});
+
+test("Same-state supplier shows GST split and correct PO total", async ({
+  page,
+}) => {
+  const data = generateData("GSTINTRA");
+
+  await loginAsAdmin(page);
+  await createMasters(page, data, {
+    companyGstin: "27AAAAA1111A1Z1",
+    companyState: "Maharashtra",
+    supplierGstin: "27ABCDE1234F1Z5",
+    supplierState: "Maharashtra",
+  });
+
+  await page.goto("/purchase/po");
+  await selectErpComboboxOption(
+    page,
+    "po-supplier-select",
+    data.supplierName,
+    data.supplierName,
+  );
+  await selectErpComboboxOption(
+    page,
+    "po-warehouse-select",
+    data.warehouseName,
+    data.warehouseName,
+  );
+  await selectErpComboboxOption(
+    page,
+    "po-line-product-0",
+    `${data.productSku} - ${data.productName}`,
+    data.productSku,
+  );
+  await page.getByTestId("po-line-qty-0").fill("10");
+  await page.getByTestId("po-line-cost-0").fill("100");
+
+  await expect(page.getByTestId("po-supplier-gstin")).toContainText("27ABCDE1234F1Z5");
+  await expect(page.getByTestId("po-company-gstin")).toContainText("27AAAAA1111A1Z1");
+  await expect(page.getByTestId("po-tax-mode-badge")).toHaveText("Intra-state");
+  await expect(page.getByTestId("po-tax-split")).toContainText("CGST 6.00% + SGST 6.00%");
+  await expect(page.getByText("Taxable Value")).toBeVisible();
+  await expect(page.getByText("CGST 6.00%")).toBeVisible();
+  await expect(page.getByText("SGST 6.00%")).toBeVisible();
+  await expect(page.getByTestId("po-final-total")).toHaveText("1,120.00");
+});
+
+test("Different-state supplier switches to IGST", async ({ page }) => {
+  const data = generateData("GSTINTER");
+
+  await loginAsAdmin(page);
+  await createMasters(page, data, {
+    companyGstin: "27AAAAA1111A1Z1",
+    companyState: "Maharashtra",
+    supplierGstin: "29ABCDE1234F1Z5",
+    supplierState: "Karnataka",
+  });
+
+  await page.goto("/purchase/po");
+  await selectErpComboboxOption(
+    page,
+    "po-supplier-select",
+    data.supplierName,
+    data.supplierName,
+  );
+  await selectErpComboboxOption(
+    page,
+    "po-warehouse-select",
+    data.warehouseName,
+    data.warehouseName,
+  );
+  await selectErpComboboxOption(
+    page,
+    "po-line-product-0",
+    `${data.productSku} - ${data.productName}`,
+    data.productSku,
+  );
+  await page.getByTestId("po-line-qty-0").fill("10");
+  await page.getByTestId("po-line-cost-0").fill("100");
+
+  await expect(page.getByTestId("po-tax-mode-badge")).toHaveText("Inter-state");
+  await expect(page.getByTestId("po-tax-split")).toContainText("IGST 12.00%");
+  await expect(page.getByText("IGST 12.00%")).toBeVisible();
+  await expect(page.getByTestId("po-final-total")).toHaveText("1,120.00");
+});
+
+test("Missing company GST shows warning and blocks save before generic server failure", async ({
+  page,
+}) => {
+  const data = generateData("GSTWARN");
+
+  await loginAsAdmin(page);
+  await createMasters(page, data, {
+    companyGstin: null,
+    companyState: "Maharashtra",
+    supplierGstin: "27ABCDE1234F1Z5",
+    supplierState: "Maharashtra",
+  });
+
+  await page.goto("/purchase/po");
+  await selectErpComboboxOption(
+    page,
+    "po-supplier-select",
+    data.supplierName,
+    data.supplierName,
+  );
+  await selectErpComboboxOption(
+    page,
+    "po-warehouse-select",
+    data.warehouseName,
+    data.warehouseName,
+  );
+  await selectErpComboboxOption(
+    page,
+    "po-line-product-0",
+    `${data.productSku} - ${data.productName}`,
+    data.productSku,
+  );
+
+  await expect(page.getByText("Company GSTIN not configured. Cannot determine CGST/SGST/IGST automatically.")).toBeVisible();
+  await expect(page.getByTestId("create-po")).toBeDisabled();
 });
 
 test("PO -> GRN end-to-end closes PO and updates stock", async ({
@@ -215,7 +357,7 @@ test("Over-receipt is blocked in GRN creation", async ({ page, request }) => {
   await createAndApprovePo(page, data, "5");
 
   await page.goto("/purchase/grn");
-  await selectFromErpCombobox(page, "grn-po-select");
+  await selectErpComboboxOption(page, "grn-po-select");
   await page.locator('[data-testid^="grn-line-qty-"]').first().fill("6");
   await page
     .locator('[data-testid^="grn-line-batch-"]')

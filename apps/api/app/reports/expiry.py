@@ -14,9 +14,15 @@ from app.models.warehouse import Warehouse
 @dataclass(slots=True)
 class ExpiryReportFilters:
     warehouse_id: int | None = None
+    warehouse_ids: tuple[int, ...] = ()
     product_id: int | None = None
+    product_ids: tuple[int, ...] = ()
+    brand_values: tuple[str, ...] = ()
+    category_values: tuple[str, ...] = ()
+    batch_nos: tuple[str, ...] = ()
     expiry_within_days: int = 30
     include_expired: bool = False
+    expiry_status: str | None = None
     page: int = 1
     page_size: int = 50
 
@@ -42,16 +48,33 @@ def get_expiry_report(
         .join(Batch, Batch.id == StockSummary.batch_id)
         .join(Warehouse, Warehouse.id == StockSummary.warehouse_id)
         .where(StockSummary.qty_on_hand > Decimal("0"))
-        .where(Batch.expiry_date <= threshold_date)
     )
 
-    if not filters.include_expired:
-        stmt = stmt.where(Batch.expiry_date >= today)
+    if filters.expiry_status:
+        if filters.expiry_status == "expired":
+            stmt = stmt.where(Batch.expiry_date < today)
+        elif filters.expiry_status == "expiring_30":
+            stmt = stmt.where(Batch.expiry_date >= today).where(Batch.expiry_date <= threshold_date)
+        elif filters.expiry_status == "safe":
+            stmt = stmt.where(Batch.expiry_date > threshold_date)
+    else:
+        stmt = stmt.where(Batch.expiry_date <= threshold_date)
+        if not filters.include_expired:
+            stmt = stmt.where(Batch.expiry_date >= today)
     if filters.warehouse_id is not None:
         stmt = stmt.where(StockSummary.warehouse_id == filters.warehouse_id)
+    if filters.warehouse_ids:
+        stmt = stmt.where(StockSummary.warehouse_id.in_(filters.warehouse_ids))
     if filters.product_id is not None:
         stmt = stmt.where(StockSummary.product_id == filters.product_id)
-
+    if filters.product_ids:
+        stmt = stmt.where(StockSummary.product_id.in_(filters.product_ids))
+    if filters.brand_values:
+        stmt = stmt.where(Product.brand.in_(filters.brand_values))
+    if filters.category_values:
+        stmt = stmt.where(Product.hsn.in_(filters.category_values))
+    if filters.batch_nos:
+        stmt = stmt.where(Batch.batch_no.in_(filters.batch_nos))
     count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
     total = int(db.execute(count_stmt).scalar_one())
 

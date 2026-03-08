@@ -3,7 +3,7 @@
 import { LogOut, Menu } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-import { ThemeToggle } from "@/components/theme-toggle";
+import { ThemePreferenceSelector } from "@/components/theme-preference-selector";
 import { Button } from "@/components/ui/button";
 import { apiClient } from "@/lib/api/client";
 
@@ -42,7 +42,7 @@ export function AppHeader({ brandName, onToggleDesktopSidebar, onToggleMobileSid
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <ThemeToggle />
+        <ThemePreferenceSelector />
         <Button variant="outline" size="sm" onClick={handleLogout}>
           <LogOut className="mr-1 h-4 w-4" />
           Logout

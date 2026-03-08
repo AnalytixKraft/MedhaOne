@@ -13,6 +13,24 @@
   --primary-foreground: 210 40% 98%;
   --muted: 210 40% 96.1%;
   --muted-foreground: 215.4 16.3% 46.9%;
+  --surface: 0 0% 100%;
+  --surface-muted: 210 40% 98%;
+  --surface-elevated: 0 0% 100%;
+  --text-primary: 222.2 47.4% 11.2%;
+  --text-secondary: 215.4 16.3% 32%;
+  --hover: 210 40% 96.5%;
+  --table-header: 215 25% 92%;
+  --page-bg: 210 20% 98%;
+  --card-bg: 0 0% 100%;
+  --card-border: 214.3 31.8% 89%;
+  --muted-bg: 210 40% 97%;
+  --table-header-bg: 215 25% 92%;
+  --table-row-hover: 210 40% 96.5%;
+  --primary-btn: 221.2 83.2% 53.3%;
+  --secondary-btn: 0 0% 100%;
+  --success-accent: 142 71% 45%;
+  --warning-accent: 38 92% 50%;
+  --danger-accent: 0 84% 60%;
   --radius: 0.75rem;
 }
 
@@ -27,6 +45,24 @@
   --primary-foreground: 222.2 47.4% 11.2%;
   --muted: 217.2 32.6% 17.5%;
   --muted-foreground: 215 20.2% 65.1%;
+  --surface: 222 47% 8%;
+  --surface-muted: 222 38% 11%;
+  --surface-elevated: 222 32% 10%;
+  --text-primary: 210 40% 96%;
+  --text-secondary: 215 20% 78%;
+  --hover: 222 30% 14%;
+  --table-header: 222 30% 12%;
+  --page-bg: 222 30% 7%;
+  --card-bg: 222 32% 10%;
+  --card-border: 217.2 32.6% 17.5%;
+  --muted-bg: 222 26% 12%;
+  --table-header-bg: 222 30% 12%;
+  --table-row-hover: 222 30% 14%;
+  --primary-btn: 217.2 91.2% 59.8%;
+  --secondary-btn: 222 32% 10%;
+  --success-accent: 142 69% 45%;
+  --warning-accent: 38 92% 50%;
+  --danger-accent: 0 72% 57%;
 }
 
 * {
@@ -35,6 +71,10 @@
 
 body {
   @apply bg-background text-foreground antialiased;
+}
+
+main {
+  background-color: hsl(var(--page-bg));
 }
 
 button:not(:disabled),

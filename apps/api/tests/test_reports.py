@@ -58,7 +58,14 @@ def _create_product(client: TestClient, headers: dict[str, str], sku: str) -> in
     response = client.post(
         "/masters/products",
         headers=headers,
-        json={"sku": sku, "name": f"Product {sku}", "brand": "AK", "uom": "BOX", "is_active": True},
+        json={
+            "sku": sku,
+            "name": f"Product {sku}",
+            "brand": "AK",
+            "hsn": "3004",
+            "uom": "BOX",
+            "is_active": True,
+        },
     )
     assert response.status_code == 201, response.text
     return response.json()["id"]
@@ -130,6 +137,58 @@ def _create_and_post_grn(
     post_response = client.post(f"/purchase/grn/{grn['id']}/post", headers=headers)
     assert post_response.status_code == 200, post_response.text
     return post_response.json()
+
+
+def _post_opening_stock(
+    client: TestClient,
+    headers: dict[str, str],
+    *,
+    warehouse_id: int,
+    product_id: int,
+    batch_id: int,
+    qty: str,
+) -> dict:
+    response = client.post(
+        "/inventory/in",
+        headers=headers,
+        json={
+            "warehouse_id": warehouse_id,
+            "product_id": product_id,
+            "batch_id": batch_id,
+            "qty": qty,
+            "reason": InventoryReason.OPENING_STOCK.value,
+            "ref_type": "OPENING",
+            "ref_id": "OPENING-1",
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _post_legacy_opening_stock(
+    client: TestClient,
+    headers: dict[str, str],
+    *,
+    warehouse_id: int,
+    product_id: int,
+    batch_id: int,
+    qty: str,
+) -> dict:
+    response = client.post(
+        "/inventory/in",
+        headers=headers,
+        json={
+            "warehouse_id": warehouse_id,
+            "product_id": product_id,
+            "batch_id": batch_id,
+            "qty": qty,
+            "reason": InventoryReason.STOCK_ADJUSTMENT.value,
+            "ref_type": "OPENING",
+            "ref_id": "LEGACY-OPENING-1",
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
 
 
 def _seed_report_dataset(client: TestClient, db: Session) -> dict[str, object]:
@@ -324,3 +383,164 @@ def test_report_pagination_works(
     assert payload["page_size"] == 1
     assert len(payload["data"]) == 1
     assert payload["data"][0]["po_number"] == seeded["po"]["po_number"]
+
+
+def test_current_stock_report_returns_summary_and_supports_filters(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db = client_with_test_db
+    seeded = _seed_report_dataset(client, db)
+
+    response = client.get(
+        "/reports/current-stock",
+        headers=seeded["headers"],
+        params={
+            "brand_values": "AK",
+            "warehouse_ids": str(seeded["warehouse_id"]),
+            "stock_status": "available",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["summary"]["total_skus"] == 1
+    assert Decimal(str(payload["summary"]["total_stock_qty"])) == Decimal("7")
+
+    row = payload["data"][0]
+    assert row["sku"] == "RPT-SKU-1"
+    assert row["brand"] == "AK"
+    assert Decimal(str(row["available_qty"])) == Decimal("7")
+    assert Decimal(str(row["reserved_qty"])) == Decimal("0")
+
+    mismatch_response = client.get(
+        "/reports/current-stock",
+        headers=seeded["headers"],
+        params={"brand_values": "OTHER"},
+    )
+    assert mismatch_response.status_code == 200, mismatch_response.text
+    mismatch_payload = mismatch_response.json()
+    assert mismatch_payload["total"] == 0
+    assert mismatch_payload["data"] == []
+
+
+def test_report_filter_options_endpoint_returns_master_lists(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db = client_with_test_db
+    seeded = _seed_report_dataset(client, db)
+
+    response = client.get("/reports/filter-options", headers=seeded["headers"])
+    assert response.status_code == 200, response.text
+    payload = response.json()
+
+    assert "AK" in payload["brands"]
+    assert "3004" in payload["categories"]
+    assert "RPT-BATCH-1" in payload["batches"]
+    assert any(option["id"] == seeded["product_id"] for option in payload["products"])
+    assert any(option["id"] == seeded["supplier_id"] for option in payload["suppliers"])
+    assert any(option["id"] == seeded["warehouse_id"] for option in payload["warehouses"])
+
+
+def test_current_stock_report_can_filter_opening_vs_non_opening(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db = client_with_test_db
+    seeded = _seed_report_dataset(client, db)
+    _post_opening_stock(
+        client,
+        seeded["headers"],
+        warehouse_id=seeded["warehouse_id"],
+        product_id=seeded["product_id"],
+        batch_id=seeded["grn"]["lines"][0]["batch_id"],
+        qty="5",
+    )
+
+    opening_response = client.get(
+        "/reports/current-stock",
+        headers=seeded["headers"],
+        params={"stock_source": "opening"},
+    )
+    assert opening_response.status_code == 200, opening_response.text
+    opening_payload = opening_response.json()
+    assert opening_payload["total"] == 1
+    assert Decimal(str(opening_payload["data"][0]["available_qty"])) == Decimal("5")
+
+    non_opening_response = client.get(
+        "/reports/current-stock",
+        headers=seeded["headers"],
+        params={"stock_source": "non_opening"},
+    )
+    assert non_opening_response.status_code == 200, non_opening_response.text
+    non_opening_payload = non_opening_response.json()
+    assert non_opening_payload["total"] == 1
+    assert Decimal(str(non_opening_payload["data"][0]["available_qty"])) == Decimal("7")
+
+
+def test_opening_stock_report_returns_rows_and_summary(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db = client_with_test_db
+    seeded = _seed_report_dataset(client, db)
+    _post_opening_stock(
+        client,
+        seeded["headers"],
+        warehouse_id=seeded["warehouse_id"],
+        product_id=seeded["product_id"],
+        batch_id=seeded["grn"]["lines"][0]["batch_id"],
+        qty="5",
+    )
+
+    response = client.get("/reports/opening-stock", headers=seeded["headers"])
+    assert response.status_code == 200, response.text
+    payload = response.json()
+
+    assert payload["total"] == 1
+    assert payload["summary"]["total_skus"] == 1
+    assert Decimal(str(payload["summary"]["total_opening_qty"])) == Decimal("5")
+    assert Decimal(str(payload["summary"]["total_opening_value"])) == Decimal("0")
+    assert Decimal(str(payload["data"][0]["opening_qty"])) == Decimal("5")
+    assert Decimal(str(payload["data"][0]["current_qty"])) == Decimal("12")
+
+
+def test_opening_stock_report_includes_legacy_opening_entries(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db = client_with_test_db
+    seeded = _seed_report_dataset(client, db)
+    _post_legacy_opening_stock(
+        client,
+        seeded["headers"],
+        warehouse_id=seeded["warehouse_id"],
+        product_id=seeded["product_id"],
+        batch_id=seeded["grn"]["lines"][0]["batch_id"],
+        qty="4",
+    )
+
+    response = client.get("/reports/opening-stock", headers=seeded["headers"])
+    assert response.status_code == 200, response.text
+    payload = response.json()
+
+    assert payload["total"] == 1
+    assert Decimal(str(payload["summary"]["total_opening_qty"])) == Decimal("4")
+    assert Decimal(str(payload["data"][0]["opening_qty"])) == Decimal("4")
+
+    opening_response = client.get(
+        "/reports/current-stock",
+        headers=seeded["headers"],
+        params={"stock_source": "opening"},
+    )
+    assert opening_response.status_code == 200, opening_response.text
+    opening_payload = opening_response.json()
+    assert opening_payload["total"] == 1
+    assert Decimal(str(opening_payload["data"][0]["available_qty"])) == Decimal("4")
+
+    non_opening_response = client.get(
+        "/reports/current-stock",
+        headers=seeded["headers"],
+        params={"stock_source": "non_opening"},
+    )
+    assert non_opening_response.status_code == 200, non_opening_response.text
+    non_opening_payload = non_opening_response.json()
+    assert non_opening_payload["total"] == 1
+    assert Decimal(str(non_opening_payload["data"][0]["available_qty"])) == Decimal("7")

@@ -29,6 +29,12 @@ def login(
     if db.query(User).filter(User.auth_provider == "LOCAL").first() is None:
         ensure_admin_user(db)
     normalized_email = payload.email.strip().lower()
+    user = get_user_by_email(db, normalized_email)
+
+    # Always prioritize local credentials for local users, even if an organization
+    # slug is provided from the UI.
+    if user is not None and user.auth_provider == "LOCAL":
+        return _issue_local_login(db, request, user=user, password=payload.password)
 
     if payload.organization_slug:
         token = login_via_rbac(
@@ -38,7 +44,6 @@ def login(
         )
         return TokenResponse(access_token=token)
 
-    user = get_user_by_email(db, normalized_email)
     try:
         token = login_via_rbac(
             email=normalized_email,
@@ -54,7 +59,16 @@ def login(
         if user.auth_provider != "LOCAL":
             raise
 
-    if not verify_password(payload.password, user.hashed_password):
+    return _issue_local_login(db, request, user=user, password=payload.password)
+
+
+@router.get("/me", response_model=UserRead)
+def me(current_user: User = Depends(require_permission("dashboard:view"))) -> UserRead:
+    return current_user
+
+
+def _issue_local_login(db: Session, request: Request, *, user: User, password: str) -> TokenResponse:
+    if not verify_password(password, user.hashed_password):
         raise AppException(
             error_code="UNAUTHORIZED",
             message="Invalid credentials",
@@ -99,8 +113,3 @@ def login(
 
     token = create_access_token(str(user.id))
     return TokenResponse(access_token=token)
-
-
-@router.get("/me", response_model=UserRead)
-def me(current_user: User = Depends(require_permission("dashboard:view"))) -> UserRead:
-    return current_user

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { RecordHistoryDrawer } from "@/components/audit/record-history-drawer";
 import { usePermissions } from "@/components/auth/permission-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +27,7 @@ export function GrnDetail({ grnId }: GrnDetailProps) {
   const [loading, setLoading] = useState(true);
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -108,6 +110,9 @@ export function GrnDetail({ grnId }: GrnDetailProps) {
               {posting ? "Posting..." : "Post GRN"}
             </Button>
           ) : null}
+          <Button type="button" variant="outline" onClick={() => setHistoryOpen(true)}>
+            History
+          </Button>
           {error ? <p className="text-red-500">{error}</p> : null}
         </CardContent>
       </Card>
@@ -143,6 +148,14 @@ export function GrnDetail({ grnId }: GrnDetailProps) {
           </Table>
         </CardContent>
       </Card>
+
+      <RecordHistoryDrawer
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        entityType="GRN"
+        entityId={grn.id}
+        title="GRN History"
+      />
     </div>
   );
 }

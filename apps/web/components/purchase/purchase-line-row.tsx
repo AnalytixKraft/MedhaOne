@@ -89,6 +89,12 @@ function formatGstRate(rate: string | null | undefined) {
   return `${parsed.toFixed(2)}%`;
 }
 
+const purchaseCellInputClassName =
+  "h-11 rounded-xl border border-input bg-background text-foreground shadow-none transition-colors placeholder:text-muted-foreground focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:ring-offset-0";
+
+const purchaseReadOnlyCellClassName =
+  "flex h-11 w-full items-center rounded-xl border border-input bg-[hsl(var(--muted-bg))] px-3 text-sm text-[hsl(var(--text-primary))]";
+
 function ProductCombobox({
   row,
   rowIndex,
@@ -162,7 +168,7 @@ function ProductCombobox({
       placeholder="Search item by SKU or name"
       searchPlaceholder="Type SKU or product name"
       emptyMessage="No matching items"
-      triggerClassName="h-11 rounded-[10px] border-white/10 bg-[#020617] px-3 text-sm text-[#f9fafb] shadow-none focus-visible:border-[#22C55E] focus-visible:ring-[#22C55E]/30"
+      triggerClassName={purchaseCellInputClassName}
       panelClassName="z-[260]"
       renderOption={(option) => {
         const product = productsById.get(option.value);
@@ -207,8 +213,8 @@ export const PurchaseLineRow = memo(function PurchaseLineRow({
   return (
     <div
       className={cn(
-        "grid min-h-[56px] items-center border-b border-white/10 text-sm transition-colors duration-150 hover:bg-[#22C55E]/8 focus-within:bg-[#22C55E]/10 focus-within:ring-1 focus-within:ring-inset focus-within:ring-[#22C55E]/80",
-        isOdd ? "bg-white/[0.02]" : "bg-transparent",
+        "grid min-h-[56px] items-center border-b border-border text-sm transition-colors duration-150 hover:bg-[hsl(var(--table-row-hover))] focus-within:bg-[hsl(var(--table-row-hover))]",
+        isOdd ? "bg-[hsl(var(--muted-bg))]/60" : "bg-[hsl(var(--card-bg))]",
       )}
       style={{
         gridTemplateColumns: PURCHASE_LINE_GRID_TEMPLATE,
@@ -233,7 +239,7 @@ export const PurchaseLineRow = memo(function PurchaseLineRow({
           onChange={(event) => onUpdateLine(row.id, { batch: event.target.value })}
           onKeyDown={(event) => onCellKeyDown(rowIndex, "batch", event)}
           placeholder="Optional"
-          className="h-11 rounded-[10px] border-white/10 bg-[#020617] text-[#f9fafb] shadow-none transition-all duration-150 placeholder:text-[#9ca3af] focus-visible:border-[#22C55E] focus-visible:ring-2 focus-visible:ring-[#22C55E]/30 focus-visible:ring-offset-0"
+          className={purchaseCellInputClassName}
         />
       </div>
 
@@ -244,7 +250,7 @@ export const PurchaseLineRow = memo(function PurchaseLineRow({
           value={row.expiry}
           onChange={(event) => onUpdateLine(row.id, { expiry: event.target.value })}
           onKeyDown={(event) => onCellKeyDown(rowIndex, "expiry", event)}
-          className="h-11 rounded-[10px] border-white/10 bg-[#020617] text-[#f9fafb] shadow-none transition-all duration-150 focus-visible:border-[#22C55E] focus-visible:ring-2 focus-visible:ring-[#22C55E]/30 focus-visible:ring-offset-0 [&::-webkit-calendar-picker-indicator]:invert"
+          className={purchaseCellInputClassName}
         />
       </div>
 
@@ -257,13 +263,14 @@ export const PurchaseLineRow = memo(function PurchaseLineRow({
           value={row.ordered_qty}
           onValueChange={(value) => onUpdateLine(row.id, { ordered_qty: value })}
           onKeyDown={(event) => onCellKeyDown(rowIndex, "ordered_qty", event)}
-          className="h-11 rounded-[10px] border-white/10 bg-[#020617] text-right tabular-nums text-[#f9fafb] shadow-none transition-all duration-150 placeholder:text-[#9ca3af] focus-visible:border-[#22C55E] focus-visible:ring-2 focus-visible:ring-[#22C55E]/30 focus-visible:ring-offset-0"
+          className={cn(purchaseCellInputClassName, "text-right tabular-nums")}
         />
       </div>
 
       <div className="flex min-h-[56px] items-center px-3.5 py-2">
         <Input
           ref={(element) => registerCell(row.id, "unit_cost", element)}
+          data-testid={`po-line-cost-${rowIndex}`}
           type="number"
           step="1"
           min="0"
@@ -290,24 +297,24 @@ export const PurchaseLineRow = memo(function PurchaseLineRow({
           }}
           onKeyDown={(event) => onCellKeyDown(rowIndex, "unit_cost", event)}
           placeholder="0.00"
-          className="h-11 rounded-[10px] border-white/10 bg-[#020617] text-right tabular-nums text-[#f9fafb] shadow-none transition-all duration-150 placeholder:text-[#9ca3af] focus-visible:border-[#22C55E] focus-visible:ring-2 focus-visible:ring-[#22C55E]/30 focus-visible:ring-offset-0"
+          className={cn(purchaseCellInputClassName, "text-right tabular-nums")}
         />
       </div>
 
       <div className="flex min-h-[56px] items-center px-3.5 py-2">
-        <div className="flex h-11 w-full items-center rounded-[10px] border border-white/10 bg-[#020617] px-3 text-right tabular-nums text-[#e5e7eb]">
+        <div className={cn(purchaseReadOnlyCellClassName, "text-right tabular-nums")}>
           <span className="ml-auto">{gstRateDisplay}</span>
         </div>
       </div>
 
       <div className="flex min-h-[56px] items-center px-3.5 py-2">
-        <div className="flex h-11 w-full items-center rounded-[10px] border border-white/10 bg-[#020617] px-3 text-sm text-[#e5e7eb]">
+        <div className={purchaseReadOnlyCellClassName}>
           <span className="truncate">{hsnDisplay}</span>
         </div>
       </div>
 
       <div className="flex min-h-[56px] items-center px-3.5 py-2">
-        <div className="flex h-11 w-full items-center rounded-[10px] border border-white/10 bg-[#020617] px-3 text-right font-semibold tabular-nums text-[#f9fafb]">
+        <div className={cn(purchaseReadOnlyCellClassName, "text-right font-semibold tabular-nums")}>
           <span className="ml-auto">{rowTotalDisplay}</span>
         </div>
       </div>
@@ -319,7 +326,7 @@ export const PurchaseLineRow = memo(function PurchaseLineRow({
           size="icon"
           onClick={() => onDuplicateLine(row)}
           aria-label={`Duplicate line ${rowIndex + 1}`}
-          className="h-8 w-8 rounded-md text-[#9ca3af] transition-colors duration-150 hover:bg-[#1f2937] hover:text-[#f9fafb]"
+          className="h-8 w-8 rounded-md text-muted-foreground transition-colors duration-150 hover:bg-[hsl(var(--muted-bg))] hover:text-foreground"
         >
           <Copy className="h-4 w-4" />
         </Button>
@@ -329,7 +336,7 @@ export const PurchaseLineRow = memo(function PurchaseLineRow({
           size="icon"
           onClick={() => onRemoveLine(row.id)}
           aria-label={`Delete line ${rowIndex + 1}`}
-          className="h-8 w-8 rounded-md text-rose-300 transition-colors duration-150 hover:bg-rose-500/10 hover:text-rose-100"
+          className="h-8 w-8 rounded-md text-rose-600 transition-colors duration-150 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
           disabled={!canRemove}
         >
           <Trash2 className="h-4 w-4" />

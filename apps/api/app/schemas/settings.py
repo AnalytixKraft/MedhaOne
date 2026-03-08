@@ -11,6 +11,7 @@ class CompanySettingsRead(BaseModel):
     state: str | None = None
     pincode: str | None = None
     gst_number: str | None = None
+    pan_number: str | None = None
     phone: str | None = None
     email: EmailStr | None = None
     logo_url: str | None = None
@@ -27,6 +28,7 @@ class CompanySettingsUpdate(BaseModel):
     state: str | None = None
     pincode: str | None = None
     gst_number: str | None = None
+    pan_number: str | None = None
     phone: str | None = None
     email: EmailStr | None = None
     logo_url: str | None = None

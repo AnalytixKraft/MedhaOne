@@ -4,11 +4,18 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 
 import { usePermissions } from "@/components/auth/permission-provider";
 import {
+  AppActionBar,
+  AppFormGrid,
+  AppPageHeader,
+  AppSectionCard,
+  AppSummaryPanel,
+  AppTable,
+} from "@/components/erp/app-primitives";
+import {
   PurchaseOrderSummary,
   type PurchaseOrderTaxOption,
 } from "@/components/purchase/purchase-order-summary";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ErpCombobox } from "@/components/ui/erp-combobox";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,13 +29,14 @@ import {
 import {
   PurchaseOrder,
   PurchaseOrderLinePayload,
-  type PurchaseTaxType,
   apiClient,
+  CompanySettings,
   Party,
   Product,
   TaxRate,
   Warehouse,
 } from "@/lib/api/client";
+import { extractStateFromGstin, GSTIN_PATTERN, normalizeGstin } from "@/lib/gst";
 import { formatQuantity } from "@/lib/quantity";
 import {
   PurchaseLineDraft,
@@ -51,6 +59,8 @@ const percentFormatter = new Intl.NumberFormat("en-IN", {
   maximumFractionDigits: 2,
 });
 
+type PurchaseTaxMode = "INTRA_STATE" | "INTER_STATE" | "UNDETERMINED";
+
 function roundCurrency(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
@@ -70,23 +80,67 @@ function parseDecimalInput(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function normalizeTaxLabelForType(
-  label: string | null | undefined,
-  percent: number,
-  taxType: PurchaseTaxType,
-) {
+function normalizeTaxLabel(label: string | null | undefined, percent: number) {
   const cleaned = (label ?? "").trim();
   const percentText = percentFormatter.format(percent);
 
   if (!cleaned) {
-    return `${taxType} ${percentText}%`;
-  }
-
-  if (/\bGST\b/i.test(cleaned)) {
-    return cleaned.replace(/\bGST\b/gi, taxType);
+    return `GST ${percentText}%`;
   }
 
   return cleaned;
+}
+
+function normalizeRatePercent(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return parsed.toFixed(2);
+}
+
+function getSuggestedTaxOptionValue(
+  lines: PurchaseLineDraft[],
+  products: Product[],
+  taxOptions: PurchaseOrderTaxOption[],
+): string {
+  const productsById = new Map(
+    products.map((product) => [String(product.id), product] as const),
+  );
+  const matchedRates = new Set<string>();
+
+  for (const line of lines) {
+    if (!line.product_id) {
+      continue;
+    }
+
+    const matchedProduct = productsById.get(line.product_id);
+    const normalizedRate = normalizeRatePercent(matchedProduct?.gst_rate);
+    if (normalizedRate) {
+      matchedRates.add(normalizedRate);
+    }
+  }
+
+  if (matchedRates.size !== 1) {
+    return "";
+  }
+
+  const [targetRate] = [...matchedRates];
+  return (
+    taxOptions.find(
+      (option) => option.tax_percent.toFixed(2) === targetRate,
+    )?.value ?? ""
+  );
+}
+
+function getValidGstin(value: string | null | undefined): string | null {
+  const normalized = normalizeGstin(value ?? "");
+  return GSTIN_PATTERN.test(normalized) ? normalized : null;
 }
 
 function lineReducer(state: PurchaseLineDraft[], action: LineAction) {
@@ -139,11 +193,14 @@ export function PurchaseOrderManager() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
+  const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null);
   const [supplierId, setSupplierId] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
   const [discountPercentInput, setDiscountPercentInput] = useState("0");
-  const [taxType, setTaxType] = useState<PurchaseTaxType>("TDS");
-  const [selectedTaxName, setSelectedTaxName] = useState("");
+  const [selectedTaxRateId, setSelectedTaxRateId] = useState("");
+  const [taxSelectionMode, setTaxSelectionMode] = useState<"auto" | "manual">(
+    "auto",
+  );
   const [adjustmentInput, setAdjustmentInput] = useState("0");
   const [orderDate, setOrderDate] = useState(
     new Date().toISOString().slice(0, 10),
@@ -177,18 +234,21 @@ export function PurchaseOrderManager() {
     setError(null);
 
     try {
-      const [poRes, parties, warehouseRes, productRes, taxRateRes] = await Promise.all([
-        apiClient.listPurchaseOrders(),
-        apiClient.listParties(),
-        apiClient.listWarehouses(),
-        apiClient.listProducts(),
-        apiClient.listTaxRates(),
-      ]);
+      const [poRes, parties, warehouseRes, productRes, taxRateRes, companySettingsRes] =
+        await Promise.all([
+          apiClient.listPurchaseOrders(),
+          apiClient.listParties(),
+          apiClient.listWarehouses(),
+          apiClient.listProducts(),
+          apiClient.listTaxRates(),
+          apiClient.getCompanySettings().catch(() => null),
+        ]);
       setPurchaseOrders(poRes.items);
       setSuppliers(parties);
       setWarehouses(warehouseRes);
       setProducts(productRes);
       setTaxRates(taxRateRes);
+      setCompanySettings(companySettingsRes);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to load purchase data",
@@ -242,8 +302,8 @@ export function PurchaseOrderManager() {
     setSupplierId("");
     setWarehouseId("");
     setDiscountPercentInput("0");
-    setTaxType("TDS");
-    setSelectedTaxName("");
+    setSelectedTaxRateId("");
+    setTaxSelectionMode("auto");
     setAdjustmentInput("0");
     setOrderDate(new Date().toISOString().slice(0, 10));
     dispatch({ type: "reset", line: createEmptyLine() });
@@ -280,15 +340,9 @@ export function PurchaseOrderManager() {
         supplier_id: Number(supplierId),
         warehouse_id: Number(warehouseId),
         order_date: orderDate,
-        subtotal,
         discount_percent: discountPercent,
-        discount_amount: discountAmount,
-        tax_type: taxType,
-        tax_name: selectedTaxOption?.tax_name,
-        tax_percent: taxPercent,
-        tax_amount: taxAmount,
+        gst_percent: gstPercent,
         adjustment: adjustmentAmount,
-        total,
         lines: linePayload,
       });
 
@@ -342,6 +396,12 @@ export function PurchaseOrderManager() {
     [warehouses],
   );
 
+  const selectedSupplier = useMemo(
+    () =>
+      suppliers.find((supplier) => String(supplier.id) === supplierId) ?? null,
+    [supplierId, suppliers],
+  );
+
   const taxOptions = useMemo<PurchaseOrderTaxOption[]>(() => {
     return taxRates
       .filter((taxRate) => taxRate.is_active)
@@ -352,11 +412,7 @@ export function PurchaseOrderManager() {
       .map((taxRate) => {
         const taxPercent = Number.parseFloat(taxRate.rate_percent);
         const normalizedTaxPercent = Number.isFinite(taxPercent) ? taxPercent : 0;
-        const label = normalizeTaxLabelForType(
-          taxRate.label,
-          normalizedTaxPercent,
-          taxType,
-        );
+        const label = normalizeTaxLabel(taxRate.label, normalizedTaxPercent);
 
         return {
           label,
@@ -365,12 +421,28 @@ export function PurchaseOrderManager() {
           tax_percent: normalizedTaxPercent,
         };
       });
-  }, [taxRates, taxType]);
+  }, [taxRates]);
 
   const selectedTaxOption = useMemo(
-    () => taxOptions.find((option) => option.value === selectedTaxName) ?? null,
-    [selectedTaxName, taxOptions],
+    () => taxOptions.find((option) => option.value === selectedTaxRateId) ?? null,
+    [selectedTaxRateId, taxOptions],
   );
+
+  useEffect(() => {
+    if (taxSelectionMode !== "auto") {
+      return;
+    }
+
+    const suggestedTaxOptionValue = getSuggestedTaxOptionValue(
+      lines,
+      products,
+      taxOptions,
+    );
+
+    setSelectedTaxRateId((current) =>
+      current === suggestedTaxOptionValue ? current : suggestedTaxOptionValue,
+    );
+  }, [lines, products, taxOptions, taxSelectionMode]);
 
   const subtotal = roundCurrency(
     lines.reduce((sum, line) => {
@@ -388,18 +460,82 @@ export function PurchaseOrderManager() {
   const discountPercent = Math.min(Math.max(rawDiscountPercent, 0), 100);
   const discountAmount = roundCurrency((subtotal * discountPercent) / 100);
   const taxableAmount = roundCurrency(Math.max(subtotal - discountAmount, 0));
-  const taxPercent = selectedTaxOption?.tax_percent ?? 0;
-  const taxMagnitude = roundCurrency((taxableAmount * taxPercent) / 100);
-  const taxAmount = roundCurrency(taxType === "TDS" ? -taxMagnitude : taxMagnitude);
+  const gstPercent = selectedTaxOption?.tax_percent ?? 0;
+  const rawSupplierGstin = selectedSupplier?.gstin ?? null;
+  const supplierGstin = getValidGstin(rawSupplierGstin);
+  const supplierState =
+    (supplierGstin ? extractStateFromGstin(supplierGstin) : selectedSupplier?.state?.trim()) ||
+    null;
+  const rawCompanyGstin = companySettings?.gst_number ?? null;
+  const companyGstin = getValidGstin(rawCompanyGstin);
+  const companyState =
+    (companyGstin ? extractStateFromGstin(companyGstin) : companySettings?.state?.trim()) ||
+    null;
+  const hasSupplierGstinValue = Boolean(normalizeGstin(rawSupplierGstin ?? ""));
+  const hasCompanyGstinValue = Boolean(normalizeGstin(rawCompanyGstin ?? ""));
+  let taxMode: PurchaseTaxMode = "UNDETERMINED";
+  let cgstPercent = 0;
+  let sgstPercent = 0;
+  let igstPercent = 0;
+
+  if (gstPercent > 0 && supplierGstin && companyGstin) {
+    if (supplierState && companyState && supplierState === companyState) {
+      const halfRate = roundCurrency(gstPercent / 2);
+      cgstPercent = halfRate;
+      sgstPercent = halfRate;
+      taxMode = "INTRA_STATE";
+    } else {
+      igstPercent = gstPercent;
+      taxMode = "INTER_STATE";
+    }
+  }
+
+  const cgstAmount = roundCurrency((taxableAmount * cgstPercent) / 100);
+  const sgstAmount = roundCurrency((taxableAmount * sgstPercent) / 100);
+  const igstAmount = roundCurrency((taxableAmount * igstPercent) / 100);
   const adjustmentAmount = roundCurrency(parseDecimalInput(adjustmentInput));
   const rawTotal = roundCurrency(
-    subtotal - discountAmount + taxAmount + adjustmentAmount,
+    taxableAmount + cgstAmount + sgstAmount + igstAmount + adjustmentAmount,
   );
   const total = Math.max(rawTotal, 0);
+
+  const taxWarningMessage = useMemo(() => {
+    if (!hasCompanyGstinValue) {
+      return "Company GSTIN not configured. Cannot determine CGST/SGST/IGST automatically.";
+    }
+
+    if (!companyGstin) {
+      return "Company GSTIN is invalid. Fix organization GST settings before creating GST-bearing purchase orders.";
+    }
+
+    if (supplierId && !hasSupplierGstinValue) {
+      return "Supplier GSTIN is missing. Auto tax mode needs supplier GST registration to determine intra-state vs inter-state tax.";
+    }
+
+    if (supplierId && !supplierGstin) {
+      return "Supplier GSTIN is invalid. Fix the supplier master before creating GST-bearing purchase orders.";
+    }
+
+    return null;
+  }, [
+    companyGstin,
+    hasCompanyGstinValue,
+    hasSupplierGstinValue,
+    supplierGstin,
+    supplierId,
+  ]);
 
   const financeValidationMessage = useMemo(() => {
     if (rawDiscountPercent < 0 || rawDiscountPercent > 100) {
       return "Discount must be between 0% and 100%.";
+    }
+
+    if (gstPercent > 0 && !companyGstin) {
+      return "Company GSTIN not configured. Cannot determine CGST/SGST/IGST automatically.";
+    }
+
+    if (gstPercent > 0 && supplierId && !supplierGstin) {
+      return "Supplier GSTIN is required to determine CGST/SGST/IGST automatically.";
     }
 
     if (rawTotal < 0) {
@@ -407,33 +543,35 @@ export function PurchaseOrderManager() {
     }
 
     return null;
-  }, [rawDiscountPercent, rawTotal]);
+  }, [companyGstin, gstPercent, rawDiscountPercent, rawTotal, supplierGstin, supplierId]);
 
   return (
-    <div className="relative flex flex-col gap-5">
+    <div className="flex flex-col gap-6">
+      <AppPageHeader
+        title="Purchase Orders"
+        description="Create purchase orders, maintain line items, and track approval-ready drafts in one consistent ERP workspace."
+      />
       {error ? (
-        <p className="rounded-[10px] border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200 shadow-[0_8px_24px_rgba(0,0,0,0.3)]">
+        <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300">
           {error}
         </p>
       ) : null}
       {permissionLoading ? (
-        <p className="text-sm text-[#9ca3af]">Loading permissions...</p>
+        <p className="text-sm text-muted-foreground">Loading permissions...</p>
       ) : hasPermission("purchase:create") ? (
-        <form className="relative flex flex-col gap-5" onSubmit={handleCreatePo}>
-          <Card className="relative overflow-hidden rounded-[12px] border border-white/10 bg-[linear-gradient(180deg,#111827,#0f172a)] shadow-[0_10px_30px_rgba(0,0,0,0.45)]">
-            <CardHeader className="border-b border-white/10 bg-[linear-gradient(110deg,rgba(31,41,55,0.95),rgba(17,24,39,0.98))] px-5 py-5 text-[#f9fafb]">
-              <div className="flex flex-col gap-3">
-                <div>
-                  <CardTitle className="text-xl font-semibold tracking-[0.02em]">
-                    Purchase Order Entry
-                  </CardTitle>
-                  <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[#9ca3af]">
-                    Dense ERP line-entry workspace
-                  </p>
-                </div>
-                <div className="grid gap-3 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1.4fr)_180px_120px_auto]">
+        <form className="flex flex-col gap-6" onSubmit={handleCreatePo}>
+          <AppSectionCard
+            title="Purchase Header"
+            description="Select the supplier, warehouse, and posting date before entering line items."
+            actions={
+              <Button type="button" onClick={addLine}>
+                Add Row
+              </Button>
+            }
+          >
+            <AppFormGrid className="xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1.4fr)_180px_120px]">
                   <label className="space-y-1.5">
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#9ca3af]">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--text-secondary))]">
                       Supplier
                     </span>
                     <ErpCombobox
@@ -444,12 +582,12 @@ export function PurchaseOrderManager() {
                       placeholder="Select supplier"
                       searchPlaceholder="Search supplier"
                       emptyMessage="No matching suppliers"
-                      triggerClassName="h-11 rounded-[10px] border-white/10 bg-[#020617] px-3 text-sm text-[#f9fafb] shadow-none focus-visible:border-[#22C55E] focus-visible:ring-[#22C55E]/30"
+                      triggerClassName="h-11 rounded-xl border border-input bg-background px-3 text-sm text-foreground shadow-none focus-visible:border-primary/40 focus-visible:ring-primary/20"
                     />
                   </label>
 
                   <label className="space-y-1.5">
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#9ca3af]">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--text-secondary))]">
                       Warehouse
                     </span>
                     <ErpCombobox
@@ -460,12 +598,12 @@ export function PurchaseOrderManager() {
                       placeholder="Select warehouse"
                       searchPlaceholder="Search warehouse"
                       emptyMessage="No matching warehouses"
-                      triggerClassName="h-11 rounded-[10px] border-white/10 bg-[#020617] px-3 text-sm text-[#f9fafb] shadow-none focus-visible:border-[#22C55E] focus-visible:ring-[#22C55E]/30"
+                      triggerClassName="h-11 rounded-xl border border-input bg-background px-3 text-sm text-foreground shadow-none focus-visible:border-primary/40 focus-visible:ring-primary/20"
                     />
                   </label>
 
                   <label className="space-y-1.5">
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#9ca3af]">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--text-secondary))]">
                       PO Date
                     </span>
                     <Input
@@ -473,127 +611,114 @@ export function PurchaseOrderManager() {
                       value={orderDate}
                       onChange={(event) => setOrderDate(event.target.value)}
                       required
-                      className="h-11 rounded-[10px] border-white/10 bg-[#020617] text-sm text-[#f9fafb] shadow-none transition-all duration-150 focus-visible:border-[#22C55E] focus-visible:ring-[#22C55E]/30 focus-visible:ring-offset-0 [&::-webkit-calendar-picker-indicator]:invert"
                     />
                   </label>
 
                   <div className="space-y-1.5">
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#9ca3af]">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--text-secondary))]">
                       Status
                     </span>
-                    <div className="flex h-11 items-center rounded-[10px] border border-[#22C55E]/35 bg-[#22C55E]/10 px-3 text-sm font-semibold text-[#bbf7d0]">
+                    <div className="flex h-11 items-center rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-sm font-semibold text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300">
                       DRAFT
                     </div>
                   </div>
+            </AppFormGrid>
+          </AppSectionCard>
 
-                  <div className="flex items-end justify-end">
-                    <Button
-                      type="button"
-                      onClick={addLine}
-                      className="h-11 rounded-[10px] border-0 bg-[linear-gradient(135deg,#22C55E,#16A34A)] px-4 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(34,197,94,0.35)] transition-all duration-150 hover:-translate-y-0.5 hover:shadow-[0_12px_24px_rgba(34,197,94,0.45)]"
-                    >
-                      Add Row
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </CardHeader>
-          </Card>
+          <AppSectionCard
+            title="Line Items"
+            description="Use the ERP entry grid for item-level quantity and cost entry. Enter on Unit Cost adds the next row."
+          >
+            <PurchaseLineGrid
+              rows={lines}
+              products={products}
+              onUpdateLine={updateLine}
+              onAddLine={addLine}
+              onRemoveLine={removeLine}
+              onDuplicateLine={duplicateLine}
+              formatAmount={(value) => amountFormatter.format(value)}
+            />
+          </AppSectionCard>
 
-          <Card className="relative min-h-[280px] overflow-hidden rounded-[12px] border border-white/10 bg-[linear-gradient(180deg,#111827,#0f172a)] shadow-[0_10px_30px_rgba(0,0,0,0.45)]">
-            <CardHeader className="border-b border-white/10 px-5 py-4">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-[#9ca3af]">
-                  Line Items
-                </h3>
-                <span className="text-xs text-[#9ca3af]">
-                  Enter on Unit Cost adds the next row
-                </span>
-              </div>
-            </CardHeader>
-            <CardContent className="px-5 pb-5 pt-4">
-              <PurchaseLineGrid
-                rows={lines}
-                products={products}
-                onUpdateLine={updateLine}
-                onAddLine={addLine}
-                onRemoveLine={removeLine}
-                onDuplicateLine={duplicateLine}
-                formatAmount={(value) => amountFormatter.format(value)}
-              />
-            </CardContent>
-          </Card>
-
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-            <div className="w-full max-w-[220px] rounded-[12px] border border-white/10 bg-[linear-gradient(180deg,#111827,#0f172a)] px-4 py-3 text-right shadow-[0_10px_28px_rgba(0,0,0,0.32)]">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#9ca3af]">
+          <div className="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
+            <AppSummaryPanel className="h-fit">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--text-secondary))]">
                 Total Qty
               </p>
-              <p className="mt-1 text-lg font-semibold tabular-nums text-[#f9fafb]">
+              <p className="mt-1 text-lg font-semibold tabular-nums text-[hsl(var(--text-primary))]">
                 {totalQuantityDisplay}
               </p>
-            </div>
+            </AppSummaryPanel>
 
-            <div className="flex w-full flex-col gap-3 xl:ml-auto xl:max-w-[420px]">
+            <div className="flex flex-col gap-4 xl:ml-auto xl:max-w-[520px]">
               <PurchaseOrderSummary
                 subtotal={subtotal}
                 discountPercentInput={discountPercentInput}
                 onDiscountPercentChange={setDiscountPercentInput}
                 discountAmount={discountAmount}
-                taxType={taxType}
-                onTaxTypeChange={setTaxType}
                 taxOptions={taxOptions}
-                selectedTaxName={selectedTaxName}
-                onSelectedTaxNameChange={setSelectedTaxName}
-                taxAmount={taxAmount}
+                selectedTaxRateId={selectedTaxRateId}
+                onSelectedTaxRateIdChange={(value) => {
+                  setTaxSelectionMode("manual");
+                  setSelectedTaxRateId(value);
+                }}
+                gstPercent={gstPercent}
+                taxableValue={taxableAmount}
+                taxMode={taxMode}
+                supplierGstin={supplierGstin}
+                supplierState={supplierState}
+                companyGstin={companyGstin}
+                companyState={companyState}
+                cgstPercent={cgstPercent}
+                sgstPercent={sgstPercent}
+                igstPercent={igstPercent}
+                cgstAmount={cgstAmount}
+                sgstAmount={sgstAmount}
+                igstAmount={igstAmount}
                 adjustmentInput={adjustmentInput}
                 onAdjustmentChange={setAdjustmentInput}
                 adjustmentAmount={adjustmentAmount}
                 total={total}
+                warningMessage={taxWarningMessage}
                 validationMessage={financeValidationMessage}
               />
-
-              <div className="flex justify-end">
+              <AppActionBar>
                 <Button
                   data-testid="create-po"
                   type="submit"
                   disabled={saving || Boolean(financeValidationMessage)}
-                  className="h-11 rounded-[10px] border-0 bg-[linear-gradient(135deg,#22C55E,#16A34A)] px-6 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(34,197,94,0.3)] transition-all duration-150 hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(34,197,94,0.42)] disabled:opacity-60"
+                  className="px-6"
                 >
                   {saving ? "Saving..." : "Create PO"}
                 </Button>
-              </div>
+              </AppActionBar>
             </div>
           </div>
         </form>
       ) : (
-        <p className="text-sm text-[#9ca3af]">
+        <p className="text-sm text-muted-foreground">
           You do not have permission to create purchase orders.
         </p>
       )}
 
-      <Card className="rounded-[12px] border border-white/10 bg-[linear-gradient(180deg,#111827,#0f172a)] shadow-[0_10px_30px_rgba(0,0,0,0.4)]">
-        <CardHeader className="border-b border-white/10 px-5 py-4">
-          <CardTitle className="text-[#f9fafb]">Purchase Orders</CardTitle>
-        </CardHeader>
-        <CardContent className="px-5 py-4">
+      <AppTable title="Purchase Orders" description="Review existing purchase orders and approve draft records.">
           {loading ? (
-            <p className="text-sm text-[#9ca3af]">
+            <p className="p-4 text-sm text-muted-foreground">
               Loading purchase orders...
             </p>
           ) : (
-            <Table className="overflow-hidden rounded-[10px]">
-              <TableHeader className="bg-[#0f172a]">
-                <TableRow className="border-white/10 hover:bg-transparent">
-                  <TableHead className="px-4 text-[12px] uppercase tracking-[0.08em] text-[#9ca3af]">PO No</TableHead>
-                  <TableHead className="px-4 text-[12px] uppercase tracking-[0.08em] text-[#9ca3af]">Status</TableHead>
-                  <TableHead className="px-4 text-[12px] uppercase tracking-[0.08em] text-[#9ca3af]">Supplier</TableHead>
-                  <TableHead className="px-4 text-[12px] uppercase tracking-[0.08em] text-[#9ca3af]">Warehouse</TableHead>
-                  <TableHead className="px-4 text-[12px] uppercase tracking-[0.08em] text-[#9ca3af]">Lines</TableHead>
-                  <TableHead className="px-4 text-right text-[12px] uppercase tracking-[0.08em] text-[#9ca3af]">Action</TableHead>
+            <Table>
+              <TableHeader className="bg-[hsl(var(--table-header-bg))]">
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="px-4">PO No</TableHead>
+                  <TableHead className="px-4">Status</TableHead>
+                  <TableHead className="px-4">Supplier</TableHead>
+                  <TableHead className="px-4">Warehouse</TableHead>
+                  <TableHead className="px-4">Lines</TableHead>
+                  <TableHead className="px-4 text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody className="[&_tr:nth-child(even)]:bg-white/[0.02]">
+              <TableBody>
                 {purchaseOrders.map((po) => {
                   const supplierName =
                     suppliers.find((party) => party.id === po.supplier_id)
@@ -607,7 +732,7 @@ export function PurchaseOrderManager() {
                     <TableRow
                       key={po.id}
                       data-testid="po-row"
-                      className="border-white/10 text-[#f9fafb] hover:bg-[#22C55E]/10"
+                      className="[&:nth-child(even)]:bg-[hsl(var(--muted-bg))]/60"
                     >
                       <TableCell className="px-4 py-3" data-testid="po-number">
                         {po.po_number}
@@ -623,7 +748,6 @@ export function PurchaseOrderManager() {
                           <Button
                             data-testid="approve-po"
                             size="sm"
-                            className="h-9 rounded-[8px] border-0 bg-[linear-gradient(135deg,#22C55E,#16A34A)] px-4 text-white transition-all duration-150 hover:-translate-y-0.5 hover:shadow-[0_10px_20px_rgba(34,197,94,0.35)]"
                             onClick={() => handleApprove(po.id)}
                           >
                             Approve
@@ -636,8 +760,7 @@ export function PurchaseOrderManager() {
               </TableBody>
             </Table>
           )}
-        </CardContent>
-      </Card>
+      </AppTable>
     </div>
   );
 }

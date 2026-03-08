@@ -1,6 +1,9 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field
+
+ThemePreference = Literal["light", "dark", "system"]
 
 
 class RoleRead(BaseModel):
@@ -17,6 +20,7 @@ class UserRead(BaseModel):
     email: EmailStr
     full_name: str
     organization_slug: str | None = None
+    theme_preference: ThemePreference = "system"
     is_active: bool
     is_superuser: bool
     last_login_at: datetime | None = None
@@ -31,6 +35,10 @@ class UserRead(BaseModel):
 
 class UserListResponse(BaseModel):
     items: list[UserRead]
+
+
+class RoleListResponse(BaseModel):
+    items: list[RoleRead]
 
 
 class UserCreate(BaseModel):
@@ -58,3 +66,11 @@ class UserRolesResponse(BaseModel):
     user_id: int
     roles: list[RoleRead]
     permissions: list[str]
+
+
+class UserPreferencesRead(BaseModel):
+    theme_preference: ThemePreference = "system"
+
+
+class UserPreferencesUpdate(BaseModel):
+    theme_preference: ThemePreference

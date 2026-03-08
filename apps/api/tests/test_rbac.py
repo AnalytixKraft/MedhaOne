@@ -562,6 +562,65 @@ def test_auth_login_local_fallback_is_case_insensitive(
     assert local_user.last_login_at is not None
 
 
+def test_auth_login_prefers_local_user_when_rbac_also_resolves(
+    client_with_test_db: tuple[TestClient, Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, db = client_with_test_db
+    local_user = _create_user(db, email="lijo@analytixkraft.tech", role_names=["ADMIN"])
+    brokered_token = "rbac-token-that-should-not-be-used"
+
+    def _fake_login_via_rbac(*, email: str, password: str, organization_slug: str | None) -> str:
+        _ = (email, password, organization_slug)
+        return brokered_token
+
+    monkeypatch.setattr("app.api.routes.auth.login_via_rbac", _fake_login_via_rbac)
+
+    response = client.post(
+        "/auth/login",
+        json={
+            "email": "LIJO@ANALYTIXKRAFT.TECH",
+            "password": "ChangeMe123!",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    access_token = response.json()["access_token"]
+    assert access_token
+    assert access_token != brokered_token
+    db.refresh(local_user)
+    assert local_user.last_login_at is not None
+
+
+def test_auth_login_prefers_local_user_even_with_org_slug(
+    client_with_test_db: tuple[TestClient, Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, db = client_with_test_db
+    local_user = _create_user(db, email="lijo@analytixkraft.tech", role_names=["ADMIN"])
+
+    def _unexpected_login_via_rbac(*, email: str, password: str, organization_slug: str | None) -> str:
+        _ = (email, password, organization_slug)
+        raise AssertionError("RBAC login should not be called for local users")
+
+    monkeypatch.setattr("app.api.routes.auth.login_via_rbac", _unexpected_login_via_rbac)
+
+    response = client.post(
+        "/auth/login",
+        json={
+            "email": "lijo@analytixkraft.tech",
+            "password": "ChangeMe123!",
+            "organization_slug": "kraft_test",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    access_token = response.json()["access_token"]
+    assert access_token
+    db.refresh(local_user)
+    assert local_user.last_login_at is not None
+
+
 def test_auth_login_does_not_fallback_local_for_rbac_shadow_user(
     client_with_test_db: tuple[TestClient, Session],
     monkeypatch: pytest.MonkeyPatch,

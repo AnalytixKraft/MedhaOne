@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.enums import PurchaseOrderStatus
 from app.models.party import Party
+from app.models.product import Product
 from app.models.purchase import PurchaseOrder, PurchaseOrderLine
 from app.models.warehouse import Warehouse
 
@@ -15,6 +16,11 @@ from app.models.warehouse import Warehouse
 class PurchaseRegisterFilters:
     status: PurchaseOrderStatus | None = None
     supplier_id: int | None = None
+    supplier_ids: tuple[int, ...] = ()
+    warehouse_ids: tuple[int, ...] = ()
+    product_ids: tuple[int, ...] = ()
+    brand_values: tuple[str, ...] = ()
+    category_values: tuple[str, ...] = ()
     supplier_name: str | None = None
     date_from: date | None = None
     date_to: date | None = None
@@ -46,6 +52,7 @@ def get_purchase_register_report(
         .join(Party, Party.id == PurchaseOrder.supplier_id)
         .join(Warehouse, Warehouse.id == PurchaseOrder.warehouse_id)
         .join(PurchaseOrderLine, PurchaseOrderLine.purchase_order_id == PurchaseOrder.id)
+        .join(Product, Product.id == PurchaseOrderLine.product_id)
         .group_by(
             PurchaseOrder.id,
             PurchaseOrder.po_number,
@@ -60,6 +67,16 @@ def get_purchase_register_report(
         stmt = stmt.where(PurchaseOrder.status == filters.status)
     if filters.supplier_id is not None:
         stmt = stmt.where(PurchaseOrder.supplier_id == filters.supplier_id)
+    if filters.supplier_ids:
+        stmt = stmt.where(PurchaseOrder.supplier_id.in_(filters.supplier_ids))
+    if filters.warehouse_ids:
+        stmt = stmt.where(PurchaseOrder.warehouse_id.in_(filters.warehouse_ids))
+    if filters.product_ids:
+        stmt = stmt.where(PurchaseOrderLine.product_id.in_(filters.product_ids))
+    if filters.brand_values:
+        stmt = stmt.where(Product.brand.in_(filters.brand_values))
+    if filters.category_values:
+        stmt = stmt.where(Product.hsn.in_(filters.category_values))
     if filters.supplier_name:
         stmt = stmt.where(Party.name.ilike(f"%{filters.supplier_name.strip()}%"))
     if filters.date_from is not None:

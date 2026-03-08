@@ -17,6 +17,7 @@ from app.models.purchase import (
 )
 from app.models.rbac import Permission, RolePermission, UserRole
 from app.models.role import Role
+from app.models.stock_operations import StockAdjustment, StockCorrection
 from app.models.tax_rate import TaxRate
 from app.models.user import User
 from app.models.warehouse import Warehouse
@@ -45,5 +46,7 @@ __all__ = [
     "LoginAudit",
     "InventoryLedger",
     "StockSummary",
+    "StockCorrection",
+    "StockAdjustment",
     "TaxRate",
 ]

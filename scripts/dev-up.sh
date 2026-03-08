@@ -106,11 +106,12 @@ wait_for_url() {
   local url="$2"
   local success_codes="${3:-200}"
   local attempts="${4:-30}"
+  local log_file="${5:-}"
 
   local code=""
   local try_count=0
   while (( try_count < attempts )); do
-    code="$(curl -sS -o /dev/null -w '%{http_code}' "$url" || true)"
+    code="$(curl -s -o /dev/null -w '%{http_code}' "$url" || true)"
     if [[ " $success_codes " == *" $code "* ]]; then
       log "$name ready at $url ($code)"
       return 0
@@ -118,6 +119,11 @@ wait_for_url() {
     try_count=$((try_count + 1))
     sleep 1
   done
+
+  if [[ -n "$log_file" && -f "$log_file" ]]; then
+    printf '[stack:up] %s failed readiness check. Last log lines:\n' "$name" >&2
+    tail -n 80 "$log_file" >&2 || true
+  fi
 
   fail "$name did not become ready at $url"
 }
@@ -222,20 +228,36 @@ log "Running ERP migrations against shared PostgreSQL"
 
 stop_stale_listeners "web" "1729"
 stop_stale_listeners "api" "1730"
+rm -f "$PID_DIR/dev.pid"
 
 start_bg \
-  "web+api" \
-  "$PID_DIR/dev.pid" \
-  "$LOG_DIR/dev.log" \
+  "api" \
+  "$PID_DIR/api.pid" \
+  "$LOG_DIR/api.log" \
   env \
   "DATABASE_URL=$ERP_DATABASE_URL" \
   "${PNPM_CMD[@]}" \
   --dir \
   "$ROOT_DIR" \
+  --filter \
+  api \
   dev
 
-wait_for_url "API" "$API_URL/health" "200"
-wait_for_url "Web" "$WEB_URL" "200 307"
+wait_for_url "API" "$API_URL/health" "200" "30" "$LOG_DIR/api.log"
+
+start_bg \
+  "web" \
+  "$PID_DIR/web.pid" \
+  "$LOG_DIR/web.log" \
+  env \
+  "${PNPM_CMD[@]}" \
+  --dir \
+  "$ROOT_DIR" \
+  --filter \
+  web \
+  dev
+
+wait_for_url "Web" "$WEB_URL" "200 307" "30" "$LOG_DIR/web.log"
 
 stop_stale_listeners "rbac-api" "${RBAC_PORT:-1740}"
 

@@ -14,7 +14,12 @@ from app.models.warehouse import Warehouse
 @dataclass(slots=True)
 class StockMovementFilters:
     product_id: int | None = None
+    product_ids: tuple[int, ...] = ()
     warehouse_id: int | None = None
+    warehouse_ids: tuple[int, ...] = ()
+    brand_values: tuple[str, ...] = ()
+    category_values: tuple[str, ...] = ()
+    batch_nos: tuple[str, ...] = ()
     date_from: date | None = None
     date_to: date | None = None
     movement_type: str | None = None
@@ -52,8 +57,18 @@ def _movement_base_stmt(filters: StockMovementFilters):
 
     if filters.product_id is not None:
         stmt = stmt.where(InventoryLedger.product_id == filters.product_id)
+    if filters.product_ids:
+        stmt = stmt.where(InventoryLedger.product_id.in_(filters.product_ids))
     if filters.warehouse_id is not None:
         stmt = stmt.where(InventoryLedger.warehouse_id == filters.warehouse_id)
+    if filters.warehouse_ids:
+        stmt = stmt.where(InventoryLedger.warehouse_id.in_(filters.warehouse_ids))
+    if filters.brand_values:
+        stmt = stmt.where(Product.brand.in_(filters.brand_values))
+    if filters.category_values:
+        stmt = stmt.where(Product.hsn.in_(filters.category_values))
+    if filters.batch_nos:
+        stmt = stmt.where(Batch.batch_no.in_(filters.batch_nos))
     if filters.date_from is not None:
         stmt = stmt.where(
             InventoryLedger.created_at >= datetime.combine(filters.date_from, time.min)

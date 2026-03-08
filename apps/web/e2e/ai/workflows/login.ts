@@ -5,7 +5,7 @@ import type { WorkflowContext, WorkflowDefinition } from "../engine.ts";
 function buildLoginGuidance(): string[] {
   return [
     "Use the ERP login page.",
-    "Login with seeded credentials: admin@medhaone.app / ChangeMe123!.",
+    "Login with seeded credentials: e2e.admin@medhaone.app / ChangeMe123!.",
     "After login, wait for the dashboard route to load.",
     "Do not navigate outside /login or /dashboard.",
   ];

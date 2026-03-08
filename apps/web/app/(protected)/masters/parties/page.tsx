@@ -5,7 +5,7 @@ import { PageTitle } from "@/components/layout/page-title";
 export default function PartiesPage() {
   return (
     <div>
-      <PageTitle title="Parties" description="Create and maintain business parties." />
+      <PageTitle title="Party Master" description="Create and maintain ERP business parties with tax, contact, and commercial details." />
       <MastersNav />
       <PartiesManager />
     </div>

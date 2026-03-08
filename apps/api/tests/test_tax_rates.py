@@ -156,3 +156,38 @@ def test_tax_rate_endpoint_returns_tenant_custom_slabs_for_purchase_dropdown(
     include_inactive_response = client.get("/tax-rates?include_inactive=true", headers=headers)
     assert include_inactive_response.status_code == 200, include_inactive_response.text
     assert "GST_10" in {row["code"] for row in include_inactive_response.json()}
+
+
+def test_tax_rate_update_survives_audit_write_failure(
+    client_with_test_db: tuple[TestClient, Session],
+    monkeypatch,
+) -> None:
+    client, db = client_with_test_db
+    user = _create_user(db, email="tax-audit-failure@medhaone.app", role_names=["ORG_ADMIN"])
+    headers = _headers_for(user)
+
+    create_response = client.post(
+        "/tax-rates",
+        headers=headers,
+        json={
+            "code": "GST_11",
+            "label": "GST 11%",
+            "rate_percent": 11,
+            "is_active": True,
+        },
+    )
+    assert create_response.status_code == 201, create_response.text
+    tax_rate_id = create_response.json()["id"]
+
+    def _raise_audit_failure(*_args, **_kwargs):
+        raise RuntimeError("audit insert failed")
+
+    monkeypatch.setattr("app.api.routes.tax_rates.write_audit_log", _raise_audit_failure)
+
+    deactivate_response = client.patch(
+        f"/tax-rates/{tax_rate_id}",
+        headers=headers,
+        json={"is_active": False},
+    )
+    assert deactivate_response.status_code == 200, deactivate_response.text
+    assert deactivate_response.json()["is_active"] is False

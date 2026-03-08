@@ -25,6 +25,13 @@ type StockSummaryParams = {
   expiry_date?: string;
 };
 
+export class TestToolsUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TestToolsUnavailableError";
+  }
+}
+
 export async function resetAndSeed(
   request: APIRequestContext,
   seedMinimal = false,
@@ -39,6 +46,11 @@ export async function resetAndSeed(
 
   if (!response.ok()) {
     const text = await response.text();
+    if (response.status() === 404) {
+      throw new TestToolsUnavailableError(
+        `Test reset endpoint is unavailable (${response.status()}): ${text}`,
+      );
+    }
     throw new Error(
       `Failed to reset and seed test DB (${response.status()}): ${text}`,
     );
@@ -63,7 +75,17 @@ export async function expectStockQty(
   const response = await request.get(
     `${API_BASE_URL}/test/stock-summary?${search.toString()}`,
   );
-  expect(response.ok()).toBeTruthy();
+  if (!response.ok()) {
+    const text = await response.text();
+    if (response.status() === 404) {
+      throw new TestToolsUnavailableError(
+        `Test stock summary endpoint is unavailable (${response.status()}): ${text}`,
+      );
+    }
+    throw new Error(
+      `Failed to fetch stock summary (${response.status()}): ${text}`,
+    );
+  }
 
   const payload = (await response.json()) as { qty_on_hand: string };
   expect(String(payload.qty_on_hand)).toBe(expectedQty);

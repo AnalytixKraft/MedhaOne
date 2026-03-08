@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from app.core.database import get_db
+from app.api.deps import get_current_user
+from app.core.database import get_db, get_public_db
 from app.core.exceptions import AppException
 from app.core.permissions import require_permission
 from app.core.security import get_password_hash
@@ -10,13 +11,17 @@ from app.models.rbac import Permission, RolePermission, UserRole
 from app.models.role import Role
 from app.models.user import User
 from app.schemas.user import (
+    RoleListResponse,
     UserCreate,
     UserListResponse,
+    UserPreferencesRead,
+    UserPreferencesUpdate,
     UserRead,
     UserRoleAssignmentRequest,
     UserRolesResponse,
     UserUpdate,
 )
+from app.services.audit import snapshot_model, write_audit_log
 from app.services.rbac import assign_roles_to_user
 
 router = APIRouter()
@@ -58,6 +63,55 @@ def _count_active_user_managers(db: Session) -> int:
     return int(count or 0)
 
 
+@router.get("/me/preferences", response_model=UserPreferencesRead)
+def get_my_preferences(
+    db: Session = Depends(get_public_db),
+    current_user: User = Depends(get_current_user),
+) -> UserPreferencesRead:
+    record = db.query(User).filter(User.id == current_user.id).first()
+    if not record:
+        raise AppException(
+            error_code="NOT_FOUND",
+            message="User not found",
+            status_code=404,
+        )
+    return UserPreferencesRead(theme_preference=record.theme_preference)
+
+
+@router.patch("/me/preferences", response_model=UserPreferencesRead)
+def update_my_preferences(
+    payload: UserPreferencesUpdate,
+    db: Session = Depends(get_public_db),
+    current_user: User = Depends(get_current_user),
+) -> UserPreferencesRead:
+    record = db.query(User).filter(User.id == current_user.id).first()
+    if not record:
+        raise AppException(
+            error_code="NOT_FOUND",
+            message="User not found",
+            status_code=404,
+        )
+
+    before_snapshot = {"theme_preference": record.theme_preference}
+    record.theme_preference = payload.theme_preference
+    db.commit()
+    db.refresh(record)
+    write_audit_log(
+        db,
+        module="Users",
+        entity_type="USER",
+        entity_id=record.id,
+        action="UPDATE",
+        performed_by=current_user.id,
+        summary=f"Updated theme preference for {record.email}",
+        source_screen="Header / Theme Selector",
+        before_snapshot=before_snapshot,
+        after_snapshot={"theme_preference": record.theme_preference},
+    )
+    db.commit()
+    return UserPreferencesRead(theme_preference=record.theme_preference)
+
+
 @router.get("/", response_model=UserListResponse)
 def list_users(
     db: Session = Depends(get_db),
@@ -68,14 +122,27 @@ def list_users(
     return UserListResponse(items=users)
 
 
+@router.get("/role-options", response_model=RoleListResponse)
+def list_role_options(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("users:view")),
+) -> RoleListResponse:
+    _ = current_user
+    roles = (
+        db.query(Role)
+        .filter(Role.is_active.is_(True))
+        .order_by(Role.is_system.desc(), Role.name.asc())
+        .all()
+    )
+    return RoleListResponse(items=roles)
+
+
 @router.post("/", response_model=UserRead, status_code=201)
 def create_user(
     payload: UserCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("user:manage")),
 ) -> UserRead:
-    _ = current_user
-
     existing_user = db.query(User).filter(User.email == payload.email).first()
     if existing_user:
         raise AppException(
@@ -95,6 +162,18 @@ def create_user(
     db.flush()
     assign_roles_to_user(db, user, payload.role_ids)
     db.commit()
+    write_audit_log(
+        db,
+        module="Users",
+        entity_type="USER",
+        entity_id=user.id,
+        action="CREATE",
+        performed_by=current_user.id,
+        summary=f"Created user {user.email}",
+        source_screen="Settings / Organization Users",
+        after_snapshot=snapshot_model(user),
+    )
+    db.commit()
     return _get_user_or_404(db, user.id)
 
 
@@ -106,6 +185,7 @@ def update_user(
     current_user: User = Depends(require_permission("user:manage")),
 ) -> UserRead:
     user = _get_user_or_404(db, user_id)
+    before_snapshot = snapshot_model(user)
 
     if payload.email is not None and payload.email != user.email:
         existing_user = db.query(User).filter(User.email == payload.email).first()
@@ -137,6 +217,19 @@ def update_user(
         user.is_superuser = payload.is_superuser
 
     db.commit()
+    write_audit_log(
+        db,
+        module="Users",
+        entity_type="USER",
+        entity_id=user.id,
+        action="UPDATE",
+        performed_by=current_user.id,
+        summary=f"Updated user {user.email}",
+        source_screen="Settings / Organization Users",
+        before_snapshot=before_snapshot,
+        after_snapshot=snapshot_model(user),
+    )
+    db.commit()
     return _get_user_or_404(db, user.id)
 
 
@@ -147,6 +240,7 @@ def deactivate_user(
     current_user: User = Depends(require_permission("user:manage")),
 ) -> UserRead:
     user = _get_user_or_404(db, user_id)
+    before_snapshot = snapshot_model(user)
 
     if user.id == current_user.id and _count_active_user_managers(db) <= 1:
         raise AppException(
@@ -156,6 +250,19 @@ def deactivate_user(
         )
 
     user.is_active = False
+    db.commit()
+    write_audit_log(
+        db,
+        module="Users",
+        entity_type="USER",
+        entity_id=user.id,
+        action="DEACTIVATE",
+        performed_by=current_user.id,
+        summary=f"Deactivated user {user.email}",
+        source_screen="Settings / Organization Users",
+        before_snapshot=before_snapshot,
+        after_snapshot=snapshot_model(user),
+    )
     db.commit()
     return _get_user_or_404(db, user.id)
 
@@ -168,6 +275,7 @@ def assign_user_roles(
     current_user: User = Depends(require_permission("user:manage")),
 ) -> UserRolesResponse:
     user = _get_user_or_404(db, user_id)
+    before_snapshot = {"role_ids": [role.id for role in user.effective_roles], "permissions": user.permissions}
 
     if user.id == current_user.id and not payload.role_ids and _count_active_user_managers(db) <= 1:
         raise AppException(
@@ -179,6 +287,19 @@ def assign_user_roles(
     assign_roles_to_user(db, user, payload.role_ids)
     db.commit()
     refreshed = _get_user_or_404(db, user.id)
+    write_audit_log(
+        db,
+        module="Users",
+        entity_type="USER",
+        entity_id=refreshed.id,
+        action="UPDATE",
+        performed_by=current_user.id,
+        summary=f"Updated roles for {refreshed.email}",
+        source_screen="Settings / Organization Users",
+        before_snapshot=before_snapshot,
+        after_snapshot={"role_ids": [role.id for role in refreshed.effective_roles], "permissions": refreshed.permissions},
+    )
+    db.commit()
     return UserRolesResponse(
         user_id=refreshed.id,
         roles=refreshed.effective_roles,

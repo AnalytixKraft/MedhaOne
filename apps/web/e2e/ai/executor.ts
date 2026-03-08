@@ -126,7 +126,39 @@ export async function executeAction(
       } else if (action.action === "type") {
         await locator.fill(action.value ?? "", { timeout: 10_000 });
       } else if (action.action === "select") {
-        if (action.value === "__first_non_empty__") {
+        const comboboxSearch = element.testId
+          ? page.locator(`[data-combobox-search="${element.testId}-search"]`)
+          : null;
+
+        await locator.click({ timeout: 10_000 });
+
+        if (comboboxSearch && (await comboboxSearch.count()) > 0) {
+          await comboboxSearch.waitFor({ state: "visible", timeout: 10_000 });
+
+          if (action.value !== "__first_non_empty__") {
+            await comboboxSearch.fill(action.value ?? "", { timeout: 10_000 });
+            await page.waitForTimeout(150);
+          }
+
+          const panel = page.locator(`[data-combobox-panel="${element.testId}-panel"]`);
+          let option = panel.getByRole("button").first();
+          if (action.value !== "__first_non_empty__") {
+            const matchedOption = panel.getByRole("button", {
+              name: action.value ?? "",
+              exact: false,
+            }).first();
+            if ((await matchedOption.count()) > 0) {
+              option = matchedOption;
+            }
+          }
+
+          try {
+            await option.click({ timeout: 1_500 });
+          } catch {
+            await comboboxSearch.press("ArrowDown");
+            await comboboxSearch.press("Enter");
+          }
+        } else if (action.value === "__first_non_empty__") {
           await locator.selectOption({ index: 1 }, { timeout: 10_000 });
         } else {
           try {

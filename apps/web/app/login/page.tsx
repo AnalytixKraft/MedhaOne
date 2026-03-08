@@ -20,11 +20,19 @@ type OrganizationOption = {
   name: string;
 };
 
+const DEV_LOGIN_EMAIL = "lijo@analytixkraft.tech";
+const DEV_LOGIN_PASSWORD = "ChangeMe123!";
+const SHOULD_PREFILL_DEV_LOGIN = process.env.NODE_ENV !== "production";
+
 export default function LoginPage() {
   const router = useRouter();
   const { refreshPermissions } = usePermissions();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState(
+    SHOULD_PREFILL_DEV_LOGIN ? DEV_LOGIN_EMAIL : "",
+  );
+  const [password, setPassword] = useState(
+    SHOULD_PREFILL_DEV_LOGIN ? DEV_LOGIN_PASSWORD : "",
+  );
   const [organizationOptions, setOrganizationOptions] = useState<OrganizationOption[]>([]);
   const [selectedOrganization, setSelectedOrganization] = useState("");
   const [loading, setLoading] = useState(false);

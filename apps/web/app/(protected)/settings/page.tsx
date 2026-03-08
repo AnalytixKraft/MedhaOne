@@ -11,17 +11,23 @@ import {
   Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import Link from "next/link";
-
+import { AppTabs } from "@/components/erp/app-primitives";
 import { usePermissions } from "@/components/auth/permission-provider";
 import { PageTitle } from "@/components/layout/page-title";
+import {
+  extractPanFromGstin,
+  extractStateFromGstin,
+  GSTIN_PATTERN,
+  normalizeGstin,
+} from "@/lib/gst";
 import {
   apiClient,
   type CompanySettings,
   type CompanySettingsPayload,
+  type ManagedRole,
+  type ManagedUser,
   type TaxRate,
 } from "@/lib/api/client";
-import { rbacClient, type OrgUserRecord } from "@/lib/rbac/client";
 
 type SettingsTab =
   | "overview"
@@ -37,6 +43,7 @@ type FormState = {
   state: string;
   pincode: string;
   gst_number: string;
+  pan_number: string;
   phone: string;
   email: string;
   logo_url: string;
@@ -47,6 +54,17 @@ type UserFormState = {
   email: string;
   password: string;
   role: "READ_WRITE" | "SERVICE_SUPPORT" | "VIEW_ONLY";
+};
+
+type OrgUserRecord = {
+  id: string;
+  email: string;
+  fullName: string;
+  role: "ORG_ADMIN" | "SERVICE_SUPPORT" | "VIEW_ONLY" | "READ_WRITE";
+  isActive: boolean;
+  lastLoginAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 type TaxRateFormState = {
@@ -63,6 +81,7 @@ const emptyForm: FormState = {
   state: "",
   pincode: "",
   gst_number: "",
+  pan_number: "",
   phone: "",
   email: "",
   logo_url: "",
@@ -95,6 +114,7 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("overview");
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [companyStateOverridden, setCompanyStateOverridden] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [companyLoading, setCompanyLoading] = useState(true);
   const [usersLoading, setUsersLoading] = useState(true);
@@ -107,6 +127,8 @@ export default function SettingsPage() {
   const [creatingUser, setCreatingUser] = useState(false);
   const [userForm, setUserForm] = useState<UserFormState>(emptyUserForm);
   const [userFormTouched, setUserFormTouched] = useState(false);
+  const [userRoleOptions, setUserRoleOptions] = useState<ManagedRole[]>([]);
+  const [usersError, setUsersError] = useState<string | null>(null);
   const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
   const [taxesLoading, setTaxesLoading] = useState(true);
   const [savingTaxRate, setSavingTaxRate] = useState(false);
@@ -121,6 +143,8 @@ export default function SettingsPage() {
       user.roles.some((role) => role.name === "ORG_ADMIN"));
   const canEditCompany = !!user && (user.is_superuser || hasPermission("settings:update"));
   const canManageUsers = !!user && (user.is_superuser || hasPermission("settings:update"));
+  const canViewUsers =
+    !!user && (user.is_superuser || hasPermission("users:view") || hasPermission("user:manage"));
   const canViewTaxes = !!user && (user.is_superuser || isOrgAdmin || hasPermission("tax:view"));
   const canManageTaxes =
     !!user && (user.is_superuser || isOrgAdmin || hasPermission("tax:manage"));
@@ -155,17 +179,51 @@ export default function SettingsPage() {
       setUsersLoading(true);
       setTaxesLoading(true);
       try {
-        const [company, users, taxes] = await Promise.all([
-          apiClient.getCompanySettings(),
-          rbacClient.listUsers(),
-          canViewTaxes ? apiClient.listTaxRates(true) : Promise.resolve([] as TaxRate[]),
-        ]);
+        const [companyResult, usersResult, roleOptionsResult, taxesResult] =
+          await Promise.allSettled([
+            apiClient.getCompanySettings(),
+            canViewUsers ? apiClient.listUsers() : Promise.resolve({ items: [] as ManagedUser[] }),
+            canManageUsers
+              ? apiClient.listUserRoleOptions()
+              : Promise.resolve({ items: [] as ManagedRole[] }),
+            canViewTaxes ? apiClient.listTaxRates(true) : Promise.resolve([] as TaxRate[]),
+          ]);
         if (!cancelled) {
-          hydrateCompany(company);
-          setCompanySettings(company);
-          setOrgUsers(users);
-          setTaxRates(taxes);
-          setError(null);
+          if (companyResult.status === "fulfilled") {
+            hydrateCompany(companyResult.value);
+            setCompanySettings(companyResult.value);
+            setError(null);
+          } else {
+            setError(
+              companyResult.reason instanceof Error
+                ? companyResult.reason.message
+                : "Failed to load organization settings",
+            );
+          }
+
+          if (usersResult.status === "fulfilled") {
+            setOrgUsers(usersResult.value.items.map(mapManagedUserToOrgUserRecord));
+            setUsersError(null);
+          } else {
+            setOrgUsers([]);
+            setUsersError(
+              usersResult.reason instanceof Error
+                ? usersResult.reason.message
+                : "Failed to load organization users",
+            );
+          }
+
+          if (roleOptionsResult.status === "fulfilled") {
+            setUserRoleOptions(roleOptionsResult.value.items);
+          } else {
+            setUserRoleOptions([]);
+          }
+
+          if (taxesResult.status === "fulfilled") {
+            setTaxRates(taxesResult.value);
+          } else {
+            setTaxRates([]);
+          }
         }
       } catch (caught) {
         if (!cancelled) {
@@ -184,10 +242,13 @@ export default function SettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [canViewTaxes, hasTenantContext]);
+  }, [canManageUsers, canViewTaxes, canViewUsers, hasTenantContext]);
 
   const fieldErrors = useMemo(() => {
     const errors: Partial<Record<keyof FormState, string>> = {};
+    if (form.gst_number && !GSTIN_PATTERN.test(form.gst_number)) {
+      errors.gst_number = "Enter a valid GST number.";
+    }
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
       errors.email = "Enter a valid email address.";
     }
@@ -290,12 +351,69 @@ export default function SettingsPage() {
       state: settings.state ?? "",
       pincode: settings.pincode ?? "",
       gst_number: settings.gst_number ?? "",
+      pan_number: settings.pan_number ?? "",
       phone: settings.phone ?? "",
       email: settings.email ?? "",
       logo_url: settings.logo_url ?? "",
     });
+    setCompanyStateOverridden(hasManualCompanyStateOverride(settings));
     setTouched(false);
   }
+
+  const handleGstNumberChange = (rawValue: string) => {
+    const gstNumber = normalizeGstin(rawValue);
+    setForm((current) => {
+      if (!gstNumber) {
+        return {
+          ...current,
+          gst_number: "",
+          pan_number: "",
+          ...(companyStateOverridden ? {} : { state: "" }),
+        };
+      }
+
+      if (!GSTIN_PATTERN.test(gstNumber)) {
+        return {
+          ...current,
+          gst_number: gstNumber,
+          pan_number: "",
+          ...(companyStateOverridden ? {} : { state: "" }),
+        };
+      }
+
+      return {
+        ...current,
+        gst_number: gstNumber,
+        pan_number: extractPanFromGstin(gstNumber),
+        ...(companyStateOverridden ? {} : { state: extractStateFromGstin(gstNumber) }),
+      };
+    });
+  };
+
+  const handlePanNumberChange = (value: string) => {
+    setForm((current) => ({
+      ...current,
+      pan_number: value.toUpperCase().replace(/\s+/g, "").slice(0, 10),
+    }));
+  };
+
+  const handleStateChange = (value: string) => {
+    const shouldOverride = value.trim().length > 0;
+    setCompanyStateOverridden(shouldOverride);
+    setForm((current) => {
+      if (!shouldOverride && current.gst_number && GSTIN_PATTERN.test(current.gst_number)) {
+        return {
+          ...current,
+          state: extractStateFromGstin(current.gst_number),
+        };
+      }
+
+      return {
+        ...current,
+        state: value,
+      };
+    });
+  };
 
   const saveCompanySettings = async () => {
     setTouched(true);
@@ -346,13 +464,20 @@ export default function SettingsPage() {
     setCreatingUser(true);
     setError(null);
     try {
-      const created = await rbacClient.createUser(undefined, {
+      const roleOption = userRoleOptions.find((role) => role.name === userForm.role);
+      if (!roleOption) {
+        throw new Error(`Role option ${userForm.role} is unavailable for this organization.`);
+      }
+
+      const created = await apiClient.createUser({
         email: userForm.email.trim(),
         password: userForm.password,
-        fullName: userForm.fullName.trim(),
-        role: userForm.role,
+        full_name: userForm.fullName.trim(),
+        is_active: true,
+        is_superuser: false,
+        role_ids: [roleOption.id],
       });
-      setOrgUsers((current) => [created, ...current]);
+      setOrgUsers((current) => [mapManagedUserToOrgUserRecord(created), ...current]);
       setUserForm(emptyUserForm);
       setUserFormTouched(false);
       setAddUserOpen(false);
@@ -476,14 +601,6 @@ export default function SettingsPage() {
         title="Settings"
         description="Company profile, users, and branding controls for the current organization."
       />
-      <div className="flex justify-end">
-        <Link
-          href="/settings/bulk-import"
-          className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-        >
-          Bulk Import
-        </Link>
-      </div>
 
       {toast ? (
         <div className="fixed right-4 top-20 z-50 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 shadow-lg">
@@ -497,24 +614,7 @@ export default function SettingsPage() {
         </div>
       ) : null}
 
-      <div className="rounded-3xl border bg-card p-2 shadow-sm">
-        <div className="flex flex-wrap gap-2">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`rounded-2xl px-4 py-2 text-sm font-medium transition ${
-                activeTab === tab.id
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <AppTabs tabs={tabs} value={activeTab} onChange={setActiveTab} />
 
       {activeTab === "overview" ? (
         tabLoading ? (
@@ -542,6 +642,7 @@ export default function SettingsPage() {
               value={form.gst_number || "Not Configured"}
               badge={!form.gst_number ? "warning" : undefined}
             />
+            <OverviewRow label="PAN Number" value={form.pan_number || "Not Configured"} />
             <OverviewRow label="Registered Address" value={formattedAddress || "Not configured"} />
           </OverviewCard>
 
@@ -665,6 +766,7 @@ export default function SettingsPage() {
                 value={form.gst_number || "Not Added"}
                 badge={!form.gst_number ? "warning" : undefined}
               />
+              <KeyValue label="PAN" value={form.pan_number || "Not added"} />
               <KeyValue label="Address" value={formattedAddress || "Not configured"} className="md:col-span-2" />
             </div>
           ) : (
@@ -692,8 +794,15 @@ export default function SettingsPage() {
               <Field
                 label="GST Number"
                 value={form.gst_number}
-                onChange={(value) => setForm((current) => ({ ...current, gst_number: value }))}
+                onChange={handleGstNumberChange}
                 disabled={!canEditCompany}
+                error={touched ? fieldErrors.gst_number : undefined}
+              />
+              <Field
+                label="PAN Number"
+                value={form.pan_number}
+                onChange={handlePanNumberChange}
+                disabled={!canEditCompany || Boolean(form.gst_number)}
               />
               <Field
                 label="Address"
@@ -712,7 +821,7 @@ export default function SettingsPage() {
               <Field
                 label="State"
                 value={form.state}
-                onChange={(value) => setForm((current) => ({ ...current, state: value }))}
+                onChange={handleStateChange}
                 disabled={!canEditCompany}
               />
               <Field
@@ -824,6 +933,9 @@ export default function SettingsPage() {
             </div>
           ) : (
             <div className="mt-6 overflow-x-auto">
+              {usersError ? (
+                <p className="mb-4 text-sm text-rose-600">{usersError}</p>
+              ) : null}
               <table className="min-w-full">
                 <thead>
                   <tr className="border-b text-left text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -1274,6 +1386,27 @@ function ThemeTile({
   );
 }
 
+function mapManagedUserToOrgUserRecord(user: ManagedUser): OrgUserRecord {
+  const primaryRole = user.roles[0]?.name ?? user.role?.name ?? "VIEW_ONLY";
+  const normalizedRole =
+    primaryRole === "ORG_ADMIN" ||
+    primaryRole === "SERVICE_SUPPORT" ||
+    primaryRole === "READ_WRITE"
+      ? primaryRole
+      : "VIEW_ONLY";
+
+  return {
+    id: String(user.id),
+    email: user.email,
+    fullName: user.full_name,
+    role: normalizedRole,
+    isActive: user.is_active,
+    lastLoginAt: user.last_login_at,
+    createdAt: user.created_at,
+    updatedAt: user.updated_at,
+  };
+}
+
 function buildPayload(form: FormState): CompanySettingsPayload {
   return {
     company_name: toNullable(form.company_name),
@@ -1282,6 +1415,7 @@ function buildPayload(form: FormState): CompanySettingsPayload {
     state: toNullable(form.state),
     pincode: toNullable(form.pincode),
     gst_number: toNullable(form.gst_number),
+    pan_number: form.gst_number ? null : toNullable(form.pan_number),
     phone: toNullable(form.phone),
     email: toNullable(form.email),
     logo_url: toNullable(form.logo_url),
@@ -1302,6 +1436,14 @@ function formatAddress(input: {
   return [input.address, [input.city, input.state, input.pincode].filter(Boolean).join(", ")]
     .filter(Boolean)
     .join(" • ");
+}
+
+function hasManualCompanyStateOverride(settings: CompanySettings): boolean {
+  if (!settings.gst_number || !settings.state || !GSTIN_PATTERN.test(settings.gst_number)) {
+    return false;
+  }
+
+  return extractStateFromGstin(settings.gst_number) !== settings.state;
 }
 
 function initials(name: string) {

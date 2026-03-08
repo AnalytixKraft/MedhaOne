@@ -65,6 +65,68 @@ def test_org_admin_can_update_company_settings(
     assert body["phone"] == "9999999999"
 
 
+def test_company_settings_gst_derives_pan_and_state(
+    client_with_test_db: tuple["TestClient", Session],
+) -> None:
+    client, session = client_with_test_db
+    user = _create_user(session, email="gstadmin@tenant.app", role_name="ORG_ADMIN")
+    headers = {"Authorization": f"Bearer {_token_for(user)}"}
+
+    update_response = client.put(
+        "/settings/company",
+        headers=headers,
+        json={"gst_number": "27abcde1234f1z5"},
+    )
+    assert update_response.status_code == 200, update_response.text
+    body = update_response.json()
+    assert body["gst_number"] == "27ABCDE1234F1Z5"
+    assert body["pan_number"] == "ABCDE1234F"
+    assert body["state"] == "Maharashtra"
+
+
+def test_company_settings_gst_state_override_is_respected(
+    client_with_test_db: tuple["TestClient", Session],
+) -> None:
+    client, session = client_with_test_db
+    user = _create_user(session, email="overrideadmin@tenant.app", role_name="ORG_ADMIN")
+    headers = {"Authorization": f"Bearer {_token_for(user)}"}
+
+    update_response = client.put(
+        "/settings/company",
+        headers=headers,
+        json={
+            "gst_number": "27ABCDE1234F1Z5",
+            "state": "Kerala",
+        },
+    )
+    assert update_response.status_code == 200, update_response.text
+    body = update_response.json()
+    assert body["pan_number"] == "ABCDE1234F"
+    assert body["state"] == "Kerala"
+
+
+def test_company_settings_update_survives_audit_write_failure(
+    client_with_test_db: tuple["TestClient", Session],
+    monkeypatch,
+) -> None:
+    client, session = client_with_test_db
+    user = _create_user(session, email="settings-audit-failure@tenant.app", role_name="ORG_ADMIN")
+    headers = {"Authorization": f"Bearer {_token_for(user)}"}
+
+    def _raise_audit_failure(*_args, **_kwargs):
+        raise RuntimeError("audit insert failed")
+
+    monkeypatch.setattr("app.api.routes.settings.write_audit_log", _raise_audit_failure)
+
+    update_response = client.put(
+        "/settings/company",
+        headers=headers,
+        json={"company_name": "Tenant One Healthcare"},
+    )
+    assert update_response.status_code == 200, update_response.text
+    assert update_response.json()["company_name"] == "Tenant One Healthcare"
+
+
 def test_service_support_is_read_only_for_company_settings(
     client_with_test_db: tuple["TestClient", Session],
 ) -> None:

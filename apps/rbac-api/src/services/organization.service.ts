@@ -439,6 +439,55 @@ async function getOrganizationUsageWithClient(client: PoolClient, schemaName: st
   }
 
   await client.query(`SET LOCAL search_path TO ${quoteIdentifier(schemaName)}, public`);
+  const userColumnsResult = await client.query<{ column_name: string }>(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_schema = $1 AND table_name = 'users'`,
+    [schemaName],
+  );
+  const userColumns = new Set(userColumnsResult.rows.map((row) => row.column_name));
+  if (!userColumns.has("id")) {
+    return {
+      currentUsers: 0,
+      activeUsers: 0,
+      adminCount: 0,
+      supportCount: 0,
+    };
+  }
+
+  const tableResult = await client.query<{ table_name: string }>(
+    `SELECT table_name
+     FROM information_schema.tables
+     WHERE table_schema = $1
+       AND table_name IN ('roles', 'user_roles')`,
+    [schemaName],
+  );
+  const tables = new Set(tableResult.rows.map((row) => row.table_name));
+  const hasRoleColumn = userColumns.has("role");
+  const hasRoleIdColumn = userColumns.has("role_id");
+  const hasRolesTable = tables.has("roles");
+  const hasUserRolesTable = tables.has("user_roles");
+
+  const activeExpression = userColumns.has("is_active") ? "u.is_active = TRUE" : "TRUE";
+  let adminPredicate = "FALSE";
+  let supportPredicate = "FALSE";
+
+  if (hasRoleColumn) {
+    adminPredicate = "u.role = 'ORG_ADMIN'";
+    supportPredicate = "u.role = 'SERVICE_SUPPORT'";
+  } else if (hasRoleIdColumn && hasRolesTable) {
+    const primaryAdmin = "EXISTS (SELECT 1 FROM roles r WHERE r.id = u.role_id AND r.name = 'ORG_ADMIN')";
+    const primarySupport = "EXISTS (SELECT 1 FROM roles r WHERE r.id = u.role_id AND r.name = 'SERVICE_SUPPORT')";
+    const linkedAdmin = hasUserRolesTable
+      ? "EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id AND r.name = 'ORG_ADMIN')"
+      : "FALSE";
+    const linkedSupport = hasUserRolesTable
+      ? "EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id AND r.name = 'SERVICE_SUPPORT')"
+      : "FALSE";
+    adminPredicate = `(${primaryAdmin} OR ${linkedAdmin})`;
+    supportPredicate = `(${primarySupport} OR ${linkedSupport})`;
+  }
+
   const result = await client.query<{
     current_users: string;
     active_users: string;
@@ -447,10 +496,10 @@ async function getOrganizationUsageWithClient(client: PoolClient, schemaName: st
   }>(
     `SELECT
        COUNT(*)::text AS current_users,
-       COUNT(*) FILTER (WHERE is_active = TRUE)::text AS active_users,
-       COUNT(*) FILTER (WHERE role = 'ORG_ADMIN')::text AS admin_count,
-       COUNT(*) FILTER (WHERE role = 'SERVICE_SUPPORT')::text AS support_count
-     FROM users`,
+       COUNT(*) FILTER (WHERE ${activeExpression})::text AS active_users,
+       COUNT(*) FILTER (WHERE ${adminPredicate})::text AS admin_count,
+       COUNT(*) FILTER (WHERE ${supportPredicate})::text AS support_count
+     FROM users u`,
   );
 
   const row = result.rows[0];

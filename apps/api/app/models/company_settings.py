@@ -17,6 +17,7 @@ class CompanySettings(Base):
     state: Mapped[str | None] = mapped_column(String(120), nullable=True)
     pincode: Mapped[str | None] = mapped_column(String(20), nullable=True)
     gst_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pan_number: Mapped[str | None] = mapped_column(String(10), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     logo_url: Mapped[str | None] = mapped_column(Text, nullable=True)

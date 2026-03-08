@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import { AppSectionCard, AppTable } from "@/components/erp/app-primitives";
 import { usePermissions } from "@/components/auth/permission-provider";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ErpCombobox } from "@/components/ui/erp-combobox";
 import { Input } from "@/components/ui/input";
 import {
@@ -171,11 +171,10 @@ export function GrnManager() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[460px,1fr]">
-      <Card>
-        <CardHeader>
-          <CardTitle>Create GRN From PO</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <AppSectionCard
+        title="Create GRN From PO"
+        description="Receive stock against approved purchase orders using the standard ERP form layout."
+      >
           {permissionLoading ? (
             <p className="text-sm text-muted-foreground">Loading permissions...</p>
           ) : hasPermission("grn:create") ? (
@@ -209,7 +208,7 @@ export function GrnManager() {
                     return (
                       <div
                         key={line.id}
-                        className="space-y-2 rounded-md border p-2"
+                        className="space-y-2 rounded-xl border border-border bg-[hsl(var(--muted-bg))] p-3"
                       >
                         <p className="text-xs text-muted-foreground">
                           PO Line #{line.id} | Remaining: {remaining}
@@ -280,20 +279,15 @@ export function GrnManager() {
               You do not have permission to create GRNs.
             </p>
           )}
-        </CardContent>
-      </Card>
+      </AppSectionCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>GRNs</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <AppTable title="GRNs" description="Review created GRN records and open detail pages.">
           {error ? <p className="mb-3 text-sm text-red-500">{error}</p> : null}
           {loading ? (
-            <p className="text-sm text-muted-foreground">Loading GRNs...</p>
+            <p className="p-4 text-sm text-muted-foreground">Loading GRNs...</p>
           ) : (
             <Table>
-              <TableHeader>
+              <TableHeader className="bg-[hsl(var(--table-header-bg))]">
                 <TableRow>
                   <TableHead>GRN No</TableHead>
                   <TableHead>PO</TableHead>
@@ -323,8 +317,7 @@ export function GrnManager() {
               </TableBody>
             </Table>
           )}
-        </CardContent>
-      </Card>
+      </AppTable>
     </div>
   );
 }

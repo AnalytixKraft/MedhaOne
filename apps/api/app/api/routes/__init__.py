@@ -1,4 +1,17 @@
-from . import auth, dashboard, health, inventory, masters, purchase, reports, settings, tax_rates, test_tools, users
+from . import (
+    auth,
+    dashboard,
+    health,
+    inventory,
+    masters,
+    purchase,
+    purchase_bills,
+    reports,
+    settings,
+    tax_rates,
+    test_tools,
+    users,
+)
 
 __all__ = [
     "auth",
@@ -7,6 +20,7 @@ __all__ = [
     "inventory",
     "masters",
     "purchase",
+    "purchase_bills",
     "reports",
     "settings",
     "tax_rates",

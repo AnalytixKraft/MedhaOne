@@ -21,6 +21,12 @@ class User(Base):
     auth_provider: Mapped[str] = mapped_column(String(32), default="LOCAL", nullable=False)
     external_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
     organization_slug: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    theme_preference: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="system",
+        server_default="system",
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -312,7 +312,7 @@ function ErpComboboxInner({
   const panel = (
     <PopoverPanel
       className={cn(
-        "fixed z-[250] rounded-[10px] border border-[#1e293b] bg-[#0b1220] p-2 text-[#e2e8f0] shadow-[0_24px_48px_rgba(2,8,23,0.6)]",
+        "fixed z-[250] rounded-2xl border border-[hsl(var(--card-border))] bg-[hsl(var(--card-bg))] p-2 text-[hsl(var(--text-primary))] shadow-[0_20px_48px_-24px_rgba(15,23,42,0.35)]",
         panelClassName,
       )}
       style={
@@ -327,7 +327,7 @@ function ErpComboboxInner({
       data-combobox-panel={panelSelector}
     >
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#64748b]" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--text-secondary))]" />
         <input
           ref={searchInputRef}
           type="text"
@@ -345,8 +345,8 @@ function ErpComboboxInner({
               : undefined
           }
           className={cn(
-            "h-11 w-full rounded-[8px] border border-[#1e293b] bg-[#020617] pl-10 pr-3 text-sm text-[#f9fafb] outline-none transition-all duration-150",
-            "placeholder:text-[#9ca3af] focus-visible:border-[#22C55E] focus-visible:ring-2 focus-visible:ring-[#22C55E]/30 focus-visible:ring-offset-0",
+            "h-11 w-full rounded-xl border border-[hsl(var(--card-border))] bg-background pl-10 pr-3 text-sm text-foreground outline-none transition-all duration-150",
+            "placeholder:text-muted-foreground focus-visible:border-[hsl(var(--primary-btn))] focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary-btn))]/20 focus-visible:ring-offset-0",
           )}
         />
       </div>
@@ -356,15 +356,15 @@ function ErpComboboxInner({
         role="listbox"
         className={cn(
           "mt-2 max-h-[300px] overflow-y-auto pr-1",
-          "[scrollbar-color:#334155_#0b1220]",
+          "[scrollbar-color:hsl(var(--card-border))_hsl(var(--card-bg))]",
           "[&::-webkit-scrollbar]:w-[7px]",
           "[&::-webkit-scrollbar-thumb]:rounded-full",
-          "[&::-webkit-scrollbar-thumb]:bg-slate-700",
-          "[&::-webkit-scrollbar-track]:bg-[#0b1220]",
+          "[&::-webkit-scrollbar-thumb]:bg-[hsl(var(--card-border))]",
+          "[&::-webkit-scrollbar-track]:bg-[hsl(var(--card-bg))]",
         )}
       >
         {filteredOptions.length === 0 ? (
-          <div className="rounded-[8px] px-3 py-2 text-sm text-[#9ca3af]">
+          <div className="rounded-xl px-3 py-2 text-sm text-muted-foreground">
             {emptyMessage}
           </div>
         ) : (
@@ -383,10 +383,12 @@ function ErpComboboxInner({
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => handleSelect(option)}
                 className={cn(
-                  "mt-1 flex w-full items-center justify-between rounded-[8px] px-3 py-2 text-left text-sm transition-all duration-150 first:mt-0",
-                  isSelected && "bg-[#22C55E] text-white",
-                  !isSelected && isHighlighted && "bg-[#1e293b] text-[#f8fafc]",
-                  !isSelected && !isHighlighted && "text-[#e2e8f0] hover:bg-[#1e293b]",
+                  "mt-1 flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition-all duration-150 first:mt-0",
+                  isSelected && "bg-[hsl(var(--primary-btn))] text-white",
+                  !isSelected && isHighlighted && "bg-[hsl(var(--muted-bg))] text-[hsl(var(--text-primary))]",
+                  !isSelected &&
+                    !isHighlighted &&
+                    "text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--muted-bg))]",
                   optionClassName,
                 )}
               >
@@ -419,22 +421,22 @@ function ErpComboboxInner({
         disabled={disabled}
         onKeyDown={handleTriggerKeyDown}
         className={cn(
-          "flex h-12 w-full items-center justify-between rounded-[8px] border border-white/10 bg-[#020617] px-4 text-left text-sm shadow-[0_10px_24px_rgba(2,8,23,0.35)] outline-none transition-all duration-150",
-          "text-[#e2e8f0] hover:border-[#22C55E]/50 focus-visible:border-[#22C55E] focus-visible:ring-2 focus-visible:ring-[#22C55E]/30 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-60",
+          "flex h-11 w-full items-center justify-between rounded-xl border border-[hsl(var(--card-border))] bg-background px-4 text-left text-sm shadow-sm outline-none transition-all duration-150",
+          "text-[hsl(var(--text-primary))] hover:border-[hsl(var(--primary-btn))]/40 focus-visible:border-[hsl(var(--primary-btn))] focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary-btn))]/20 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-60",
           triggerClassName,
         )}
       >
         <span
           className={cn(
             "truncate pr-3",
-            showPlaceholder ? "text-[#9ca3af]" : "text-[#e2e8f0]",
+            showPlaceholder ? "text-muted-foreground" : "text-[hsl(var(--text-primary))]",
           )}
         >
           {visibleValue || placeholder}
         </span>
         <ChevronDown
           className={cn(
-            "h-4 w-4 shrink-0 text-[#9ca3af] transition-transform duration-150",
+            "h-4 w-4 shrink-0 text-[hsl(var(--text-secondary))] transition-transform duration-150",
             open && "rotate-180",
           )}
         />

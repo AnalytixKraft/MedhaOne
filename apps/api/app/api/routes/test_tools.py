@@ -76,12 +76,41 @@ def _validate_test_org_slug(raw_slug: str) -> str:
 
 
 def _reset_test_tenant_schema(org_slug: str, org_name: str) -> None:
-    _ = org_name
     schema_name = build_tenant_schema_name(org_slug)
 
     with SessionLocal() as db:
-        # Keep e2e schemas invisible to RBAC organization scans.
-        db.execute(text("DELETE FROM public.organizations WHERE id = :org_slug"), {"org_slug": org_slug})
+        db.execute(
+            text(
+                """
+                INSERT INTO public.organizations (
+                    id,
+                    name,
+                    schema_name,
+                    max_users,
+                    is_active,
+                    created_by_id
+                )
+                VALUES (
+                    :org_slug,
+                    :org_name,
+                    :schema_name,
+                    100,
+                    TRUE,
+                    NULL
+                )
+                ON CONFLICT (id) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    schema_name = EXCLUDED.schema_name,
+                    is_active = TRUE,
+                    updated_at = NOW()
+                """
+            ),
+            {
+                "org_slug": org_slug,
+                "org_name": org_name,
+                "schema_name": schema_name,
+            },
+        )
         db.commit()
         db.execute(text(f"DROP SCHEMA IF EXISTS {quote_schema_name(schema_name)} CASCADE"))
         db.execute(text(f"CREATE SCHEMA {quote_schema_name(schema_name)}"))

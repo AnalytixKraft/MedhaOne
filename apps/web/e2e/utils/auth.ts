@@ -9,4 +9,5 @@ export async function loginAsAdmin(page: Page): Promise<void> {
   await page.getByTestId("login-submit").click();
 
   await expect(page).toHaveURL(/\/dashboard/);
+  await expect(page.getByText("Authenticated Session")).toBeVisible();
 }

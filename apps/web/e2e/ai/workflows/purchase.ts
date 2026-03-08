@@ -62,7 +62,7 @@ export const purchaseWorkflow: WorkflowDefinition = {
   goalSummary:
     "Complete the full PO to GRN to posted stock flow with deterministic test data and verify stock increased.",
   buildGuidance: (context: WorkflowContext) => [
-    "Login with admin@medhaone.app / ChangeMe123! if you are not authenticated.",
+    "Login with e2e.admin@medhaone.app / ChangeMe123! if you are not authenticated.",
     "Create missing master data first.",
     `Supplier name: '${context.generatedData.supplierName}'.`,
     `Warehouse name: '${context.generatedData.warehouseName}', code '${context.generatedData.warehouseCode}'.`,

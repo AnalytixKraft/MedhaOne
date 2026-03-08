@@ -16,7 +16,11 @@ from app.models.warehouse import Warehouse
 @dataclass(slots=True)
 class StockAgeingFilters:
     warehouse_id: int | None = None
+    warehouse_ids: tuple[int, ...] = ()
     product_id: int | None = None
+    product_ids: tuple[int, ...] = ()
+    brand_values: tuple[str, ...] = ()
+    category_values: tuple[str, ...] = ()
     page: int = 1
     page_size: int = 50
 
@@ -53,8 +57,16 @@ def get_stock_ageing_report(
 
     if filters.warehouse_id is not None:
         summary_stmt = summary_stmt.where(StockSummary.warehouse_id == filters.warehouse_id)
+    if filters.warehouse_ids:
+        summary_stmt = summary_stmt.where(StockSummary.warehouse_id.in_(filters.warehouse_ids))
     if filters.product_id is not None:
         summary_stmt = summary_stmt.where(StockSummary.product_id == filters.product_id)
+    if filters.product_ids:
+        summary_stmt = summary_stmt.where(StockSummary.product_id.in_(filters.product_ids))
+    if filters.brand_values:
+        summary_stmt = summary_stmt.where(Product.brand.in_(filters.brand_values))
+    if filters.category_values:
+        summary_stmt = summary_stmt.where(Product.hsn.in_(filters.category_values))
 
     summary_rows = db.execute(
         summary_stmt.order_by(Warehouse.name.asc(), Product.name.asc(), StockSummary.batch_id.asc())
@@ -86,8 +98,12 @@ def get_stock_ageing_report(
 
     if filters.warehouse_id is not None:
         layer_stmt = layer_stmt.where(InventoryLedger.warehouse_id == filters.warehouse_id)
+    if filters.warehouse_ids:
+        layer_stmt = layer_stmt.where(InventoryLedger.warehouse_id.in_(filters.warehouse_ids))
     if filters.product_id is not None:
         layer_stmt = layer_stmt.where(InventoryLedger.product_id == filters.product_id)
+    if filters.product_ids:
+        layer_stmt = layer_stmt.where(InventoryLedger.product_id.in_(filters.product_ids))
 
     layer_rows = db.execute(
         layer_stmt.order_by(GRN.posted_at.asc(), InventoryLedger.id.asc())

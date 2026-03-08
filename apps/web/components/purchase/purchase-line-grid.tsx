@@ -145,12 +145,12 @@ export function PurchaseLineGrid({
   );
 
   return (
-    <div className="relative min-h-[280px] w-full rounded-[12px] border border-white/10 bg-[linear-gradient(180deg,#111827,#0f172a)] p-0 shadow-[0_10px_30px_rgba(0,0,0,0.42)]">
+    <div className="relative min-h-[280px] w-full overflow-hidden rounded-2xl border border-border bg-[hsl(var(--card-bg))] p-0 shadow-sm">
       <div className="overflow-x-auto">
         <div style={{ minWidth: PURCHASE_LINE_GRID_MIN_WIDTH }}>
           <div className="max-h-[620px] min-h-[224px] overflow-y-auto">
             <div
-              className="sticky top-0 z-20 grid border-b border-white/10 bg-[#0f172a] text-[12px] font-semibold uppercase tracking-[0.08em] text-[#9ca3af]"
+              className="sticky top-0 z-20 grid border-b border-border bg-[hsl(var(--table-header-bg))] text-[12px] font-semibold uppercase tracking-[0.08em] text-[hsl(var(--text-secondary))]"
               style={{ gridTemplateColumns: PURCHASE_LINE_GRID_TEMPLATE }}
             >
               <div className="px-3.5 py-3">Item</div>
@@ -166,7 +166,7 @@ export function PurchaseLineGrid({
 
             {rows.length === 0 ? (
               <div
-                className="grid h-14 items-center border-b border-white/10 text-sm text-[#9ca3af]"
+                className="grid h-14 items-center border-b border-border bg-[hsl(var(--card-bg))] text-sm text-[hsl(var(--text-secondary))]"
                 style={{ gridTemplateColumns: PURCHASE_LINE_GRID_TEMPLATE }}
               >
                 <div className="px-3.5">No line items yet</div>

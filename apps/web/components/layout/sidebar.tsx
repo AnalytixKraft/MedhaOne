@@ -1,22 +1,41 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
   Building2,
+  FileSearch,
   LayoutDashboard,
+  PackageCheck,
   Settings,
   ShoppingCart,
-  Warehouse,
+  SquareStack,
   X,
 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { usePermissions } from "@/components/auth/permission-provider";
+import {
+  SidebarTreeMenu,
+  type SidebarTreeMenuNode,
+} from "@/components/layout/sidebar-tree-menu";
+import {
+  INVENTORY_MASTER_DATA_TAB,
+  INVENTORY_REPORTS_TAB,
+  INVENTORY_TABS,
+} from "@/lib/inventory/navigation";
+import { PURCHASE_NAV_ITEMS } from "@/lib/purchase/navigation";
+import { SALES_NAV_ITEMS } from "@/lib/sales/navigation";
 import { cn } from "@/lib/utils";
 
-const navItems = [
+type NavNode = SidebarTreeMenuNode & {
+  requiredPermission: string;
+  children?: NavNode[];
+};
+
+const navItems: NavNode[] = [
   {
+    id: "dashboard",
     href: "/dashboard",
     label: "Dashboard",
     icon: LayoutDashboard,
@@ -24,39 +43,121 @@ const navItems = [
     requiredPermission: "dashboard:view",
   },
   {
+    id: "masters",
     href: "/masters",
     label: "Masters",
     icon: Building2,
     testId: "nav-masters",
     requiredPermission: "masters:view",
+    children: INVENTORY_MASTER_DATA_TAB.items.map((item) => ({
+      id: `masters-${item.id}`,
+      label: item.label,
+      href: item.href,
+      testId: `nav-masters-${item.id}`,
+      icon: item.icon,
+      requiredPermission: item.requiredPermission,
+    })),
   },
   {
+    id: "purchase",
     href: "/purchase",
     label: "Purchase",
     icon: ShoppingCart,
     testId: "nav-purchase",
     requiredPermission: "purchase:view",
+    children: PURCHASE_NAV_ITEMS.map((item) => ({
+      id: `purchase-${item.id}`,
+      label: item.label,
+      href: item.href,
+      testId: `nav-purchase-${item.id}`,
+      icon: ShoppingCart,
+      requiredPermission: item.requiredPermission,
+    })),
   },
   {
+    id: "sales",
+    href: "/sales",
+    label: "Sales",
+    icon: PackageCheck,
+    testId: "nav-sales",
+    requiredPermission: "sales:view",
+    children: SALES_NAV_ITEMS.map((item) => ({
+      id: `sales-${item.id}`,
+      label: item.label,
+      href: item.href,
+      testId: `nav-sales-${item.id}`,
+      icon: item.icon,
+      requiredPermission: item.requiredPermission,
+    })),
+  },
+  {
+    id: "inventory",
     href: "/inventory",
     label: "Inventory",
-    icon: Warehouse,
+    icon: SquareStack,
     testId: "nav-inventory",
     requiredPermission: "inventory:view",
+    children: INVENTORY_TABS.filter(
+      (tab) => tab.id === "stock-operations" || tab.id === "setup",
+    ).map((tab) => ({
+      id: `inventory-${tab.id}`,
+      label: tab.label,
+      testId: `nav-inventory-${tab.id}`,
+      href:
+        tab.id === "stock-operations"
+          ? "/inventory/stock-operations"
+          : "/inventory/setup",
+      icon: tab.icon,
+      requiredPermission: "inventory:view",
+      children: tab.items.map((item) => ({
+        id: `inventory-${tab.id}-${item.id}`,
+        label: item.label,
+        href: item.href,
+        testId: `nav-inventory-${tab.id}-${item.id}`,
+        icon: item.icon,
+        requiredPermission: item.requiredPermission,
+      })),
+    })),
   },
   {
+    id: "reports",
     href: "/reports",
     label: "Reports",
     icon: BarChart3,
     testId: "nav-reports",
     requiredPermission: "reports:view",
+    children: INVENTORY_REPORTS_TAB.items.map((item) => ({
+      id: `reports-${item.id}`,
+      label: item.label,
+      href: item.href,
+      testId: `nav-reports-${item.id}`,
+      icon: item.icon,
+      requiredPermission: item.requiredPermission,
+    })),
   },
   {
+    id: "settings",
     href: "/settings",
     label: "Settings",
     icon: Settings,
     testId: "nav-settings",
     requiredPermission: "settings:view",
+    children: [
+      {
+        id: "settings-overview",
+        href: "/settings",
+        label: "Overview",
+        icon: Settings,
+        requiredPermission: "settings:view",
+      },
+      {
+        id: "settings-audit-trail",
+        href: "/settings/audit-trail",
+        label: "Audit Trail",
+        icon: FileSearch,
+        requiredPermission: "audit:view",
+      },
+    ],
   },
 ];
 
@@ -77,19 +178,61 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const { hasPermission: hasGrantedPermission, loading } = usePermissions();
   const pathname = usePathname();
+  const [compactByViewport, setCompactByViewport] = useState(false);
 
-  function hasPermission(code: string) {
-    return !loading && hasGrantedPermission(code);
-  }
+  const hasPermission = useCallback(
+    (code: string) => !loading && hasGrantedPermission(code),
+    [hasGrantedPermission, loading],
+  );
 
-  const visibleItems = navItems.filter((item) => hasPermission(item.requiredPermission));
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const media = window.matchMedia("(max-width: 1023px)");
+    const update = () => setCompactByViewport(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  const compactDesktop = collapsed || compactByViewport;
+
+  const visibleItems = useMemo(() => {
+    const filterNode = (node: NavNode): SidebarTreeMenuNode | null => {
+      if (!hasPermission(node.requiredPermission)) {
+        return null;
+      }
+
+      const children = node.children
+        ?.map(filterNode)
+        .filter((child): child is SidebarTreeMenuNode => child !== null);
+
+      if (children && children.length === 0 && !node.href) {
+        return null;
+      }
+
+      return {
+        id: node.id,
+        label: node.label,
+        href: node.href,
+        icon: node.icon,
+        testId: node.testId,
+        children,
+      };
+    };
+
+    return navItems
+      .map(filterNode)
+      .filter((item): item is SidebarTreeMenuNode => item !== null);
+  }, [hasPermission]);
 
   return (
     <>
       <aside
         className={cn(
           "hidden border-r bg-background transition-all duration-300 md:block",
-          collapsed ? "w-20" : "w-64",
+          compactDesktop ? "w-20" : "w-64",
         )}
       >
         <div className="flex h-16 items-center border-b px-4">
@@ -105,35 +248,20 @@ export function AppSidebar({
               {brandName.charAt(0).toUpperCase()}
             </span>
           )}
-          <div className={cn("ml-3 min-w-0", collapsed && "sr-only")}>
+          <div className={cn("ml-3 min-w-0", compactDesktop && "sr-only")}>
             <p className="truncate text-sm font-semibold">{brandName}</p>
             <p className="text-xs text-muted-foreground">MedhaOne ERP</p>
           </div>
-          <span className={cn("ml-3 text-lg font-bold", !collapsed && "hidden")}>
+          <span className={cn("ml-3 text-lg font-bold", !compactDesktop && "hidden")}>
             {brandName.charAt(0).toUpperCase()}
           </span>
         </div>
-        <nav className="space-y-1 p-3">
-          {visibleItems.map((item) => {
-            const Icon = item.icon;
-            const active =
-              pathname === item.href || pathname.startsWith(`${item.href}/`);
-
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                data-testid={item.testId}
-                className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-                  active && "bg-muted text-foreground",
-                )}
-              >
-                <Icon className="h-4 w-4 shrink-0" />
-                <span className={cn(collapsed && "hidden")}>{item.label}</span>
-              </Link>
-            );
-          })}
+        <nav className="p-3">
+          <SidebarTreeMenu
+            items={visibleItems}
+            pathname={pathname}
+            compact={compactDesktop}
+          />
         </nav>
       </aside>
 
@@ -184,27 +312,14 @@ export function AppSidebar({
               <X className="h-4 w-4" />
             </button>
           </div>
-          <nav className="space-y-1 p-3">
-            {visibleItems.map((item) => {
-              const Icon = item.icon;
-              const active =
-                pathname === item.href || pathname.startsWith(`${item.href}/`);
-
-              return (
-                <Link
-                  key={`mobile-${item.href}`}
-                  href={item.href}
-                  onClick={onCloseMobile}
-                  className={cn(
-                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-                    active && "bg-muted text-foreground",
-                  )}
-                >
-                  <Icon className="h-4 w-4 shrink-0" />
-                  <span>{item.label}</span>
-                </Link>
-              );
-            })}
+          <nav className="p-3">
+            <SidebarTreeMenu
+              items={visibleItems}
+              pathname={pathname}
+              compact={false}
+              onNavigate={onCloseMobile}
+              storageKey="medhaone.sidebar.tree.expanded.mobile"
+            />
           </nav>
         </aside>
       </div>

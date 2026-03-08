@@ -1,12 +1,10 @@
 from datetime import date
 from decimal import Decimal
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token
-from app.models.base import Base
 from app.models.batch import Batch
 from app.models.inventory import StockSummary
 from app.models.role import Role
@@ -136,3 +134,101 @@ def test_inventory_endpoints_smoke(client_with_test_db: tuple[TestClient, Sessio
     error_payload = insufficient_resp.json()
     assert error_payload["error_code"] == "INSUFFICIENT_STOCK"
     assert "Insufficient stock" in error_payload["message"]
+
+
+def test_bulk_opening_stock_upload_mixed_rows(client_with_test_db: tuple[TestClient, Session]) -> None:
+    client, db = client_with_test_db
+    token = _create_access_user(db)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    product_resp = client.post(
+        "/masters/products",
+        headers=headers,
+        json={
+            "sku": "SMOKE-OPEN-001",
+            "name": "Opening Product",
+            "brand": "AK",
+            "uom": "BOX",
+            "is_active": True,
+        },
+    )
+    assert product_resp.status_code == 201, product_resp.text
+    product_id = product_resp.json()["id"]
+
+    warehouse_resp = client.post(
+        "/masters/warehouses",
+        headers=headers,
+        json={
+            "name": "Opening Warehouse",
+            "code": "OPNMAIN",
+            "address": "Test Zone",
+            "is_active": True,
+        },
+    )
+    assert warehouse_resp.status_code == 201, warehouse_resp.text
+    warehouse_id = warehouse_resp.json()["id"]
+
+    response = client.post(
+        "/inventory/opening-stock/bulk",
+        headers=headers,
+        json={
+            "rows": [
+                {
+                    "sku": "SMOKE-OPEN-001",
+                    "warehouse_code": "OPNMAIN",
+                    "batch_no": "OPEN-B1",
+                    "expiry_date": "2032-12-31",
+                    "qty": "12",
+                },
+                {
+                    "sku": "MISSING-SKU",
+                    "warehouse_code": "OPNMAIN",
+                    "batch_no": "OPEN-B2",
+                    "expiry_date": "2032-12-31",
+                    "qty": "5",
+                },
+                {
+                    "sku": "SMOKE-OPEN-001",
+                    "warehouse_code": "BAD-WH",
+                    "batch_no": "OPEN-B3",
+                    "expiry_date": "2032-12-31",
+                    "qty": "5",
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["created_count"] == 1
+    assert body["failed_count"] == 2
+    assert any(error["field"] == "sku" for error in body["errors"])
+    assert any(error["field"] == "warehouse_code" for error in body["errors"])
+
+    batch = (
+        db.query(Batch)
+        .filter(Batch.product_id == product_id)
+        .filter(Batch.batch_no == "OPEN-B1")
+        .first()
+    )
+    assert batch is not None
+
+    summary = _get_stock_summary(
+        db,
+        warehouse_id=warehouse_id,
+        product_id=product_id,
+        batch_id=batch.id,
+    )
+    assert Decimal(str(summary.qty_on_hand)) == Decimal("12")
+
+
+def test_opening_stock_template_available(client_with_test_db: tuple[TestClient, Session]) -> None:
+    client, db = client_with_test_db
+    token = _create_access_user(db)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = client.get("/inventory/templates/opening-stock-import.csv", headers=headers)
+
+    assert response.status_code == 200, response.text
+    assert "text/csv" in response.headers.get("content-type", "")
+    assert "sku,warehouse_code,batch_no,expiry_date,qty,mfg_date,mrp,ref_id" in response.text

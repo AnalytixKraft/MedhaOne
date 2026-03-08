@@ -8,8 +8,8 @@ const masterCards = [
   {
     href: "/masters/parties",
     testId: "masters-parties-card",
-    title: "Parties",
-    description: "Manufacturers, distributors, hospitals, pharmacies and customers.",
+    title: "Party Master",
+    description: "Customers, suppliers, hospitals, pharmacies, stockists and dual-role accounts.",
   },
   {
     href: "/masters/products",
@@ -23,6 +23,12 @@ const masterCards = [
     title: "Warehouses",
     description: "Storage locations used by stock ledger and summary.",
   },
+  {
+    href: "/masters/bulk-import",
+    testId: "masters-bulk-import-card",
+    title: "Bulk Import",
+    description: "Import parties and products from CSV templates under master data.",
+  },
 ];
 
 export default function MastersPage() {
@@ -30,7 +36,7 @@ export default function MastersPage() {
     <div>
       <PageTitle title="Masters" description="Manage foundational data for operations." />
       <MastersNav />
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {masterCards.map((card) => (
           <Link key={card.href} href={card.href} data-testid={card.testId}>
             <Card className="h-full transition hover:border-primary">

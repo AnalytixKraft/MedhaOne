@@ -1,8 +1,8 @@
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import String, and_, cast, func, select
 from sqlalchemy.orm import Session
 
 from app.models.enums import InventoryReason
@@ -20,8 +20,15 @@ class StockInwardFilters:
     date_from: date | None = None
     date_to: date | None = None
     supplier_id: int | None = None
+    supplier_ids: tuple[int, ...] = ()
     warehouse_id: int | None = None
+    warehouse_ids: tuple[int, ...] = ()
     product_id: int | None = None
+    product_ids: tuple[int, ...] = ()
+    brand_values: tuple[str, ...] = ()
+    category_values: tuple[str, ...] = ()
+    batch_nos: tuple[str, ...] = ()
+    expiry_status: str | None = None
     page: int = 1
     page_size: int = 50
 
@@ -79,7 +86,9 @@ def get_stock_inward_report(
                 line_totals.c.batch_id == InventoryLedger.batch_id,
             ),
         )
-        .outerjoin(User, User.id == GRN.posted_by)
+        # Some tenant schemas include an RBAC users table with text IDs; compare as text
+        # so report queries remain stable regardless of users.id physical type.
+        .outerjoin(User, cast(User.id, String) == cast(GRN.posted_by, String))
         .where(InventoryLedger.reason == InventoryReason.PURCHASE_GRN)
     )
 
@@ -89,10 +98,31 @@ def get_stock_inward_report(
         stmt = stmt.where(GRN.received_date <= filters.date_to)
     if filters.supplier_id is not None:
         stmt = stmt.where(GRN.supplier_id == filters.supplier_id)
+    if filters.supplier_ids:
+        stmt = stmt.where(GRN.supplier_id.in_(filters.supplier_ids))
     if filters.warehouse_id is not None:
         stmt = stmt.where(InventoryLedger.warehouse_id == filters.warehouse_id)
+    if filters.warehouse_ids:
+        stmt = stmt.where(InventoryLedger.warehouse_id.in_(filters.warehouse_ids))
     if filters.product_id is not None:
         stmt = stmt.where(InventoryLedger.product_id == filters.product_id)
+    if filters.product_ids:
+        stmt = stmt.where(InventoryLedger.product_id.in_(filters.product_ids))
+    if filters.brand_values:
+        stmt = stmt.where(Product.brand.in_(filters.brand_values))
+    if filters.category_values:
+        stmt = stmt.where(Product.hsn.in_(filters.category_values))
+    if filters.batch_nos:
+        stmt = stmt.where(Batch.batch_no.in_(filters.batch_nos))
+    if filters.expiry_status:
+        today = date.today()
+        threshold = today + timedelta(days=30)
+        if filters.expiry_status == "expired":
+            stmt = stmt.where(Batch.expiry_date < today)
+        elif filters.expiry_status == "expiring_30":
+            stmt = stmt.where(Batch.expiry_date >= today).where(Batch.expiry_date <= threshold)
+        elif filters.expiry_status == "safe":
+            stmt = stmt.where(Batch.expiry_date > threshold)
 
     count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
     total = int(db.execute(count_stmt).scalar_one())

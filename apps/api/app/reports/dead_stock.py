@@ -13,7 +13,11 @@ from app.models.warehouse import Warehouse
 @dataclass(slots=True)
 class DeadStockReportFilters:
     warehouse_id: int | None = None
+    warehouse_ids: tuple[int, ...] = ()
     product_id: int | None = None
+    product_ids: tuple[int, ...] = ()
+    brand_values: tuple[str, ...] = ()
+    category_values: tuple[str, ...] = ()
     inactivity_days: int = 90
     page: int = 1
     page_size: int = 50
@@ -72,8 +76,16 @@ def get_dead_stock_report(
 
     if filters.warehouse_id is not None:
         stmt = stmt.where(stock_totals.c.warehouse_id == filters.warehouse_id)
+    if filters.warehouse_ids:
+        stmt = stmt.where(stock_totals.c.warehouse_id.in_(filters.warehouse_ids))
     if filters.product_id is not None:
         stmt = stmt.where(stock_totals.c.product_id == filters.product_id)
+    if filters.product_ids:
+        stmt = stmt.where(stock_totals.c.product_id.in_(filters.product_ids))
+    if filters.brand_values:
+        stmt = stmt.where(Product.brand.in_(filters.brand_values))
+    if filters.category_values:
+        stmt = stmt.where(Product.hsn.in_(filters.category_values))
 
     count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
     total = int(db.execute(count_stmt).scalar_one())

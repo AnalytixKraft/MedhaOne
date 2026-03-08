@@ -1,7 +1,16 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Integer, Numeric, String, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -10,6 +19,8 @@ from app.core.database import Base
 class Product(Base):
     __tablename__ = "products"
     __table_args__ = (
+        Index("ix_products_brand", "brand"),
+        Index("ix_products_hsn", "hsn"),
         CheckConstraint(
             "quantity_precision >= 0 AND quantity_precision <= 3",
             name="ck_products_quantity_precision_range",

@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     default_admin_email: str = "admin@medhaone.app"
     default_admin_password: str = "ChangeMe123!"
     enable_test_endpoints: bool = False
+    upload_storage_dir: str = str(REPO_ROOT / "storage")
 
     model_config = SettingsConfigDict(
         env_file=(str(APP_DIR / ".env"), str(REPO_ROOT / ".env")),

@@ -51,6 +51,19 @@ def _bootstrap_test_schema(engine) -> None:
                 "schema_name": TEST_TENANT_SCHEMA,
             },
         )
+        _ensure_user_theme_preference_column(connection, "public")
+        _ensure_user_theme_preference_column(connection, TEST_TENANT_SCHEMA)
+
+
+def _ensure_user_theme_preference_column(connection, schema_name: str) -> None:
+    connection.execute(
+        text(
+            f"""
+            ALTER TABLE IF EXISTS "{schema_name}"."users"
+            ADD COLUMN IF NOT EXISTS theme_preference VARCHAR(16) NOT NULL DEFAULT 'system'
+            """
+        )
+    )
 
 
 def _teardown_test_schema(engine) -> None:
@@ -72,6 +85,8 @@ def _isolated_test_db() -> Generator[tuple[Session, object], None, None]:
         schema_translate_map={None: TEST_TENANT_SCHEMA},
     )
     Base.metadata.create_all(bind=translated_connection)
+    _ensure_user_theme_preference_column(connection, "public")
+    _ensure_user_theme_preference_column(connection, TEST_TENANT_SCHEMA)
     connection.commit()
     testing_session_local = sessionmaker(
         bind=translated_connection,

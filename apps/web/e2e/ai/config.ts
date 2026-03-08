@@ -3,7 +3,12 @@ import path from "node:path";
 import dotenv from "dotenv";
 
 export type AiTestMode = "acceptance" | "regression" | "chaos";
-export type AiWorkflowName = "login" | "masters" | "purchase" | "org_e2e";
+export type AiWorkflowName =
+  | "login"
+  | "masters"
+  | "purchase"
+  | "stock_adjustment"
+  | "org_e2e";
 
 export type AiTestConfig = {
   enabled: boolean;
@@ -24,7 +29,13 @@ export type AiTestConfig = {
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
 const VALID_MODES: AiTestMode[] = ["acceptance", "regression", "chaos"];
-const VALID_WORKFLOWS: AiWorkflowName[] = ["login", "masters", "purchase", "org_e2e"];
+const VALID_WORKFLOWS: AiWorkflowName[] = [
+  "login",
+  "masters",
+  "purchase",
+  "stock_adjustment",
+  "org_e2e",
+];
 
 function readRequired(name: string): string {
   const value = process.env[name]?.trim();

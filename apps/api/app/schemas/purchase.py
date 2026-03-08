@@ -20,6 +20,9 @@ class PurchaseOrderCreate(BaseModel):
     order_date: date = Field(default_factory=date.today)
     expected_date: date | None = None
     notes: str | None = None
+    discount_percent: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+    adjustment: Decimal = Decimal("0")
+    gst_percent: Decimal = Field(default=Decimal("0"), ge=0)
     lines: list[PurchaseOrderLineCreate] = Field(min_length=1)
 
 
@@ -45,6 +48,20 @@ class PurchaseOrderResponse(BaseModel):
     order_date: date
     expected_date: date | None = None
     notes: str | None = None
+    tax_type: str | None = None
+    subtotal: Decimal
+    discount_percent: Decimal
+    discount_amount: Decimal
+    taxable_value: Decimal
+    gst_percent: Decimal
+    cgst_percent: Decimal
+    sgst_percent: Decimal
+    igst_percent: Decimal
+    cgst_amount: Decimal
+    sgst_amount: Decimal
+    igst_amount: Decimal
+    adjustment: Decimal
+    final_total: Decimal
     created_by: int
     created_at: datetime
     updated_at: datetime

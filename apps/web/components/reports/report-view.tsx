@@ -1,20 +1,48 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-
-import { PageTitle } from "@/components/layout/page-title";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
+  AlertTriangle,
+  Boxes,
+  Download,
+  FileSpreadsheet,
+  PackageSearch,
+  Printer,
+  RefreshCw,
+  Wallet,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { AppTable, MetricCard } from "@/components/erp/app-primitives";
+import { PageTitle } from "@/components/layout/page-title";
+import {
+  ReportFilterBar,
+  defaultReportFilters,
+  type ReportFilterState,
+} from "@/components/reports/report-filter-bar";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  ApiRequestError,
   apiClient,
-  DeadStockReportRow,
-  ExpiryReportRow,
-  PurchaseCreditNote,
-  PurchaseRegisterReportRow,
-  StockAgeingReportRow,
-  StockInwardReportRow,
-  StockMovementReportRow,
+  type CurrentStockReportRow,
+  type CurrentStockSummary,
+  type DeadStockReportRow,
+  type ExpiryReportRow,
+  type OpeningStockReportRow,
+  type OpeningStockSummary,
+  type PurchaseCreditNote,
+  type PurchaseRegisterReportRow,
+  type ReportFilterOptions,
+  type StockAgeingReportRow,
+  type StockInwardReportRow,
+  type StockMovementReportRow,
 } from "@/lib/api/client";
 import { formatQuantity } from "@/lib/quantity";
 
@@ -25,7 +53,9 @@ type ReportKind =
   | "stock-movement"
   | "expiry"
   | "dead-stock"
-  | "stock-ageing";
+  | "stock-ageing"
+  | "current-stock"
+  | "opening-stock";
 
 type Row =
   | PurchaseCreditNote
@@ -34,254 +64,787 @@ type Row =
   | StockMovementReportRow
   | ExpiryReportRow
   | DeadStockReportRow
-  | StockAgeingReportRow;
+  | StockAgeingReportRow
+  | CurrentStockReportRow
+  | OpeningStockReportRow;
+
+type ColumnDef = {
+  key: string;
+  label: string;
+  defaultWidth?: number;
+  render: (row: Row) => string | number;
+};
+
+type SortState = {
+  key: string;
+  direction: "asc" | "desc";
+};
+
+type MetricCardDef = {
+  label: string;
+  value: string | number;
+  icon: typeof Boxes;
+  accent: "primary" | "success" | "warning" | "danger";
+};
 
 const reportMeta: Record<
   ReportKind,
   {
     title: string;
     description: string;
-    columns: string[];
   }
 > = {
   "purchase-credit-notes": {
     title: "Purchase Credit Notes",
     description: "Informational supplier credit notes generated from posted purchase returns.",
-    columns: ["Credit Note", "Supplier", "Warehouse", "Return", "Amount", "Status", "Created"],
   },
   "stock-inward": {
     title: "Stock Inward Report",
     description: "Incoming stock posted through purchase GRNs.",
-    columns: ["GRN", "PO", "Supplier", "Warehouse", "Product", "Batch", "Qty", "Date"],
   },
   "purchase-register": {
     title: "Purchase Register",
     description: "Purchase orders with ordered, received, pending and value totals.",
-    columns: ["PO", "Supplier", "Warehouse", "Status", "Ordered", "Received", "Pending", "Value"],
   },
   "stock-movement": {
     title: "Stock Movement Report",
     description: "Immutable inventory ledger movement across all transaction reasons.",
-    columns: ["Date", "Reason", "Reference", "Product", "Batch", "Warehouse", "In", "Out", "Balance"],
   },
   expiry: {
     title: "Expiry Report",
     description: "Current stock that is near expiry or already expired.",
-    columns: ["Product", "Batch", "Warehouse", "Expiry", "Days", "Qty"],
   },
   "dead-stock": {
     title: "Dead Stock Report",
     description: "Products with no inventory movement beyond the inactivity threshold.",
-    columns: ["Product", "Warehouse", "Qty", "Last Movement", "Days Idle"],
   },
   "stock-ageing": {
     title: "Stock Ageing Report",
     description: "Current stock bucketed by age using posted GRN receipt dates.",
-    columns: ["Product", "Warehouse", "0-30", "31-60", "61-90", "90+", "Total"],
+  },
+  "current-stock": {
+    title: "Current Stock",
+    description: "Real-time inventory visibility by product, warehouse and batch.",
+  },
+  "opening-stock": {
+    title: "Opening Stock",
+    description: "Opening stock entries and their impact on current quantity.",
   },
 };
+
+function columnsForKind(kind: ReportKind): ColumnDef[] {
+  if (kind === "purchase-credit-notes") {
+    return [
+      { key: "credit_note_number", label: "Credit Note", defaultWidth: 180, render: (row) => (row as PurchaseCreditNote).credit_note_number },
+      { key: "supplier_id", label: "Supplier", defaultWidth: 120, render: (row) => (row as PurchaseCreditNote).supplier_id },
+      { key: "warehouse_id", label: "Warehouse", defaultWidth: 120, render: (row) => (row as PurchaseCreditNote).warehouse_id },
+      { key: "purchase_return_id", label: "Return", defaultWidth: 120, render: (row) => (row as PurchaseCreditNote).purchase_return_id },
+      { key: "total_amount", label: "Amount", defaultWidth: 140, render: (row) => (row as PurchaseCreditNote).total_amount },
+      { key: "status", label: "Status", defaultWidth: 140, render: (row) => (row as PurchaseCreditNote).status },
+      { key: "created_at", label: "Created", defaultWidth: 200, render: (row) => new Date((row as PurchaseCreditNote).created_at).toLocaleString() },
+    ];
+  }
+
+  if (kind === "stock-inward") {
+    return [
+      { key: "grn_number", label: "GRN", defaultWidth: 150, render: (row) => (row as StockInwardReportRow).grn_number },
+      { key: "po_number", label: "PO", defaultWidth: 150, render: (row) => (row as StockInwardReportRow).po_number },
+      { key: "supplier_name", label: "Supplier", defaultWidth: 180, render: (row) => (row as StockInwardReportRow).supplier_name },
+      { key: "warehouse_name", label: "Warehouse", defaultWidth: 160, render: (row) => (row as StockInwardReportRow).warehouse_name },
+      { key: "product_name", label: "Product", defaultWidth: 180, render: (row) => (row as StockInwardReportRow).product_name },
+      { key: "batch_no", label: "Batch", defaultWidth: 140, render: (row) => (row as StockInwardReportRow).batch_no },
+      { key: "qty_received", label: "Qty", defaultWidth: 120, render: (row) => formatQuantity((row as StockInwardReportRow).qty_received, (row as StockInwardReportRow).quantity_precision) },
+      { key: "received_date", label: "Date", defaultWidth: 140, render: (row) => (row as StockInwardReportRow).received_date },
+    ];
+  }
+
+  if (kind === "purchase-register") {
+    return [
+      { key: "po_number", label: "PO", defaultWidth: 150, render: (row) => (row as PurchaseRegisterReportRow).po_number },
+      { key: "supplier", label: "Supplier", defaultWidth: 170, render: (row) => (row as PurchaseRegisterReportRow).supplier },
+      { key: "warehouse", label: "Warehouse", defaultWidth: 160, render: (row) => (row as PurchaseRegisterReportRow).warehouse },
+      { key: "status", label: "Status", defaultWidth: 140, render: (row) => (row as PurchaseRegisterReportRow).status },
+      { key: "total_order_qty", label: "Ordered", defaultWidth: 120, render: (row) => (row as PurchaseRegisterReportRow).total_order_qty },
+      { key: "total_received_qty", label: "Received", defaultWidth: 120, render: (row) => (row as PurchaseRegisterReportRow).total_received_qty },
+      { key: "pending_qty", label: "Pending", defaultWidth: 120, render: (row) => (row as PurchaseRegisterReportRow).pending_qty },
+      { key: "total_value", label: "Value", defaultWidth: 140, render: (row) => (row as PurchaseRegisterReportRow).total_value ?? "-" },
+    ];
+  }
+
+  if (kind === "stock-movement") {
+    return [
+      { key: "transaction_date", label: "Date", defaultWidth: 200, render: (row) => new Date((row as StockMovementReportRow).transaction_date).toLocaleString() },
+      { key: "reason", label: "Reason", defaultWidth: 170, render: (row) => (row as StockMovementReportRow).reason },
+      { key: "reference", label: "Reference", defaultWidth: 160, render: (row) => ((row as StockMovementReportRow).reference_type ? `${(row as StockMovementReportRow).reference_type} ${(row as StockMovementReportRow).reference_id ?? ""}`.trim() : "-") },
+      { key: "product", label: "Product", defaultWidth: 180, render: (row) => (row as StockMovementReportRow).product },
+      { key: "batch", label: "Batch", defaultWidth: 130, render: (row) => (row as StockMovementReportRow).batch },
+      { key: "warehouse", label: "Warehouse", defaultWidth: 160, render: (row) => (row as StockMovementReportRow).warehouse },
+      { key: "qty_in", label: "In", defaultWidth: 120, render: (row) => formatQuantity((row as StockMovementReportRow).qty_in, (row as StockMovementReportRow).quantity_precision) },
+      { key: "qty_out", label: "Out", defaultWidth: 120, render: (row) => formatQuantity((row as StockMovementReportRow).qty_out, (row as StockMovementReportRow).quantity_precision) },
+      { key: "running_balance", label: "Balance", defaultWidth: 130, render: (row) => formatQuantity((row as StockMovementReportRow).running_balance, (row as StockMovementReportRow).quantity_precision) },
+    ];
+  }
+
+  if (kind === "expiry") {
+    return [
+      { key: "product", label: "Product", defaultWidth: 180, render: (row) => (row as ExpiryReportRow).product },
+      { key: "batch", label: "Batch", defaultWidth: 130, render: (row) => (row as ExpiryReportRow).batch },
+      { key: "warehouse", label: "Warehouse", defaultWidth: 150, render: (row) => (row as ExpiryReportRow).warehouse },
+      { key: "expiry_date", label: "Expiry", defaultWidth: 130, render: (row) => (row as ExpiryReportRow).expiry_date },
+      { key: "days_to_expiry", label: "Days", defaultWidth: 100, render: (row) => (row as ExpiryReportRow).days_to_expiry },
+      { key: "current_qty", label: "Qty", defaultWidth: 120, render: (row) => formatQuantity((row as ExpiryReportRow).current_qty, (row as ExpiryReportRow).quantity_precision) },
+    ];
+  }
+
+  if (kind === "dead-stock") {
+    return [
+      { key: "product", label: "Product", defaultWidth: 180, render: (row) => (row as DeadStockReportRow).product },
+      { key: "warehouse", label: "Warehouse", defaultWidth: 160, render: (row) => (row as DeadStockReportRow).warehouse },
+      { key: "current_qty", label: "Qty", defaultWidth: 120, render: (row) => formatQuantity((row as DeadStockReportRow).current_qty, (row as DeadStockReportRow).quantity_precision) },
+      { key: "last_movement_date", label: "Last Movement", defaultWidth: 200, render: (row) => ((row as DeadStockReportRow).last_movement_date ? new Date((row as DeadStockReportRow).last_movement_date as string).toLocaleString() : "-") },
+      { key: "days_since_movement", label: "Days Idle", defaultWidth: 110, render: (row) => (row as DeadStockReportRow).days_since_movement ?? "-" },
+    ];
+  }
+
+  if (kind === "stock-ageing") {
+    return [
+      { key: "product", label: "Product", defaultWidth: 180, render: (row) => (row as StockAgeingReportRow).product },
+      { key: "warehouse", label: "Warehouse", defaultWidth: 160, render: (row) => (row as StockAgeingReportRow).warehouse },
+      { key: "bucket_0_30", label: "0-30", defaultWidth: 100, render: (row) => formatQuantity((row as StockAgeingReportRow).bucket_0_30, (row as StockAgeingReportRow).quantity_precision) },
+      { key: "bucket_31_60", label: "31-60", defaultWidth: 100, render: (row) => formatQuantity((row as StockAgeingReportRow).bucket_31_60, (row as StockAgeingReportRow).quantity_precision) },
+      { key: "bucket_61_90", label: "61-90", defaultWidth: 100, render: (row) => formatQuantity((row as StockAgeingReportRow).bucket_61_90, (row as StockAgeingReportRow).quantity_precision) },
+      { key: "bucket_90_plus", label: "90+", defaultWidth: 100, render: (row) => formatQuantity((row as StockAgeingReportRow).bucket_90_plus, (row as StockAgeingReportRow).quantity_precision) },
+      { key: "total_qty", label: "Total", defaultWidth: 120, render: (row) => formatQuantity((row as StockAgeingReportRow).total_qty, (row as StockAgeingReportRow).quantity_precision) },
+    ];
+  }
+
+  if (kind === "opening-stock") {
+    return [
+      { key: "sku", label: "SKU", defaultWidth: 130, render: (row) => (row as OpeningStockReportRow).sku },
+      { key: "product_name", label: "Product Name", defaultWidth: 200, render: (row) => (row as OpeningStockReportRow).product_name },
+      { key: "brand", label: "Brand", defaultWidth: 130, render: (row) => (row as OpeningStockReportRow).brand ?? "-" },
+      { key: "category", label: "Category", defaultWidth: 120, render: (row) => (row as OpeningStockReportRow).category ?? "-" },
+      { key: "warehouse", label: "Warehouse", defaultWidth: 160, render: (row) => (row as OpeningStockReportRow).warehouse },
+      { key: "batch", label: "Batch", defaultWidth: 130, render: (row) => (row as OpeningStockReportRow).batch },
+      { key: "expiry_date", label: "Expiry Date", defaultWidth: 130, render: (row) => (row as OpeningStockReportRow).expiry_date },
+      { key: "opening_qty", label: "Opening Qty", defaultWidth: 130, render: (row) => formatQuantity((row as OpeningStockReportRow).opening_qty, (row as OpeningStockReportRow).quantity_precision) },
+      { key: "current_qty", label: "Current Qty", defaultWidth: 130, render: (row) => formatQuantity((row as OpeningStockReportRow).current_qty, (row as OpeningStockReportRow).quantity_precision) },
+      { key: "opening_value", label: "Opening Value", defaultWidth: 130, render: (row) => (row as OpeningStockReportRow).opening_value },
+      { key: "last_opening_date", label: "Last Opening", defaultWidth: 200, render: (row) => ((row as OpeningStockReportRow).last_opening_date ? new Date((row as OpeningStockReportRow).last_opening_date as string).toLocaleString() : "-") },
+    ];
+  }
+
+  return [
+    { key: "sku", label: "SKU", defaultWidth: 130, render: (row) => (row as CurrentStockReportRow).sku },
+    { key: "product_name", label: "Product Name", defaultWidth: 200, render: (row) => (row as CurrentStockReportRow).product_name },
+    { key: "brand", label: "Brand", defaultWidth: 130, render: (row) => (row as CurrentStockReportRow).brand ?? "-" },
+    { key: "category", label: "Category", defaultWidth: 120, render: (row) => (row as CurrentStockReportRow).category ?? "-" },
+    { key: "warehouse", label: "Warehouse", defaultWidth: 160, render: (row) => (row as CurrentStockReportRow).warehouse },
+    { key: "batch", label: "Batch", defaultWidth: 130, render: (row) => (row as CurrentStockReportRow).batch },
+    { key: "expiry_date", label: "Expiry Date", defaultWidth: 130, render: (row) => (row as CurrentStockReportRow).expiry_date },
+    { key: "available_qty", label: "Available Qty", defaultWidth: 130, render: (row) => formatQuantity((row as CurrentStockReportRow).available_qty, (row as CurrentStockReportRow).quantity_precision) },
+    { key: "reserved_qty", label: "Reserved Qty", defaultWidth: 130, render: (row) => formatQuantity((row as CurrentStockReportRow).reserved_qty, (row as CurrentStockReportRow).quantity_precision) },
+    { key: "stock_value", label: "Stock Value", defaultWidth: 130, render: (row) => (row as CurrentStockReportRow).stock_value },
+    { key: "last_movement_date", label: "Last Movement", defaultWidth: 200, render: (row) => ((row as CurrentStockReportRow).last_movement_date ? new Date((row as CurrentStockReportRow).last_movement_date as string).toLocaleString() : "-") },
+  ];
+}
+
+function buildQuery(
+  kind: ReportKind,
+  filters: ReportFilterState,
+  page: number,
+  pageSize: number,
+) {
+  const query: Record<string, string | number | boolean> = {
+    page,
+    page_size: pageSize,
+  };
+
+  if (filters.brandValues.length > 0) {
+    query.brand_values = filters.brandValues.join(",");
+  }
+  if (filters.productIds.length > 0) {
+    query.product_ids = filters.productIds.join(",");
+  }
+  if (filters.supplierIds.length > 0) {
+    query.supplier_ids = filters.supplierIds.join(",");
+  }
+  if (filters.warehouseIds.length > 0) {
+    query.warehouse_ids = filters.warehouseIds.join(",");
+  }
+  if (filters.categoryValues.length > 0) {
+    query.category_values = filters.categoryValues.join(",");
+  }
+  if (filters.batchNos.length > 0) {
+    query.batch_nos = filters.batchNos.join(",");
+  }
+  if (filters.dateFrom) {
+    if (kind === "current-stock") {
+      query.expiry_from = filters.dateFrom;
+    } else {
+      query.date_from = filters.dateFrom;
+    }
+  }
+  if (filters.dateTo) {
+    if (kind === "current-stock") {
+      query.expiry_to = filters.dateTo;
+    } else {
+      query.date_to = filters.dateTo;
+    }
+  }
+  if (filters.expiryStatus !== "all") {
+    query.expiry_status = filters.expiryStatus;
+  }
+  if (kind === "expiry" && filters.expiryStatus === "all") {
+    query.include_expired = true;
+  }
+  if (filters.stockStatus !== "all") {
+    query.stock_status = filters.stockStatus;
+  }
+  if (kind === "current-stock" && filters.stockSource !== "all") {
+    query.stock_source = filters.stockSource;
+  }
+
+  return query;
+}
+
+function toComparable(value: string | number): string | number {
+  const parsed = Number(value);
+  if (!Number.isNaN(parsed) && `${value}`.trim() !== "") {
+    return parsed;
+  }
+  return `${value}`.toLowerCase();
+}
+
+function formatMetricNumber(value: string | number) {
+  const parsed = Number(value);
+  if (Number.isNaN(parsed)) {
+    return String(value);
+  }
+  return parsed.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
 
 export function ReportView({ kind }: { kind: ReportKind }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [filterOptions, setFilterOptions] = useState<ReportFilterOptions>({
+    brands: [],
+    categories: [],
+    batches: [],
+    products: [],
+    suppliers: [],
+    warehouses: [],
+  });
+  const [draftFilters, setDraftFilters] = useState<ReportFilterState>(defaultReportFilters);
+  const [appliedFilters, setAppliedFilters] = useState<ReportFilterState>(defaultReportFilters);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [sort, setSort] = useState<SortState | null>(null);
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const [currentStockSummary, setCurrentStockSummary] = useState<CurrentStockSummary | null>(null);
+  const [openingStockSummary, setOpeningStockSummary] = useState<OpeningStockSummary | null>(null);
 
   const meta = reportMeta[kind];
+  const columns = useMemo(() => columnsForKind(kind), [kind]);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const showStockStatus = kind === "current-stock";
+  const showStockSource = kind === "current-stock";
+  const currentStockMetrics = useMemo<MetricCardDef[]>(
+    () =>
+      currentStockSummary
+        ? [
+            {
+              label: "Total SKUs",
+              value: currentStockSummary.total_skus,
+              icon: PackageSearch,
+              accent: "primary",
+            },
+            {
+              label: "Total Stock Quantity",
+              value: currentStockSummary.total_stock_qty,
+              icon: Boxes,
+              accent: "success",
+            },
+            {
+              label: "Total Stock Value",
+              value: currentStockSummary.total_stock_value,
+              icon: Wallet,
+              accent: "warning",
+            },
+            {
+              label: "Items Expiring Soon",
+              value: currentStockSummary.items_expiring_soon,
+              icon: AlertTriangle,
+              accent: "danger",
+            },
+          ]
+        : [],
+    [currentStockSummary],
+  );
+  const openingStockMetrics = useMemo<MetricCardDef[]>(
+    () =>
+      openingStockSummary
+        ? [
+            {
+              label: "Total SKUs",
+              value: openingStockSummary.total_skus,
+              icon: PackageSearch,
+              accent: "primary",
+            },
+            {
+              label: "Total Opening Quantity",
+              value: openingStockSummary.total_opening_qty,
+              icon: Boxes,
+              accent: "success",
+            },
+            {
+              label: "Total Opening Value",
+              value: openingStockSummary.total_opening_value,
+              icon: Wallet,
+              accent: "warning",
+            },
+          ]
+        : [],
+    [openingStockSummary],
+  );
+
+  useEffect(() => {
+    const widths: Record<string, number> = {};
+    for (const column of columns) {
+      widths[column.key] = column.defaultWidth ?? 140;
+    }
+    setColumnWidths(widths);
+    setSort(null);
+  }, [columns]);
 
   useEffect(() => {
     let cancelled = false;
-
-    const load = async () => {
-      setLoading(true);
-      setError(null);
+    const loadOptions = async () => {
       try {
-        if (kind === "purchase-credit-notes") {
-          const response = await apiClient.listPurchaseCreditNotes();
-          if (cancelled) {
-            return;
-          }
-          setRows(response);
-          setTotal(response.length);
-          return;
-        }
-
-        const response =
-          kind === "stock-inward"
-            ? await apiClient.getStockInwardReport()
-            : kind === "purchase-register"
-              ? await apiClient.getPurchaseRegisterReport()
-              : kind === "stock-movement"
-                ? await apiClient.getStockMovementReport()
-                : kind === "expiry"
-                  ? await apiClient.getExpiryReport()
-                  : kind === "dead-stock"
-                    ? await apiClient.getDeadStockReport()
-                    : await apiClient.getStockAgeingReport();
-
-        if (cancelled) {
-          return;
-        }
-
-        setRows(response.data);
-        setTotal(response.total);
-      } catch (caught) {
-        if (cancelled) {
-          return;
-        }
-        setError(caught instanceof Error ? caught.message : "Failed to load report");
-      } finally {
+        const options = await apiClient.getReportFilterOptions();
         if (!cancelled) {
-          setLoading(false);
+          setFilterOptions(options);
+        }
+      } catch {
+        if (!cancelled) {
+          setFilterOptions({
+            brands: [],
+            categories: [],
+            batches: [],
+            products: [],
+            suppliers: [],
+            warehouses: [],
+          });
         }
       }
     };
-
-    void load();
+    void loadOptions();
     return () => {
       cancelled = true;
     };
-  }, [kind]);
+  }, []);
 
-  const renderedRows = useMemo(() => {
-    if (kind === "purchase-credit-notes") {
-      return (rows as PurchaseCreditNote[]).map((row) => (
-        <TableRow key={row.id}>
-          <TableCell className="font-medium">{row.credit_note_number}</TableCell>
-          <TableCell>{row.supplier_id}</TableCell>
-          <TableCell>{row.warehouse_id}</TableCell>
-          <TableCell>{row.purchase_return_id}</TableCell>
-          <TableCell>{row.total_amount}</TableCell>
-          <TableCell>{row.status}</TableCell>
-          <TableCell>{new Date(row.created_at).toLocaleString()}</TableCell>
-        </TableRow>
-      ));
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      if (kind === "purchase-credit-notes") {
+        const response = await apiClient.listPurchaseCreditNotes();
+        const filtered = response.filter((row) => {
+          if (
+            appliedFilters.supplierIds.length > 0 &&
+            !appliedFilters.supplierIds.includes(String(row.supplier_id))
+          ) {
+            return false;
+          }
+          if (
+            appliedFilters.warehouseIds.length > 0 &&
+            !appliedFilters.warehouseIds.includes(String(row.warehouse_id))
+          ) {
+            return false;
+          }
+          if (appliedFilters.dateFrom && row.created_at.slice(0, 10) < appliedFilters.dateFrom) {
+            return false;
+          }
+          if (appliedFilters.dateTo && row.created_at.slice(0, 10) > appliedFilters.dateTo) {
+            return false;
+          }
+          return true;
+        });
+
+        const start = (page - 1) * pageSize;
+        setRows(filtered.slice(start, start + pageSize));
+        setTotal(filtered.length);
+        setCurrentStockSummary(null);
+        setOpeningStockSummary(null);
+        return;
+      }
+
+      const query = buildQuery(kind, appliedFilters, page, pageSize);
+      if (kind === "current-stock") {
+        const response = await apiClient.getCurrentStockReport(query);
+        setRows(response.data);
+        setTotal(response.total);
+        setCurrentStockSummary(response.summary);
+        setOpeningStockSummary(null);
+        return;
+      }
+      if (kind === "opening-stock") {
+        const response = await apiClient.getOpeningStockReport(query);
+        setRows(response.data);
+        setTotal(response.total);
+        setOpeningStockSummary(response.summary);
+        setCurrentStockSummary(null);
+        return;
+      }
+
+      const response =
+        kind === "stock-inward"
+          ? await apiClient.getStockInwardReport(query)
+          : kind === "purchase-register"
+            ? await apiClient.getPurchaseRegisterReport(query)
+            : kind === "stock-movement"
+              ? await apiClient.getStockMovementReport(query)
+              : kind === "expiry"
+                ? await apiClient.getExpiryReport(query)
+                : kind === "dead-stock"
+                  ? await apiClient.getDeadStockReport(query)
+                  : await apiClient.getStockAgeingReport(query);
+
+      setRows(response.data);
+      setTotal(response.total);
+      setCurrentStockSummary(null);
+      setOpeningStockSummary(null);
+    } catch (caught) {
+      if (caught instanceof ApiRequestError && caught.code === "UNAUTHORIZED") {
+        try {
+          await apiClient.logout();
+        } catch {
+          // Ignore logout failures and force re-auth.
+        }
+        window.location.replace("/login");
+        return;
+      }
+      setError(caught instanceof Error ? caught.message : "Failed to load report");
+    } finally {
+      setLoading(false);
+    }
+  }, [appliedFilters, kind, page, pageSize]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const sortedRows = useMemo(() => {
+    if (!sort) {
+      return rows;
     }
 
-    if (kind === "stock-inward") {
-      return (rows as StockInwardReportRow[]).map((row) => (
-        <TableRow key={`${row.grn_number}-${row.batch_no}-${row.product_name}`}>
-          <TableCell className="font-medium">{row.grn_number}</TableCell>
-          <TableCell>{row.po_number}</TableCell>
-          <TableCell>{row.supplier_name}</TableCell>
-          <TableCell>{row.warehouse_name}</TableCell>
-          <TableCell>{row.product_name}</TableCell>
-          <TableCell>{row.batch_no}</TableCell>
-          <TableCell>{formatQuantity(row.qty_received, row.quantity_precision)}</TableCell>
-          <TableCell>{row.received_date}</TableCell>
-        </TableRow>
-      ));
+    const column = columns.find((entry) => entry.key === sort.key);
+    if (!column) {
+      return rows;
     }
 
-    if (kind === "purchase-register") {
-      return (rows as PurchaseRegisterReportRow[]).map((row) => (
-        <TableRow key={row.po_number}>
-          <TableCell className="font-medium">{row.po_number}</TableCell>
-          <TableCell>{row.supplier}</TableCell>
-          <TableCell>{row.warehouse}</TableCell>
-          <TableCell>{row.status}</TableCell>
-          <TableCell>{row.total_order_qty}</TableCell>
-          <TableCell>{row.total_received_qty}</TableCell>
-          <TableCell>{row.pending_qty}</TableCell>
-          <TableCell>{row.total_value ?? "-"}</TableCell>
-        </TableRow>
-      ));
-    }
+    return [...rows].sort((left, right) => {
+      const leftValue = toComparable(column.render(left));
+      const rightValue = toComparable(column.render(right));
 
-    if (kind === "expiry") {
-      return (rows as ExpiryReportRow[]).map((row) => (
-        <TableRow key={`${row.product}-${row.batch}-${row.warehouse}`}>
-          <TableCell className="font-medium">{row.product}</TableCell>
-          <TableCell>{row.batch}</TableCell>
-          <TableCell>{row.warehouse}</TableCell>
-          <TableCell>{row.expiry_date}</TableCell>
-          <TableCell>{row.days_to_expiry}</TableCell>
-          <TableCell>{formatQuantity(row.current_qty, row.quantity_precision)}</TableCell>
-        </TableRow>
-      ));
-    }
+      if (leftValue < rightValue) {
+        return sort.direction === "asc" ? -1 : 1;
+      }
+      if (leftValue > rightValue) {
+        return sort.direction === "asc" ? 1 : -1;
+      }
+      return 0;
+    });
+  }, [columns, rows, sort]);
 
-    if (kind === "dead-stock") {
-      return (rows as DeadStockReportRow[]).map((row) => (
-        <TableRow key={`${row.product}-${row.warehouse}`}>
-          <TableCell className="font-medium">{row.product}</TableCell>
-          <TableCell>{row.warehouse}</TableCell>
-          <TableCell>{formatQuantity(row.current_qty, row.quantity_precision)}</TableCell>
-          <TableCell>
-            {row.last_movement_date ? new Date(row.last_movement_date).toLocaleString() : "-"}
-          </TableCell>
-          <TableCell>{row.days_since_movement ?? "-"}</TableCell>
-        </TableRow>
-      ));
-    }
+  const rowsForExport = useMemo(
+    () =>
+      sortedRows.map((row) =>
+        columns.reduce<Record<string, string | number>>((accumulator, column) => {
+          accumulator[column.label] = column.render(row);
+          return accumulator;
+        }, {}),
+      ),
+    [columns, sortedRows],
+  );
 
-    if (kind === "stock-ageing") {
-      return (rows as StockAgeingReportRow[]).map((row) => (
-        <TableRow key={`${row.product}-${row.warehouse}`}>
-          <TableCell className="font-medium">{row.product}</TableCell>
-          <TableCell>{row.warehouse}</TableCell>
-          <TableCell>{formatQuantity(row.bucket_0_30, row.quantity_precision)}</TableCell>
-          <TableCell>{formatQuantity(row.bucket_31_60, row.quantity_precision)}</TableCell>
-          <TableCell>{formatQuantity(row.bucket_61_90, row.quantity_precision)}</TableCell>
-          <TableCell>{formatQuantity(row.bucket_90_plus, row.quantity_precision)}</TableCell>
-          <TableCell>{formatQuantity(row.total_qty, row.quantity_precision)}</TableCell>
-        </TableRow>
-      ));
-    }
+  const onStartResize = (key: string, event: React.MouseEvent<HTMLSpanElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
 
-    return (rows as StockMovementReportRow[]).map((row) => (
-      <TableRow key={`${row.transaction_date}-${row.reference_id}-${row.batch}`}>
-        <TableCell className="font-medium">{new Date(row.transaction_date).toLocaleString()}</TableCell>
-        <TableCell>{row.reason}</TableCell>
-        <TableCell>{row.reference_type ? `${row.reference_type} ${row.reference_id ?? ""}`.trim() : "-"}</TableCell>
-        <TableCell>{row.product}</TableCell>
-        <TableCell>{row.batch}</TableCell>
-        <TableCell>{row.warehouse}</TableCell>
-        <TableCell>{formatQuantity(row.qty_in, row.quantity_precision)}</TableCell>
-        <TableCell>{formatQuantity(row.qty_out, row.quantity_precision)}</TableCell>
-        <TableCell>{formatQuantity(row.running_balance, row.quantity_precision)}</TableCell>
-      </TableRow>
-    ));
-  }, [kind, rows]);
+    const startX = event.clientX;
+    const startWidth = columnWidths[key] ?? 140;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const nextWidth = Math.max(90, startWidth + (moveEvent.clientX - startX));
+      setColumnWidths((current) => ({ ...current, [key]: nextWidth }));
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
+
+  const exportCsv = () => {
+    if (rowsForExport.length === 0) {
+      return;
+    }
+    const headers = Object.keys(rowsForExport[0]);
+    const lines = [
+      headers.join(","),
+      ...rowsForExport.map((row) =>
+        headers
+          .map((header) => {
+            const value = row[header] ?? "";
+            const text = String(value).replaceAll('"', '""');
+            return `"${text}"`;
+          })
+          .join(","),
+      ),
+    ];
+
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${kind}-report.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportExcel = () => {
+    if (rowsForExport.length === 0) {
+      return;
+    }
+    const headers = Object.keys(rowsForExport[0]);
+    const html = `
+      <table>
+        <thead>
+          <tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr>
+        </thead>
+        <tbody>
+          ${rowsForExport
+            .map(
+              (row) =>
+                `<tr>${headers
+                  .map((header) => `<td>${String(row[header] ?? "")}</td>`)
+                  .join("")}</tr>`,
+            )
+            .join("")}
+        </tbody>
+      </table>
+    `;
+    const blob = new Blob([html], { type: "application/vnd.ms-excel" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${kind}-report.xls`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="space-y-6">
       <PageTitle title={meta.title} description={meta.description} />
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <div>
-            <CardTitle>Rows</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">{total} records available.</p>
-          </div>
-          <Button
-            variant="outline"
-            onClick={() => {
-              window.location.reload();
-            }}
-          >
-            Refresh
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {error ? <p className="text-sm text-red-500">{error}</p> : null}
-          {loading ? <p className="text-sm text-muted-foreground">Loading report...</p> : null}
+
+      <ReportFilterBar
+        options={filterOptions}
+        value={draftFilters}
+        onChange={setDraftFilters}
+        onApply={() => {
+          setAppliedFilters(draftFilters);
+          setPage(1);
+        }}
+        onClear={() => {
+          setDraftFilters(defaultReportFilters);
+          setAppliedFilters(defaultReportFilters);
+          setPage(1);
+        }}
+        showStockStatus={showStockStatus}
+        showStockSource={showStockSource}
+      />
+
+      {kind === "current-stock" && currentStockSummary ? (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {currentStockMetrics.map((metric) => (
+            <MetricCard
+              key={metric.label}
+              title={metric.label}
+              value={formatMetricNumber(metric.value)}
+              icon={metric.icon}
+              accent={metric.accent}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      {kind === "opening-stock" && openingStockSummary ? (
+        <div className="grid gap-3 sm:grid-cols-3">
+          {openingStockMetrics.map((metric) => (
+            <MetricCard
+              key={metric.label}
+              title={metric.label}
+              value={formatMetricNumber(metric.value)}
+              icon={metric.icon}
+              accent={metric.accent}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      <AppTable
+        title="Rows"
+        description={`${total} records available.`}
+        actions={
+          <>
+            <Button variant="outline" onClick={() => void load()} className="gap-1 rounded-xl">
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </Button>
+            <Button variant="outline" onClick={exportCsv} className="gap-1 rounded-xl">
+              <Download className="h-4 w-4" />
+              Export CSV
+            </Button>
+            <Button variant="outline" onClick={exportExcel} className="gap-1 rounded-xl">
+              <FileSpreadsheet className="h-4 w-4" />
+              Export Excel
+            </Button>
+            <Button variant="outline" onClick={() => window.print()} className="gap-1 rounded-xl">
+              <Printer className="h-4 w-4" />
+              Print
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4 p-5 md:p-6">
+          {error ? (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300">
+              {error}
+            </div>
+          ) : null}
+          {loading ? (
+            <div className="rounded-2xl border border-border bg-[hsl(var(--surface-muted))] px-4 py-6 text-sm text-[hsl(var(--text-secondary))]">
+              Loading report...
+            </div>
+          ) : null}
           {!loading && !error && rows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No report rows found.</p>
+            <div className="rounded-2xl border border-dashed border-border bg-[hsl(var(--surface-muted))] px-4 py-8 text-center text-sm text-[hsl(var(--text-secondary))]">
+              No report rows found.
+            </div>
           ) : null}
+
           {!loading && !error && rows.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {meta.columns.map((column) => (
-                    <TableHead key={column}>{column}</TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>{renderedRows}</TableBody>
-            </Table>
+            <div className="space-y-3">
+              <div className="overflow-hidden rounded-2xl border border-border bg-[hsl(var(--surface-elevated))] shadow-sm">
+                <Table className="table-fixed min-w-[1100px]">
+                  <TableHeader className="sticky top-0 z-10 bg-[hsl(var(--table-header))]/95 backdrop-blur supports-[backdrop-filter]:bg-[hsl(var(--table-header))]/90">
+                    <TableRow>
+                      {columns.map((column) => (
+                        <TableHead
+                          key={column.key}
+                          style={{ width: `${columnWidths[column.key] ?? column.defaultWidth ?? 140}px` }}
+                          className="relative select-none border-b border-border/80 text-[hsl(var(--text-secondary))]"
+                        >
+                          <button
+                            type="button"
+                            className="w-full text-left"
+                            onClick={() =>
+                              setSort((current) => {
+                                if (current?.key === column.key) {
+                                  return {
+                                    key: column.key,
+                                    direction: current.direction === "asc" ? "desc" : "asc",
+                                  };
+                                }
+                                return { key: column.key, direction: "asc" };
+                              })
+                            }
+                          >
+                            {column.label}
+                          </button>
+                          <span
+                            role="separator"
+                            onMouseDown={(event) => onStartResize(column.key, event)}
+                            className="absolute right-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30"
+                          />
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sortedRows.map((row, rowIndex) => (
+                      <TableRow
+                        key={`${kind}-${rowIndex}`}
+                        className="border-b border-border/70 bg-[hsl(var(--surface))] even:bg-[hsl(var(--surface-muted))]/70 hover:bg-[hsl(var(--hover))]"
+                      >
+                        {columns.map((column) => (
+                          <TableCell
+                            key={`${column.key}-${rowIndex}`}
+                            style={{ width: `${columnWidths[column.key] ?? column.defaultWidth ?? 140}px` }}
+                            className="py-3 text-[hsl(var(--text-primary))]"
+                          >
+                            {column.render(row)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-[hsl(var(--surface-muted))] px-4 py-3">
+                <div className="flex items-center gap-2 text-sm text-[hsl(var(--text-secondary))]">
+                  <span>Page Size</span>
+                  <select
+                    value={pageSize}
+                    onChange={(event) => {
+                      setPageSize(Number(event.target.value));
+                      setPage(1);
+                    }}
+                    className="h-9 rounded-xl border border-border bg-[hsl(var(--surface-elevated))] px-3 text-[hsl(var(--text-primary))]"
+                  >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    disabled={page <= 1}
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                    className="rounded-xl"
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm text-[hsl(var(--text-secondary))]">
+                    Page {page} of {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    disabled={page >= totalPages}
+                    onClick={() =>
+                      setPage((current) => Math.min(totalPages, current + 1))
+                    }
+                    className="rounded-xl"
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            </div>
           ) : null}
-        </CardContent>
-      </Card>
+        </div>
+      </AppTable>
     </div>
   );
 }

@@ -82,6 +82,8 @@ stop_pid_file() {
 
 stop_pid_file "cloudflared" "$PID_DIR/cloudflared.pid"
 stop_pid_file "rbac-api" "$PID_DIR/rbac-api.pid"
+stop_pid_file "api" "$PID_DIR/api.pid"
+stop_pid_file "web" "$PID_DIR/web.pid"
 stop_pid_file "web+api" "$PID_DIR/dev.pid"
 stop_stale_listeners "web" "1729"
 stop_stale_listeners "api" "1730"

@@ -24,6 +24,7 @@ import { loginWorkflow } from "./workflows/login.ts";
 import { mastersWorkflow } from "./workflows/masters.ts";
 import { orgE2eWorkflow } from "./workflows/org_e2e.ts";
 import { purchaseWorkflow } from "./workflows/purchase.ts";
+import { stockAdjustmentWorkflow } from "./workflows/stock_adjustment.ts";
 import { generateData, type GeneratedData } from "./data.ts";
 
 export type WorkflowContext = {
@@ -77,11 +78,14 @@ type RbacOrganizationRecord = {
 };
 
 const RBAC_SESSION_STORAGE_KEY = "medhaone-rbac-session";
+const STANDARD_E2E_EMAIL = process.env.E2E_USER_EMAIL?.trim() || "e2e.admin@medhaone.app";
+const STANDARD_E2E_PASSWORD = process.env.E2E_USER_PASSWORD?.trim() || "ChangeMe123!";
 
 const WORKFLOWS: Record<AiWorkflowName, WorkflowDefinition> = {
   login: loginWorkflow,
   masters: mastersWorkflow,
   purchase: purchaseWorkflow,
+  stock_adjustment: stockAdjustmentWorkflow,
   org_e2e: orgE2eWorkflow,
 };
 
@@ -140,10 +144,10 @@ function inferPlannerValue(
 ): string | undefined {
   if (workflow.name === "login") {
     if (isLoginTarget(target, /\bemail\b/i, /login-email/i)) {
-      return "admin@medhaone.app";
+      return STANDARD_E2E_EMAIL;
     }
     if (isLoginTarget(target, /\bpassword\b/i, /login-password/i)) {
-      return "ChangeMe123!";
+      return STANDARD_E2E_PASSWORD;
     }
     return undefined;
   }
@@ -513,6 +517,32 @@ async function syncWorkflowProgressMarkers(
       }
     }
   }
+
+  if (!hasHistoryMarker(history, "STOCK_ADJUSTMENT_POSTED")) {
+    const adjustmentResponse = await page.request.get("/api/inventory/stock-adjustments?page=1&page_size=20");
+    if (adjustmentResponse.ok()) {
+      const payload = (await adjustmentResponse.json()) as {
+        data?: Array<{
+          adjustment_type?: string;
+          qty?: string;
+          reason?: string;
+          remarks?: string | null;
+        }>;
+      };
+      const expectedRemarks = `AI-STOCK-ADJ-${context.generatedData.batchNo}`;
+      if (
+        payload.data?.some(
+          (row) =>
+            row.adjustment_type === "POSITIVE" &&
+            row.qty === "1.000" &&
+            row.reason === "FOUND_STOCK" &&
+            row.remarks === expectedRemarks,
+        )
+      ) {
+        history.push("STOCK_ADJUSTMENT_POSTED");
+      }
+    }
+  }
 }
 
 function deterministicWorkflowAction(
@@ -521,7 +551,10 @@ function deterministicWorkflowAction(
   domSummary: DomSummary,
   history: string[],
 ): AiAction | null {
-  if (["login", "masters", "purchase"].includes(workflow.name) && isErpLoginUrl(domSummary.currentUrl)) {
+  if (
+    ["login", "masters", "purchase", "stock_adjustment"].includes(workflow.name) &&
+    isErpLoginUrl(domSummary.currentUrl)
+  ) {
     if (
       domHasTarget(domSummary, "login-email") &&
       !hasHistoryMarker(history, "STANDARD_LOGIN_EMAIL_FILLED")
@@ -529,7 +562,7 @@ function deterministicWorkflowAction(
       return {
         action: "type",
         target: "login-email",
-        value: "admin@medhaone.app",
+        value: STANDARD_E2E_EMAIL,
         reason: "Entering the seeded admin email.",
       };
     }
@@ -540,7 +573,7 @@ function deterministicWorkflowAction(
       return {
         action: "type",
         target: "login-password",
-        value: "ChangeMe123!",
+        value: STANDARD_E2E_PASSWORD,
         reason: "Entering the seeded admin password.",
       };
     }
@@ -673,7 +706,10 @@ function deterministicWorkflowAction(
 
   if (/\/dashboard(?:\/|$)/.test(domSummary.currentUrl)) {
     if (
-      (workflow.name === "masters" || workflow.name === "purchase") &&
+      (
+        workflow.name === "masters" ||
+        workflow.name === "purchase"
+      ) &&
       domHasTarget(domSummary, "nav-masters")
     ) {
       return {
@@ -982,6 +1018,144 @@ function deterministicWorkflowAction(
   }
 
   if (
+    workflow.name === "stock_adjustment" &&
+    !hasHistoryMarker(history, "STOCK_ADJUSTMENT_POSTED")
+  ) {
+    const expectedRemarks = `AI-STOCK-ADJ-${context.generatedData.batchNo}`;
+    const isInventoryUrl = /\/inventory(?:\/|$|\?)/.test(domSummary.currentUrl);
+    const isStockOperationsView =
+      /\/inventory\/stock-operations(?:\/|$|\?)/.test(domSummary.currentUrl) ||
+      /[?&]tab=stock-operations(?:&|$)/.test(domSummary.currentUrl);
+    const onStockAdjustmentPage = /\/inventory\/modules\/stock-adjustment(?:\/|$|\?)/.test(
+      domSummary.currentUrl,
+    );
+
+    if (!onStockAdjustmentPage) {
+      if (/\/dashboard(?:\/|$)/.test(domSummary.currentUrl)) {
+        if (domHasTarget(domSummary, "nav-inventory")) {
+          return {
+            action: "click",
+            target: "nav-inventory",
+            reason: "Opening Inventory from the main sidebar.",
+          };
+        }
+        if (domHasTarget(domSummary, "Inventory")) {
+          return {
+            action: "click",
+            target: "Inventory",
+            reason: "Opening Inventory from the dashboard sidebar.",
+          };
+        }
+      }
+
+      if (isStockOperationsView) {
+        if (domHasTarget(domSummary, "nav-inventory-stock-operations-stock-adjustment")) {
+          return {
+            action: "click",
+            target: "nav-inventory-stock-operations-stock-adjustment",
+            reason: "Opening Stock Adjustment from the Stock Operations section.",
+          };
+        }
+        if (domHasTarget(domSummary, "Stock Adjustment")) {
+          return {
+            action: "click",
+            target: "Stock Adjustment",
+            reason: "Opening Stock Adjustment from the operations page.",
+          };
+        }
+      }
+
+      if (isInventoryUrl) {
+        if (domHasTarget(domSummary, "nav-inventory-stock-operations")) {
+          return {
+            action: "click",
+            target: "nav-inventory-stock-operations",
+            reason: "Opening Stock Operations from the Inventory tree.",
+          };
+        }
+        if (domHasTarget(domSummary, "Stock Operations")) {
+          return {
+            action: "click",
+            target: "Stock Operations",
+            reason: "Opening Stock Operations within Inventory.",
+          };
+        }
+      }
+
+      return {
+        action: "wait",
+        target: "stock-adjustment-nav-ready",
+        value: "1000",
+        reason: "Waiting for Stock Adjustment navigation targets to become available.",
+      };
+    }
+
+    if (onStockAdjustmentPage) {
+      if (
+        domHasTarget(domSummary, "stock-adjustment-select-row") &&
+        !hasHistoryMarker(history, "STOCK_ADJUSTMENT_ROW_SELECTED")
+      ) {
+        return {
+          action: "click",
+          target: "stock-adjustment-select-row",
+          reason: "Selecting the stock bucket to adjust.",
+        };
+      }
+      if (
+        domHasTarget(domSummary, "stock-adjustment-type") &&
+        !hasHistoryMarker(history, "STOCK_ADJUSTMENT_TYPE_SELECTED")
+      ) {
+        return {
+          action: "select",
+          target: "stock-adjustment-type",
+          value: "POSITIVE",
+          reason: "Using a positive adjustment for found stock.",
+        };
+      }
+      if (
+        domHasTarget(domSummary, "stock-adjustment-qty") &&
+        !hasHistoryMarker(history, "STOCK_ADJUSTMENT_QTY_FILLED")
+      ) {
+        return {
+          action: "type",
+          target: "stock-adjustment-qty",
+          value: "1",
+          reason: "Entering the deterministic adjustment quantity.",
+        };
+      }
+      if (
+        domHasTarget(domSummary, "stock-adjustment-reason") &&
+        !hasHistoryMarker(history, "STOCK_ADJUSTMENT_REASON_SELECTED")
+      ) {
+        return {
+          action: "select",
+          target: "stock-adjustment-reason",
+          value: "FOUND_STOCK",
+          reason: "Selecting the stock adjustment reason.",
+        };
+      }
+      if (
+        domHasTarget(domSummary, "stock-adjustment-remarks") &&
+        !hasHistoryMarker(history, "STOCK_ADJUSTMENT_REMARKS_FILLED")
+      ) {
+        return {
+          action: "type",
+          target: "stock-adjustment-remarks",
+          value: expectedRemarks,
+          reason: "Adding deterministic remarks for traceability.",
+        };
+      }
+      if (domHasTarget(domSummary, "stock-adjustment-submit")) {
+        return {
+          action: "click",
+          target: "stock-adjustment-submit",
+          reason: "Submitting the stock adjustment after the form is complete.",
+        };
+      }
+    }
+  }
+
+  if (
     hasHistoryMarker(history, "INVENTORY_REVIEWED") &&
     /\/reports(?:\/|$)/.test(domSummary.currentUrl) &&
     !/\/reports\/stock-inward(?:\/|$)/.test(domSummary.currentUrl) &&
@@ -1026,12 +1200,16 @@ function compactDomSummary(
     workflow.name === "org_e2e" && phase === "org_created"
       ? domSummary.buttons.filter((item) => !/create organization/i.test(item.target))
       : domSummary.buttons;
+  const shouldConstrainNavigation =
+    workflow.name === "org_e2e" ||
+    workflow.name === "purchase" ||
+    workflow.name === "stock_adjustment";
   const links =
-    workflow.name === "org_e2e"
+    shouldConstrainNavigation
       ? domSummary.links.filter((item) => {
           if (
             !mastersComplete &&
-            /^(nav-purchase|purchase|purchase-orders-card|purchase orders|purchase-grn-card|goods receipt notes|nav-inventory|inventory|nav-reports|reports|report-stock-inward|report-purchase-register|report-stock-movement)$/i.test(
+            /^(nav-purchase|purchase|purchase-orders-card|purchase orders|purchase-grn-card|goods receipt notes|nav-inventory|inventory|stock operations|stock adjustment|inventory-stock-adjustment-card|nav-reports|reports|report-stock-inward|report-purchase-register|report-stock-movement)$/i.test(
               item.target,
             )
           ) {
@@ -1041,7 +1219,7 @@ function compactDomSummary(
           if (
             mastersComplete &&
             !purchasePosted &&
-            /^(nav-inventory|inventory|nav-reports|reports|report-stock-inward|report-purchase-register|report-stock-movement)$/i.test(
+            /^(nav-inventory|inventory|stock operations|stock adjustment|inventory-stock-adjustment-card|nav-reports|reports|report-stock-inward|report-purchase-register|report-stock-movement)$/i.test(
               item.target,
             )
           ) {
@@ -1076,6 +1254,16 @@ function compactDomSummary(
             ) {
               return false;
             }
+          }
+
+          if (
+            /\/purchase\/po(?:\/|$)/.test(domSummary.currentUrl) &&
+            !hasHistoryMarker(history, "PURCHASE_POSTED") &&
+            /^(stock adjustment|inventory-stock-adjustment-card|nav-inventory|inventory|stock operations)$/i.test(
+              item.target,
+            )
+          ) {
+            return false;
           }
 
           return true;
@@ -1719,6 +1907,24 @@ export async function runAiEngine(): Promise<EngineResult> {
         }
         if (action.action === "click" && action.target === "post-grn") {
           history.push("GRN_POSTED");
+        }
+        if (action.action === "click" && action.target === "stock-adjustment-select-row") {
+          history.push("STOCK_ADJUSTMENT_ROW_SELECTED");
+        }
+        if (action.action === "select" && action.target === "stock-adjustment-type") {
+          history.push("STOCK_ADJUSTMENT_TYPE_SELECTED");
+        }
+        if (action.action === "type" && action.target === "stock-adjustment-qty") {
+          history.push("STOCK_ADJUSTMENT_QTY_FILLED");
+        }
+        if (action.action === "select" && action.target === "stock-adjustment-reason") {
+          history.push("STOCK_ADJUSTMENT_REASON_SELECTED");
+        }
+        if (action.action === "type" && action.target === "stock-adjustment-remarks") {
+          history.push("STOCK_ADJUSTMENT_REMARKS_FILLED");
+        }
+        if (action.action === "click" && action.target === "Stock Operations") {
+          history.push("STOCK_OPS_TAB_OPENED");
         }
       }
 
