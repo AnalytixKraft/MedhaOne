@@ -105,7 +105,7 @@ class PurchaseBill(Base):
     attachment = relationship("DocumentAttachment", foreign_keys=[attachment_id])
     creator = relationship("User", foreign_keys=[created_by])
     purchase_order = relationship("PurchaseOrder")
-    grn = relationship("GRN")
+    grn = relationship("GRN", foreign_keys=[grn_id])
     lines = relationship(
         "PurchaseBillLine",
         back_populates="purchase_bill",

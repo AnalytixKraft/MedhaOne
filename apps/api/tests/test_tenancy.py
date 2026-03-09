@@ -572,3 +572,42 @@ def test_purchase_bills_auto_repairs_missing_tables(
             db.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
             db.execute(text("DELETE FROM public.organizations WHERE id = :org_slug"), {"org_slug": org_slug})
             db.commit()
+
+
+def test_purchase_grn_auto_repairs_missing_tables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.core.tenant.settings.enable_test_endpoints", True)
+    org_slug = "e2e_purchase_grn_legacy"
+    schema_name = build_tenant_schema_name(org_slug)
+    client = TestClient(app)
+
+    try:
+        _reset_test_tenant_schema(org_slug, "E2E Purchase GRN Legacy")
+        _ensure_test_user(org_slug)
+
+        with SessionLocal() as db:
+            db.execute(text(f'SET search_path TO "{schema_name}", public'))
+            db.execute(text(f'DROP TABLE IF EXISTS "{schema_name}".grn_lines CASCADE'))
+            db.execute(text(f'DROP TABLE IF EXISTS "{schema_name}".grns CASCADE'))
+            db.commit()
+
+        tenant_module._SCHEMA_COMPATIBILITY_CHECKED.discard(schema_name)
+
+        with SessionLocal() as db:
+            user = db.query(User).filter(User.email == "e2e.admin@medhaone.app").one()
+            token = create_access_token(str(user.id))
+
+        response = client.get(
+            "/purchase/grn",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json() == []
+    finally:
+        client.close()
+        tenant_module._SCHEMA_COMPATIBILITY_CHECKED.discard(schema_name)
+        with SessionLocal() as db:
+            db.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
+            db.execute(text("DELETE FROM public.organizations WHERE id = :org_slug"), {"org_slug": org_slug})
+            db.commit()

@@ -6,7 +6,8 @@ export async function selectErpComboboxOption(
   query?: string,
   optionText?: string,
 ): Promise<void> {
-  await page.getByTestId(testId).click();
+  const trigger = page.getByTestId(testId);
+  await trigger.click();
 
   const panel = page.locator(`[data-combobox-panel="${testId}-panel"]`);
   const search = page.locator(`[data-combobox-search="${testId}-search"]`);
@@ -28,10 +29,20 @@ export async function selectErpComboboxOption(
   try {
     await expect(option).toBeVisible({ timeout: 1_500 });
     await option.click();
-    await expect(panel).toBeHidden({ timeout: 1_500 });
   } catch {
     await search.press("ArrowDown");
     await search.press("Enter");
-    await expect(panel).toBeHidden({ timeout: 1_500 });
   }
+
+  if (await panel.isVisible()) {
+    await search.press("Escape");
+  }
+  if (await panel.isVisible()) {
+    await page.keyboard.press("Tab");
+  }
+  if (await panel.isVisible()) {
+    await page.locator("body").click({ position: { x: 8, y: 8 } });
+  }
+  await expect(panel).toBeHidden({ timeout: 2_000 });
+  await expect(trigger).not.toContainText("Select", { timeout: 2_000 });
 }

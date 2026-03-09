@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 
 import { usePermissions } from "@/components/auth/permission-provider";
+import { AppFooter } from "@/components/layout/app-footer";
 import { AppHeader } from "@/components/layout/header";
 import { AppSidebar } from "@/components/layout/sidebar";
 import { apiClient, type CompanySettings } from "@/lib/api/client";
@@ -115,9 +116,7 @@ export function AppShell({ children }: AppShellProps) {
             children
           )}
         </main>
-        <footer className="border-t px-4 py-3 text-xs text-muted-foreground md:px-6">
-          Powered by MedhaOne
-        </footer>
+        <AppFooter />
       </div>
     </div>
   );

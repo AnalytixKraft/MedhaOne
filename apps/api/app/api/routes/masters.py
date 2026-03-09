@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db, set_tenant_search_path
 from app.core.exceptions import AppException
 from app.core.permissions import require_permission
+from app.api.deps import get_current_user
 from app.domain.quantity import infer_quantity_precision_from_uom
 from app.domain.tax_identity import (
     derive_state_from_gstin,
@@ -19,20 +20,37 @@ from app.domain.tax_identity import (
     normalize_optional_text,
 )
 from app.models.enums import OutstandingTrackingMode, PartyCategory, PartyType, RegistrationType
+from app.models.inventory import InventoryLedger, StockSummary
+from app.models.brand import Brand
+from app.models.category import Category
 from app.models.party import Party
 from app.models.product import Product
+from app.models.purchase import GRN, PurchaseCreditNote, PurchaseOrder, PurchaseReturn
+from app.models.purchase_bill import PurchaseBill
+from app.models.sales import DispatchNote, SalesOrder, StockReservation
+from app.models.stock_operations import StockAdjustment, StockCorrection
 from app.models.tax_rate import TaxRate
 from app.models.warehouse import Warehouse
 from app.schemas.masters import (
+    BrandCreate,
+    BrandRead,
+    BrandUpdate,
     BulkImportError,
     BulkImportResult,
+    CategoryCreate,
+    CategoryRead,
+    CategoryUpdate,
     PartyCreate,
     PartyRead,
     PartyUpdate,
     ProductCreate,
     ProductRead,
     ProductUpdate,
+    WarehouseBulkDeleteError,
+    WarehouseBulkDeleteRequest,
+    WarehouseBulkDeleteResult,
     WarehouseCreate,
+    WarehouseDeleteResult,
     WarehouseRead,
     WarehouseUpdate,
 )
@@ -61,6 +79,16 @@ SUPPLIER_PARTY_CATEGORIES = {
     PartyCategory.DISTRIBUTOR.value,
     PartyCategory.STOCKIST.value,
 }
+
+DEFAULT_PARTY_CATEGORY_NAMES = [
+    PartyCategory.RETAILER.value,
+    PartyCategory.DISTRIBUTOR.value,
+    PartyCategory.STOCKIST.value,
+    PartyCategory.HOSPITAL.value,
+    PartyCategory.PHARMACY.value,
+    PartyCategory.INSTITUTION.value,
+    PartyCategory.OTHER.value,
+]
 
 PARTY_WRITE_FIELDS = {
     "name",
@@ -127,29 +155,99 @@ def _get_or_404(db: Session, model, item_id: int, label: str):
     return record
 
 
+def _warehouse_has_dependencies(db: Session, warehouse_id: int) -> bool:
+    dependency_queries = (
+        db.query(PurchaseOrder.id).filter(PurchaseOrder.warehouse_id == warehouse_id),
+        db.query(GRN.id).filter(GRN.warehouse_id == warehouse_id),
+        db.query(PurchaseBill.id).filter(PurchaseBill.warehouse_id == warehouse_id),
+        db.query(PurchaseReturn.id).filter(PurchaseReturn.warehouse_id == warehouse_id),
+        db.query(PurchaseCreditNote.id).filter(PurchaseCreditNote.warehouse_id == warehouse_id),
+        db.query(InventoryLedger.id).filter(InventoryLedger.warehouse_id == warehouse_id),
+        db.query(StockSummary.id).filter(StockSummary.warehouse_id == warehouse_id),
+        db.query(StockCorrection.id).filter(StockCorrection.warehouse_id == warehouse_id),
+        db.query(StockAdjustment.id).filter(StockAdjustment.warehouse_id == warehouse_id),
+        db.query(SalesOrder.id).filter(SalesOrder.warehouse_id == warehouse_id),
+        db.query(StockReservation.id).filter(StockReservation.warehouse_id == warehouse_id),
+        db.query(DispatchNote.id).filter(DispatchNote.warehouse_id == warehouse_id),
+    )
+    return any(query.first() is not None for query in dependency_queries)
+
+
+def _warehouse_has_stock_on_hand(db: Session, warehouse_id: int) -> bool:
+    return (
+        db.query(StockSummary.id)
+        .filter(StockSummary.warehouse_id == warehouse_id)
+        .filter(StockSummary.qty_on_hand > 0)
+        .first()
+        is not None
+    )
+
+
+def _product_has_stock_on_hand(db: Session, product_id: int) -> bool:
+    return (
+        db.query(StockSummary.id)
+        .filter(StockSummary.product_id == product_id)
+        .filter(StockSummary.qty_on_hand > 0)
+        .first()
+        is not None
+    )
+
+
+def _delete_or_deactivate_warehouse(
+    db: Session,
+    warehouse: Warehouse,
+) -> WarehouseDeleteResult:
+    if _warehouse_has_stock_on_hand(db, warehouse.id):
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Warehouse cannot be deleted while stock is available.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"field": "warehouse_id", "warehouse_id": warehouse.id},
+        )
+
+    if _warehouse_has_dependencies(db, warehouse.id):
+        warehouse.is_active = False
+        _commit_or_400(db, "Failed to deactivate warehouse")
+        db.refresh(warehouse)
+        return WarehouseDeleteResult(
+            id=warehouse.id,
+            action="deactivated",
+            message="Warehouse has transactions and was deactivated instead of deleted.",
+            warehouse=warehouse,
+        )
+
+    warehouse_snapshot = WarehouseRead.model_validate(warehouse)
+    db.delete(warehouse)
+    _commit_or_400(db, "Failed to delete warehouse")
+    return WarehouseDeleteResult(
+        id=warehouse_snapshot.id,
+        action="deleted",
+        message="Warehouse deleted successfully.",
+        warehouse=warehouse_snapshot,
+    )
+
+
 def _normalize_party_payload(payload: dict) -> dict:
     normalized = dict(payload)
     raw_party_type = _to_text(normalized.get("party_type")).upper()
-    raw_party_category = _to_text(normalized.get("party_category")).upper()
+    raw_party_category = _to_text(normalized.get("party_category"))
+    normalized_party_category = raw_party_category.upper()
 
     if raw_party_type in LEGACY_PARTY_TYPE_MAP:
         normalized_type, normalized_category = LEGACY_PARTY_TYPE_MAP[raw_party_type]
         normalized["party_type"] = normalized_type.value
-        if not raw_party_category and normalized_category is not None:
+        if not normalized_party_category and normalized_category is not None:
             normalized["party_category"] = normalized_category.value
     elif raw_party_type:
         normalized["party_type"] = PartyType(raw_party_type).value
-    elif raw_party_category in CUSTOMER_PARTY_CATEGORIES:
+    elif normalized_party_category in CUSTOMER_PARTY_CATEGORIES:
         normalized["party_type"] = PartyType.CUSTOMER.value
-    elif raw_party_category in SUPPLIER_PARTY_CATEGORIES:
+    elif normalized_party_category in SUPPLIER_PARTY_CATEGORIES:
         normalized["party_type"] = PartyType.SUPPLIER.value
     else:
         normalized["party_type"] = PartyType.BOTH.value
 
-    if raw_party_category:
-        normalized["party_category"] = PartyCategory(raw_party_category).value
-    else:
-        normalized["party_category"] = _to_nullable_text(normalized.get("party_category"))
+    normalized["party_category"] = _to_nullable_text(normalized.get("party_category"))
 
     normalized["name"] = _to_text(normalized.get("party_name") or normalized.get("name"))
     normalized["display_name"] = _to_nullable_text(normalized.get("display_name"))
@@ -175,20 +273,20 @@ def _normalize_party_payload(payload: dict) -> dict:
     normalized["opening_balance"] = normalized.get("opening_balance") or Decimal("0.00")
 
     gstin = normalize_and_validate_gstin(normalized.get("gstin"))
-    if gstin:
-        normalized["gstin"] = gstin
-        normalized["pan_number"] = extract_pan_from_gstin(gstin)
-        if not normalized.get("state"):
-            normalized["state"] = derive_state_from_gstin(gstin)
-        if not normalized.get("registration_type"):
-            normalized["registration_type"] = RegistrationType.REGISTERED.value
-    else:
-        normalized["gstin"] = None
-        normalized["pan_number"] = normalize_optional_text(normalized.get("pan_number"))
-        registration_type = _to_text(normalized.get("registration_type")).upper()
-        normalized["registration_type"] = (
-            RegistrationType(registration_type).value if registration_type else None
+    if not gstin:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="GSTIN is required for Party Master",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"field": "gstin"},
         )
+
+    normalized["gstin"] = gstin
+    normalized["pan_number"] = extract_pan_from_gstin(gstin)
+    if not normalized.get("state"):
+        normalized["state"] = derive_state_from_gstin(gstin)
+    if not normalized.get("registration_type"):
+        normalized["registration_type"] = RegistrationType.REGISTERED.value
 
     outstanding_tracking_mode = _to_text(normalized.get("outstanding_tracking_mode")).upper()
     if outstanding_tracking_mode:
@@ -230,6 +328,124 @@ def _ensure_unique_party_identifiers(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 details={"field": "party_code"},
             )
+
+
+def _ensure_default_party_categories(db: Session) -> bool:
+    existing_names = {
+        str(name).strip().lower()
+        for (name,) in db.query(Category.name).all()
+        if isinstance(name, str) and name.strip()
+    }
+    candidate_names: list[str] = []
+    seen_candidate_names: set[str] = set()
+    for raw_name in [
+        *DEFAULT_PARTY_CATEGORY_NAMES,
+        *(
+            str(name).strip()
+            for (name,) in db.query(Party.party_category).distinct().all()
+            if isinstance(name, str) and name.strip()
+        ),
+    ]:
+        normalized_name = raw_name.strip().lower()
+        if not normalized_name or normalized_name in seen_candidate_names:
+            continue
+        seen_candidate_names.add(normalized_name)
+        candidate_names.append(raw_name.strip())
+
+    missing_categories = [
+        Category(name=name, is_active=True)
+        for name in candidate_names
+        if name.lower() not in existing_names
+    ]
+    if not missing_categories:
+        return False
+    db.add_all(missing_categories)
+    try:
+        db.flush()
+    except IntegrityError as error:
+        db.rollback()
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Failed to prepare default party categories",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        ) from error
+    return True
+
+
+def _count_active_parties_for_category(db: Session, category_name: str) -> int:
+    return (
+        db.query(func.count(Party.id))
+        .filter(func.upper(Party.party_category) == category_name.strip().upper())
+        .filter(Party.is_active.is_(True))
+        .scalar()
+        or 0
+    )
+
+
+def _validate_active_party_category_name(db: Session, category_name: str | None) -> str | None:
+    normalized_category = _to_nullable_text(category_name)
+    if not normalized_category:
+        return None
+
+    _ensure_default_party_categories(db)
+    category_record = (
+        db.query(Category)
+        .filter(func.lower(Category.name) == normalized_category.lower())
+        .filter(Category.is_active.is_(True))
+        .first()
+    )
+    if category_record is None:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Party Category must exist in Master Settings and be active",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"field": "party_category"},
+        )
+    return category_record.name
+
+
+def _ensure_master_brands_from_products(db: Session) -> bool:
+    existing_names = {
+        str(name).strip().lower()
+        for (name,) in db.query(Brand.name).all()
+        if isinstance(name, str) and name.strip()
+    }
+    existing_product_brands = {
+        str(name).strip()
+        for (name,) in db.query(Product.brand).distinct().all()
+        if isinstance(name, str) and name.strip()
+    }
+    missing_brands = [
+        Brand(name=name, is_active=True)
+        for name in sorted(existing_product_brands)
+        if name.lower() not in existing_names
+    ]
+    if not missing_brands:
+        return False
+    db.add_all(missing_brands)
+    try:
+        db.flush()
+    except IntegrityError as error:
+        db.rollback()
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Failed to prepare existing brands",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        ) from error
+    return True
+
+
+def _require_masters_or_party_view(current_user=Depends(get_current_user)):
+    if current_user.is_superuser:
+        return current_user
+    permissions = set(current_user.permissions)
+    if "masters:view" in permissions or "party:view" in permissions:
+        return current_user
+    raise AppException(
+        error_code="FORBIDDEN",
+        message="Permission denied",
+        status_code=403,
+    )
 
 
 def _parse_csv_rows(csv_data: str) -> list[dict[str, str]]:
@@ -322,11 +538,74 @@ def _to_nullable_text(value: object) -> str | None:
     return text or None
 
 
+def _ensure_unique_category_name(
+    db: Session,
+    *,
+    name: str,
+    exclude_category_id: int | None = None,
+) -> None:
+    query = db.query(Category.id).filter(func.lower(Category.name) == name.strip().lower())
+    if exclude_category_id is not None:
+        query = query.filter(Category.id != exclude_category_id)
+    if query.first() is not None:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Category already exists",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"field": "name"},
+        )
+
+
+def _ensure_unique_brand_name(
+    db: Session,
+    *,
+    name: str,
+    exclude_brand_id: int | None = None,
+) -> None:
+    query = db.query(Brand.id).filter(func.lower(Brand.name) == name.strip().lower())
+    if exclude_brand_id is not None:
+        query = query.filter(Brand.id != exclude_brand_id)
+    if query.first() is not None:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Brand already exists",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"field": "name"},
+        )
+
+
+def _validate_active_brand_name(db: Session, brand_name: str | None) -> str:
+    normalized_brand = _to_text(brand_name)
+    if not normalized_brand:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Brand is required",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"field": "brand"},
+        )
+
+    _ensure_master_brands_from_products(db)
+    brand_record = (
+        db.query(Brand)
+        .filter(func.lower(Brand.name) == normalized_brand.lower())
+        .filter(Brand.is_active.is_(True))
+        .first()
+    )
+    if brand_record is None:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Brand must exist in Master Settings and be active",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"field": "brand"},
+        )
+    return brand_record.name
+
+
 @router.get("/parties", response_model=list[PartyRead])
 def list_parties(
     include_inactive: bool = Query(default=False),
     party_type: PartyType | None = Query(default=None),
-    party_category: PartyCategory | None = Query(default=None),
+    party_category: str | None = Query(default=None),
     state: str | None = Query(default=None),
     city: str | None = Query(default=None),
     gstin: str | None = Query(default=None),
@@ -344,7 +623,7 @@ def list_parties(
     if party_type is not None:
         query = query.filter(Party.party_type == party_type.value)
     if party_category is not None:
-        query = query.filter(Party.party_category == party_category.value)
+        query = query.filter(func.lower(Party.party_category) == party_category.strip().lower())
     if state:
         query = query.filter(func.lower(Party.state) == state.strip().lower())
     if city:
@@ -363,6 +642,235 @@ def list_parties(
     return query.all()
 
 
+@router.get("/brands", response_model=list[BrandRead])
+def list_brands(
+    include_inactive: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:view")),
+) -> list[BrandRead]:
+    _ = current_user
+    if _ensure_master_brands_from_products(db):
+        _commit_or_400(db, "Failed to prepare existing brands")
+    query = db.query(Brand).order_by(Brand.name.asc())
+    if not include_inactive:
+        query = query.filter(Brand.is_active.is_(True))
+    return query.all()
+
+
+@router.post("/brands", response_model=BrandRead, status_code=status.HTTP_201_CREATED)
+def create_brand(
+    payload: BrandCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:manage")),
+) -> BrandRead:
+    _ensure_unique_brand_name(db, name=payload.name)
+    brand = Brand(**payload.model_dump())
+    db.add(brand)
+    _commit_or_400(db, "Failed to create brand")
+    write_audit_log(
+        db,
+        module="Masters",
+        entity_type="BRAND",
+        entity_id=brand.id,
+        action="CREATE",
+        performed_by=current_user.id,
+        summary=f"Created brand {brand.name}",
+        source_screen="Masters / Master Settings / Brands",
+        after_snapshot=snapshot_model(brand),
+    )
+    _commit_with_tenant_context(db)
+    db.refresh(brand)
+    return brand
+
+
+@router.patch("/brands/{brand_id}", response_model=BrandRead)
+def update_brand(
+    brand_id: int,
+    payload: BrandUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:manage")),
+) -> BrandRead:
+    brand = _get_or_404(db, Brand, brand_id, "Brand")
+    updates = payload.model_dump(exclude_unset=True)
+    if "name" in updates:
+        _ensure_unique_brand_name(db, name=str(updates["name"]), exclude_brand_id=brand.id)
+
+    before_snapshot = snapshot_model(brand)
+    for field, value in updates.items():
+        setattr(brand, field, value)
+
+    _commit_or_400(db, "Failed to update brand")
+    write_audit_log(
+        db,
+        module="Masters",
+        entity_type="BRAND",
+        entity_id=brand.id,
+        action="UPDATE",
+        performed_by=current_user.id,
+        summary=f"Updated brand {brand.name}",
+        source_screen="Masters / Master Settings / Brands",
+        before_snapshot=before_snapshot,
+        after_snapshot=snapshot_model(brand),
+    )
+    _commit_with_tenant_context(db)
+    db.refresh(brand)
+    return brand
+
+
+@router.delete("/brands/{brand_id}", response_model=BrandRead)
+def delete_brand(
+    brand_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:manage")),
+) -> BrandRead:
+    brand = _get_or_404(db, Brand, brand_id, "Brand")
+    before_snapshot = snapshot_model(brand)
+    brand_snapshot = BrandRead.model_validate(brand)
+    db.delete(brand)
+    _commit_or_400(db, "Failed to delete brand")
+    write_audit_log(
+        db,
+        module="Masters",
+        entity_type="BRAND",
+        entity_id=brand_snapshot.id,
+        action="DELETE",
+        performed_by=current_user.id,
+        summary=f"Deleted brand {brand_snapshot.name}",
+        source_screen="Masters / Master Settings / Brands",
+        before_snapshot=before_snapshot,
+    )
+    _commit_with_tenant_context(db)
+    return brand_snapshot
+
+
+@router.get("/categories", response_model=list[CategoryRead])
+def list_categories(
+    include_inactive: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    current_user=Depends(_require_masters_or_party_view),
+) -> list[CategoryRead]:
+    _ = current_user
+    if _ensure_default_party_categories(db):
+        _commit_or_400(db, "Failed to prepare default party categories")
+    query = db.query(Category).order_by(Category.name.asc())
+    if not include_inactive:
+        query = query.filter(Category.is_active.is_(True))
+    return query.all()
+
+
+@router.post("/categories", response_model=CategoryRead, status_code=status.HTTP_201_CREATED)
+def create_category(
+    payload: CategoryCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:manage")),
+) -> CategoryRead:
+    _ensure_default_party_categories(db)
+    _ensure_unique_category_name(db, name=payload.name)
+    category = Category(**payload.model_dump())
+    db.add(category)
+    _commit_or_400(db, "Failed to create category")
+    write_audit_log(
+        db,
+        module="Masters",
+        entity_type="CATEGORY",
+        entity_id=category.id,
+        action="CREATE",
+        performed_by=current_user.id,
+        summary=f"Created category {category.name}",
+        source_screen="Masters / Master Settings / Categories",
+        after_snapshot=snapshot_model(category),
+    )
+    _commit_with_tenant_context(db)
+    db.refresh(category)
+    return category
+
+
+@router.patch("/categories/{category_id}", response_model=CategoryRead)
+def update_category(
+    category_id: int,
+    payload: CategoryUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:manage")),
+) -> CategoryRead:
+    _ensure_default_party_categories(db)
+    category = _get_or_404(db, Category, category_id, "Category")
+    updates = payload.model_dump(exclude_unset=True)
+    if "name" in updates:
+        _ensure_unique_category_name(db, name=str(updates["name"]), exclude_category_id=category.id)
+    if updates.get("is_active") is False:
+        active_party_count = _count_active_parties_for_category(db, category.name)
+        if active_party_count > 0:
+            raise AppException(
+                error_code="VALIDATION_ERROR",
+                message="Party Category cannot be disabled while active parties are assigned to it.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                details={"field": "is_active", "active_party_count": active_party_count},
+            )
+
+    before_snapshot = snapshot_model(category)
+    previous_name = category.name
+    for field, value in updates.items():
+        setattr(category, field, value)
+    if "name" in updates and category.name != previous_name:
+        (
+            db.query(Party)
+            .filter(func.upper(Party.party_category) == previous_name.upper())
+            .update({"party_category": category.name}, synchronize_session=False)
+        )
+
+    _commit_or_400(db, "Failed to update category")
+    write_audit_log(
+        db,
+        module="Masters",
+        entity_type="CATEGORY",
+        entity_id=category.id,
+        action="UPDATE",
+        performed_by=current_user.id,
+        summary=f"Updated category {category.name}",
+        source_screen="Masters / Master Settings / Categories",
+        before_snapshot=before_snapshot,
+        after_snapshot=snapshot_model(category),
+    )
+    _commit_with_tenant_context(db)
+    db.refresh(category)
+    return category
+
+
+@router.delete("/categories/{category_id}", response_model=CategoryRead)
+def delete_category(
+    category_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:manage")),
+) -> CategoryRead:
+    _ensure_default_party_categories(db)
+    category = _get_or_404(db, Category, category_id, "Category")
+    active_party_count = _count_active_parties_for_category(db, category.name)
+    if active_party_count > 0:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Party Category cannot be deleted while active parties are assigned to it.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"field": "category_id", "active_party_count": active_party_count},
+        )
+    before_snapshot = snapshot_model(category)
+    category_snapshot = CategoryRead.model_validate(category)
+    db.delete(category)
+    _commit_or_400(db, "Failed to delete category")
+    write_audit_log(
+        db,
+        module="Masters",
+        entity_type="CATEGORY",
+        entity_id=category_snapshot.id,
+        action="DELETE",
+        performed_by=current_user.id,
+        summary=f"Deleted category {category_snapshot.name}",
+        source_screen="Masters / Master Settings / Categories",
+        before_snapshot=before_snapshot,
+    )
+    _commit_with_tenant_context(db)
+    return category_snapshot
+
+
 @router.post("/parties", response_model=PartyRead, status_code=status.HTTP_201_CREATED)
 def create_party(
     payload: PartyCreate,
@@ -370,6 +878,9 @@ def create_party(
     current_user=Depends(require_permission("party:create")),
 ) -> PartyRead:
     party_payload = _normalize_party_payload(payload.model_dump())
+    party_payload["party_category"] = _validate_active_party_category_name(
+        db, party_payload.get("party_category")
+    )
     _ensure_unique_party_identifiers(
         db,
         gstin=party_payload.get("gstin"),
@@ -464,6 +975,7 @@ def update_party(
     }
     merged_payload = {**existing_payload, **payload.model_dump(exclude_unset=True)}
     updates = _normalize_party_payload(merged_payload)
+    updates["party_category"] = _validate_active_party_category_name(db, updates.get("party_category"))
     _ensure_unique_party_identifiers(
         db,
         gstin=updates.get("gstin"),
@@ -554,6 +1066,9 @@ async def bulk_create_parties(
             with db.begin_nested():
                 party_input = PartyCreate(**row_payload)
                 party_model_payload = _normalize_party_payload(party_input.model_dump())
+                party_model_payload["party_category"] = _validate_active_party_category_name(
+                    db, party_model_payload.get("party_category")
+                )
                 _ensure_unique_party_identifiers(
                     db,
                     gstin=party_model_payload.get("gstin"),
@@ -651,7 +1166,9 @@ def create_product(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("masters:manage")),
 ) -> ProductRead:
-    product = Product(**payload.model_dump())
+    payload_data = payload.model_dump()
+    payload_data["brand"] = _validate_active_brand_name(db, payload_data.get("brand"))
+    product = Product(**payload_data)
     db.add(product)
     _commit_or_400(
         db,
@@ -707,6 +1224,12 @@ async def bulk_create_items(
             errors.append(_bulk_error(index, "SKU must be unique", "sku"))
             continue
 
+        try:
+            brand_name = _validate_active_brand_name(db, _to_text(row.get("brand")))
+        except AppException as error:
+            errors.append(_bulk_error(index, error.message, (error.details or {}).get("field")))
+            continue
+
         gst_rate_value: Decimal | None = None
         gst_rate_raw = _to_text(row.get("gst_rate"))
         if gst_rate_raw:
@@ -728,7 +1251,7 @@ async def bulk_create_items(
                 product_input = ProductCreate(
                     sku=sku,
                     name=_to_text(row.get("name")),
-                    brand=_to_text(row.get("brand")) or None,
+                    brand=brand_name,
                     uom=_to_text(row.get("uom")),
                     quantity_precision=(
                         int(quantity_precision_text) if quantity_precision_text else None
@@ -782,6 +1305,11 @@ def update_product(
     product = _get_or_404(db, Product, product_id, "Product")
     before_snapshot = snapshot_model(product)
     changed_fields = payload.model_dump(exclude_unset=True)
+    if "brand" in changed_fields or not product.brand:
+        changed_fields["brand"] = _validate_active_brand_name(
+            db,
+            changed_fields.get("brand", product.brand),
+        )
     for field, value in changed_fields.items():
         setattr(product, field, value)
 
@@ -813,6 +1341,13 @@ def delete_product(
     current_user=Depends(require_permission("masters:manage")),
 ) -> ProductRead:
     product = _get_or_404(db, Product, product_id, "Product")
+    if _product_has_stock_on_hand(db, product.id):
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Product cannot be deleted while stock is available.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"field": "product_id", "product_id": product.id},
+        )
     before_snapshot = snapshot_model(product)
     product.is_active = False
     _commit_or_400(db, "Failed to deactivate product")
@@ -929,15 +1464,58 @@ def update_warehouse(
     return warehouse
 
 
-@router.delete("/warehouses/{warehouse_id}", response_model=WarehouseRead)
+@router.delete("/warehouses/{warehouse_id}", response_model=WarehouseDeleteResult)
 def delete_warehouse(
     warehouse_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("masters:manage")),
-) -> WarehouseRead:
+) -> WarehouseDeleteResult:
     _ = current_user
     warehouse = _get_or_404(db, Warehouse, warehouse_id, "Warehouse")
-    warehouse.is_active = False
-    _commit_or_400(db, "Failed to deactivate warehouse")
-    db.refresh(warehouse)
-    return warehouse
+    return _delete_or_deactivate_warehouse(db, warehouse)
+
+
+@router.post("/warehouses/bulk-delete", response_model=WarehouseBulkDeleteResult)
+def bulk_delete_warehouses(
+    payload: WarehouseBulkDeleteRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:manage")),
+) -> WarehouseBulkDeleteResult:
+    _ = current_user
+    deleted_count = 0
+    deactivated_count = 0
+    errors: list[WarehouseBulkDeleteError] = []
+
+    for warehouse_id in payload.ids:
+        warehouse = db.get(Warehouse, warehouse_id)
+        if warehouse is None:
+            errors.append(
+                WarehouseBulkDeleteError(
+                    id=warehouse_id,
+                    message="Warehouse not found",
+                )
+            )
+            continue
+
+        try:
+            result = _delete_or_deactivate_warehouse(db, warehouse)
+        except AppException as error:
+            errors.append(
+                WarehouseBulkDeleteError(
+                    id=warehouse_id,
+                    message=error.message,
+                )
+            )
+            continue
+
+        if result.action == "deleted":
+            deleted_count += 1
+        else:
+            deactivated_count += 1
+
+    return WarehouseBulkDeleteResult(
+        deleted_count=deleted_count,
+        deactivated_count=deactivated_count,
+        failed_count=len(errors),
+        errors=errors,
+    )

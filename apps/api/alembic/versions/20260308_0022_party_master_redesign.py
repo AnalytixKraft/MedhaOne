@@ -17,25 +17,37 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def _existing_columns(table_name: str) -> set[str]:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    return {column["name"] for column in inspector.get_columns(table_name)}
+
+
 def upgrade() -> None:
-    op.add_column("parties", sa.Column("party_code", sa.String(length=60), nullable=True))
-    op.add_column("parties", sa.Column("display_name", sa.String(length=255), nullable=True))
-    op.add_column("parties", sa.Column("party_category", sa.String(length=30), nullable=True))
-    op.add_column("parties", sa.Column("contact_person", sa.String(length=255), nullable=True))
-    op.add_column("parties", sa.Column("designation", sa.String(length=120), nullable=True))
-    op.add_column("parties", sa.Column("whatsapp_no", sa.String(length=30), nullable=True))
-    op.add_column("parties", sa.Column("office_phone", sa.String(length=30), nullable=True))
-    op.add_column("parties", sa.Column("website", sa.String(length=255), nullable=True))
-    op.add_column("parties", sa.Column("address_line_2", sa.Text(), nullable=True))
-    op.add_column("parties", sa.Column("country", sa.String(length=120), nullable=True, server_default="India"))
-    op.add_column("parties", sa.Column("registration_type", sa.String(length=30), nullable=True))
-    op.add_column("parties", sa.Column("drug_license_number", sa.String(length=120), nullable=True))
-    op.add_column("parties", sa.Column("fssai_number", sa.String(length=120), nullable=True))
-    op.add_column("parties", sa.Column("udyam_number", sa.String(length=120), nullable=True))
-    op.add_column("parties", sa.Column("credit_limit", sa.Numeric(14, 2), nullable=True, server_default="0"))
-    op.add_column("parties", sa.Column("payment_terms", sa.String(length=255), nullable=True))
-    op.add_column("parties", sa.Column("opening_balance", sa.Numeric(14, 2), nullable=True, server_default="0"))
-    op.add_column("parties", sa.Column("outstanding_tracking_mode", sa.String(length=30), nullable=True, server_default="BILL_WISE"))
+    existing_columns = _existing_columns("parties")
+    for column in [
+        sa.Column("party_code", sa.String(length=60), nullable=True),
+        sa.Column("display_name", sa.String(length=255), nullable=True),
+        sa.Column("party_category", sa.String(length=30), nullable=True),
+        sa.Column("contact_person", sa.String(length=255), nullable=True),
+        sa.Column("designation", sa.String(length=120), nullable=True),
+        sa.Column("whatsapp_no", sa.String(length=30), nullable=True),
+        sa.Column("office_phone", sa.String(length=30), nullable=True),
+        sa.Column("website", sa.String(length=255), nullable=True),
+        sa.Column("address_line_2", sa.Text(), nullable=True),
+        sa.Column("country", sa.String(length=120), nullable=True, server_default="India"),
+        sa.Column("registration_type", sa.String(length=30), nullable=True),
+        sa.Column("drug_license_number", sa.String(length=120), nullable=True),
+        sa.Column("fssai_number", sa.String(length=120), nullable=True),
+        sa.Column("udyam_number", sa.String(length=120), nullable=True),
+        sa.Column("credit_limit", sa.Numeric(14, 2), nullable=True, server_default="0"),
+        sa.Column("payment_terms", sa.String(length=255), nullable=True),
+        sa.Column("opening_balance", sa.Numeric(14, 2), nullable=True, server_default="0"),
+        sa.Column("outstanding_tracking_mode", sa.String(length=30), nullable=True, server_default="BILL_WISE"),
+    ]:
+        if column.name not in existing_columns:
+            op.add_column("parties", column)
+            existing_columns.add(column.name)
 
     bind = op.get_bind()
     if bind.dialect.name == "postgresql":
@@ -118,6 +130,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
+    existing_columns = _existing_columns("parties")
     if bind.dialect.name == "postgresql":
         op.execute(
             """
@@ -153,21 +166,25 @@ def downgrade() -> None:
         )
         op.execute("ALTER TABLE parties ALTER COLUMN party_type TYPE party_type_enum USING party_type::party_type_enum")
 
-    op.drop_column("parties", "outstanding_tracking_mode")
-    op.drop_column("parties", "opening_balance")
-    op.drop_column("parties", "payment_terms")
-    op.drop_column("parties", "credit_limit")
-    op.drop_column("parties", "udyam_number")
-    op.drop_column("parties", "fssai_number")
-    op.drop_column("parties", "drug_license_number")
-    op.drop_column("parties", "registration_type")
-    op.drop_column("parties", "country")
-    op.drop_column("parties", "address_line_2")
-    op.drop_column("parties", "website")
-    op.drop_column("parties", "office_phone")
-    op.drop_column("parties", "whatsapp_no")
-    op.drop_column("parties", "designation")
-    op.drop_column("parties", "contact_person")
-    op.drop_column("parties", "party_category")
-    op.drop_column("parties", "display_name")
-    op.drop_column("parties", "party_code")
+    for column_name in [
+        "outstanding_tracking_mode",
+        "opening_balance",
+        "payment_terms",
+        "credit_limit",
+        "udyam_number",
+        "fssai_number",
+        "drug_license_number",
+        "registration_type",
+        "country",
+        "address_line_2",
+        "website",
+        "office_phone",
+        "whatsapp_no",
+        "designation",
+        "contact_person",
+        "party_category",
+        "display_name",
+        "party_code",
+    ]:
+        if column_name in existing_columns:
+            op.drop_column("parties", column_name)

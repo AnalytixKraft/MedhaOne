@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { usePermissions } from "@/components/auth/permission-provider";
+import { AppFooter } from "@/components/layout/app-footer";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -86,84 +87,89 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-950 px-4 py-12">
+    <div className="relative flex min-h-screen flex-col overflow-hidden bg-slate-950">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(37,99,235,0.2),_transparent_45%),radial-gradient(circle_at_bottom_left,_rgba(14,165,233,0.16),_transparent_40%)]" />
-      <Card className="relative w-full max-w-md border-slate-700/80 bg-slate-900/70 backdrop-blur">
-        <CardHeader>
-          <CardTitle className="text-white">MedhaOne Login</CardTitle>
-          <CardDescription>
-            Sign in to access the ERP operational core.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form className="space-y-4" onSubmit={handleSubmit}>
-            <div className="space-y-2">
-              <label className="text-sm text-slate-200" htmlFor="email">
-                Email
-              </label>
-              <Input
-                id="email"
-                data-testid="login-email"
-                type="email"
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  setOrganizationOptions([]);
-                  setSelectedOrganization("");
-                }}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm text-slate-200" htmlFor="password">
-                Password
-              </label>
-              <Input
-                id="password"
-                data-testid="login-password"
-                type="password"
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  setOrganizationOptions([]);
-                  setSelectedOrganization("");
-                }}
-                required
-              />
-            </div>
-            {organizationOptions.length > 0 ? (
+      <div className="relative flex flex-1 items-center justify-center px-4 py-12">
+        <Card className="w-full max-w-md border-slate-700/80 bg-slate-900/70 backdrop-blur">
+          <CardHeader>
+            <CardTitle className="text-white">MedhaOne Login</CardTitle>
+            <CardDescription>
+              Sign in to access the ERP operational core.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form className="space-y-4" onSubmit={handleSubmit}>
               <div className="space-y-2">
-                <label className="text-sm text-slate-200" htmlFor="organization">
-                  Organization
+                <label className="text-sm text-slate-200" htmlFor="email">
+                  Email
                 </label>
-                <select
-                  id="organization"
-                  data-testid="organization-selector"
-                  value={selectedOrganization}
-                  onChange={(e) => setSelectedOrganization(e.target.value)}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-slate-950 ring-offset-background"
+                <Input
+                  id="email"
+                  data-testid="login-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setOrganizationOptions([]);
+                    setSelectedOrganization("");
+                  }}
                   required
-                >
-                  {organizationOptions.map((organization) => (
-                    <option key={organization.id} value={organization.id}>
-                      {organization.name}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
-            ) : null}
-            {error ? <p className="text-sm text-red-400">{error}</p> : null}
-            <Button
-              className="w-full"
-              data-testid="login-submit"
-              type="submit"
-              disabled={loading}
-            >
-              {loading ? "Signing in..." : "Sign in"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+              <div className="space-y-2">
+                <label className="text-sm text-slate-200" htmlFor="password">
+                  Password
+                </label>
+                <Input
+                  id="password"
+                  data-testid="login-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setOrganizationOptions([]);
+                    setSelectedOrganization("");
+                  }}
+                  required
+                />
+              </div>
+              {organizationOptions.length > 0 ? (
+                <div className="space-y-2">
+                  <label className="text-sm text-slate-200" htmlFor="organization">
+                    Organization
+                  </label>
+                  <select
+                    id="organization"
+                    data-testid="organization-selector"
+                    value={selectedOrganization}
+                    onChange={(e) => setSelectedOrganization(e.target.value)}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-slate-950 ring-offset-background"
+                    required
+                  >
+                    {organizationOptions.map((organization) => (
+                      <option key={organization.id} value={organization.id}>
+                        {organization.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+              {error ? <p className="text-sm text-red-400">{error}</p> : null}
+              <Button
+                className="w-full"
+                data-testid="login-submit"
+                type="submit"
+                disabled={loading}
+              >
+                {loading ? "Signing in..." : "Sign in"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+      <div className="relative border-t border-slate-800/80 bg-slate-950/70 backdrop-blur">
+        <AppFooter />
+      </div>
     </div>
   );
 }

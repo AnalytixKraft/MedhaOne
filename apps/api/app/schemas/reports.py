@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -55,6 +56,10 @@ class StockMovementReportRow(BaseModel):
     product: str
     batch: str
     warehouse: str
+    source_supplier: str | None = None
+    source_po: str | None = None
+    source_bill: str | None = None
+    source_grn: str | None = None
     qty_in: Decimal
     qty_out: Decimal
     running_balance: Decimal
@@ -120,11 +125,14 @@ class StockAgeingReportResponse(BaseModel):
 
 
 class CurrentStockReportRow(BaseModel):
+    product_id: int
     sku: str
     product_name: str
     brand: str | None = None
     category: str | None = None
+    warehouse_id: int
     warehouse: str
+    batch_id: int
     batch: str
     expiry_date: date
     available_qty: Decimal
@@ -147,6 +155,61 @@ class CurrentStockReportResponse(BaseModel):
     page_size: int
     summary: CurrentStockSummary
     data: list[CurrentStockReportRow]
+
+
+class StockSourceTraceabilityReportRow(BaseModel):
+    product_id: int
+    warehouse_id: int
+    batch_id: int
+    product: str
+    sku: str
+    batch_no: str
+    expiry_date: date
+    warehouse: str
+    qty_on_hand: Decimal
+    received_qty: Decimal
+    free_qty: Decimal
+    supplier_name: str
+    po_number: str
+    purchase_bill_number: str | None = None
+    grn_number: str
+    received_date: date
+    unit_cost: Decimal | None = None
+    quantity_precision: int
+
+
+class StockSourceTraceabilityReportResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    data: list[StockSourceTraceabilityReportRow]
+
+
+class CurrentStockSourceDetailRow(BaseModel):
+    supplier_name: str
+    po_number: str
+    purchase_bill_number: str | None = None
+    grn_number: str
+    received_date: date
+    received_qty: Decimal
+    free_qty: Decimal
+    unit_cost: Decimal | None = None
+    grn_line_id: int
+    grn_batch_line_id: int
+
+
+class CurrentStockSourceDetailResponse(BaseModel):
+    product_id: int
+    warehouse_id: int
+    batch_id: int
+    sku: str
+    product_name: str
+    warehouse: str
+    batch_no: str
+    expiry_date: date
+    qty_on_hand: Decimal
+    quantity_precision: int
+    sources: list[CurrentStockSourceDetailRow]
 
 
 class OpeningStockReportRow(BaseModel):
@@ -190,3 +253,31 @@ class ReportFilterOptionsResponse(BaseModel):
     products: list[ReportEntityOption]
     suppliers: list[ReportEntityOption]
     warehouses: list[ReportEntityOption]
+
+
+class MasterReportFilterOptionsResponse(ReportFilterOptionsResponse):
+    party_types: list[str]
+    party_categories: list[str]
+    states: list[str]
+    cities: list[str]
+
+
+class DataQualityFilterOptionsResponse(BaseModel):
+    entity_types: list[str]
+    missing_field_types: list[str]
+    duplicate_types: list[str]
+    compliance_types: list[str]
+
+
+class ReportSummaryMetric(BaseModel):
+    key: str
+    label: str
+    value: Any
+
+
+class GenericTabularReportResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    summary: list[ReportSummaryMetric]
+    data: list[dict[str, Any]]

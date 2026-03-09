@@ -1,5 +1,6 @@
 "use client";
 
+import { Dialog, DialogBackdrop, DialogPanel, Transition, TransitionChild } from "@headlessui/react";
 import {
   AlertTriangle,
   Boxes,
@@ -11,6 +12,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment } from "react";
 
 import { AppTable, MetricCard } from "@/components/erp/app-primitives";
 import { PageTitle } from "@/components/layout/page-title";
@@ -32,6 +34,7 @@ import {
   ApiRequestError,
   apiClient,
   type CurrentStockReportRow,
+  type CurrentStockSourceDetailResponse,
   type CurrentStockSummary,
   type DeadStockReportRow,
   type ExpiryReportRow,
@@ -43,6 +46,7 @@ import {
   type StockAgeingReportRow,
   type StockInwardReportRow,
   type StockMovementReportRow,
+  type StockSourceTraceabilityReportRow,
 } from "@/lib/api/client";
 import { formatQuantity } from "@/lib/quantity";
 
@@ -55,7 +59,8 @@ type ReportKind =
   | "dead-stock"
   | "stock-ageing"
   | "current-stock"
-  | "opening-stock";
+  | "opening-stock"
+  | "stock-source-traceability";
 
 type Row =
   | PurchaseCreditNote
@@ -66,7 +71,8 @@ type Row =
   | DeadStockReportRow
   | StockAgeingReportRow
   | CurrentStockReportRow
-  | OpeningStockReportRow;
+  | OpeningStockReportRow
+  | StockSourceTraceabilityReportRow;
 
 type ColumnDef = {
   key: string;
@@ -130,6 +136,10 @@ const reportMeta: Record<
     title: "Opening Stock",
     description: "Opening stock entries and their impact on current quantity.",
   },
+  "stock-source-traceability": {
+    title: "Stock Source Traceability",
+    description: "Trace stock batches back to suppliers, purchase orders, bills, and GRNs.",
+  },
 };
 
 function columnsForKind(kind: ReportKind): ColumnDef[] {
@@ -179,9 +189,30 @@ function columnsForKind(kind: ReportKind): ColumnDef[] {
       { key: "product", label: "Product", defaultWidth: 180, render: (row) => (row as StockMovementReportRow).product },
       { key: "batch", label: "Batch", defaultWidth: 130, render: (row) => (row as StockMovementReportRow).batch },
       { key: "warehouse", label: "Warehouse", defaultWidth: 160, render: (row) => (row as StockMovementReportRow).warehouse },
+      { key: "source_supplier", label: "Source Supplier", defaultWidth: 180, render: (row) => (row as StockMovementReportRow).source_supplier ?? "-" },
+      { key: "source_po", label: "Source PO", defaultWidth: 150, render: (row) => (row as StockMovementReportRow).source_po ?? "-" },
+      { key: "source_bill", label: "Source Bill", defaultWidth: 150, render: (row) => (row as StockMovementReportRow).source_bill ?? "-" },
+      { key: "source_grn", label: "Source GRN", defaultWidth: 150, render: (row) => (row as StockMovementReportRow).source_grn ?? "-" },
       { key: "qty_in", label: "In", defaultWidth: 120, render: (row) => formatQuantity((row as StockMovementReportRow).qty_in, (row as StockMovementReportRow).quantity_precision) },
       { key: "qty_out", label: "Out", defaultWidth: 120, render: (row) => formatQuantity((row as StockMovementReportRow).qty_out, (row as StockMovementReportRow).quantity_precision) },
       { key: "running_balance", label: "Balance", defaultWidth: 130, render: (row) => formatQuantity((row as StockMovementReportRow).running_balance, (row as StockMovementReportRow).quantity_precision) },
+    ];
+  }
+
+  if (kind === "stock-source-traceability") {
+    return [
+      { key: "sku", label: "SKU", defaultWidth: 130, render: (row) => (row as StockSourceTraceabilityReportRow).sku },
+      { key: "product", label: "Product", defaultWidth: 200, render: (row) => (row as StockSourceTraceabilityReportRow).product },
+      { key: "batch_no", label: "Batch", defaultWidth: 130, render: (row) => (row as StockSourceTraceabilityReportRow).batch_no },
+      { key: "expiry_date", label: "Expiry", defaultWidth: 130, render: (row) => (row as StockSourceTraceabilityReportRow).expiry_date },
+      { key: "warehouse", label: "Warehouse", defaultWidth: 160, render: (row) => (row as StockSourceTraceabilityReportRow).warehouse },
+      { key: "qty_on_hand", label: "Qty On Hand", defaultWidth: 130, render: (row) => formatQuantity((row as StockSourceTraceabilityReportRow).qty_on_hand, (row as StockSourceTraceabilityReportRow).quantity_precision) },
+      { key: "supplier_name", label: "Source Supplier", defaultWidth: 180, render: (row) => (row as StockSourceTraceabilityReportRow).supplier_name },
+      { key: "po_number", label: "Source PO", defaultWidth: 150, render: (row) => (row as StockSourceTraceabilityReportRow).po_number },
+      { key: "purchase_bill_number", label: "Source Bill", defaultWidth: 150, render: (row) => (row as StockSourceTraceabilityReportRow).purchase_bill_number ?? "-" },
+      { key: "grn_number", label: "Source GRN", defaultWidth: 150, render: (row) => (row as StockSourceTraceabilityReportRow).grn_number },
+      { key: "received_date", label: "Received On", defaultWidth: 130, render: (row) => (row as StockSourceTraceabilityReportRow).received_date },
+      { key: "unit_cost", label: "Unit Cost", defaultWidth: 120, render: (row) => (row as StockSourceTraceabilityReportRow).unit_cost ?? "-" },
     ];
   }
 
@@ -304,6 +335,17 @@ function buildQuery(
   if (kind === "current-stock" && filters.stockSource !== "all") {
     query.stock_source = filters.stockSource;
   }
+  if (kind === "stock-source-traceability") {
+    if (filters.poNumber.trim()) {
+      query.po_number = filters.poNumber.trim();
+    }
+    if (filters.grnNumber.trim()) {
+      query.grn_number = filters.grnNumber.trim();
+    }
+    if (filters.billNumber.trim()) {
+      query.bill_number = filters.billNumber.trim();
+    }
+  }
 
   return query;
 }
@@ -322,6 +364,21 @@ function formatMetricNumber(value: string | number) {
     return String(value);
   }
   return parsed.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function cloneReportFilters(filters: ReportFilterState): ReportFilterState {
+  return {
+    ...filters,
+    brandValues: [...filters.brandValues],
+    productIds: [...filters.productIds],
+    supplierIds: [...filters.supplierIds],
+    warehouseIds: [...filters.warehouseIds],
+    categoryValues: [...filters.categoryValues],
+    batchNos: [...filters.batchNos],
+    poNumber: filters.poNumber,
+    grnNumber: filters.grnNumber,
+    billNumber: filters.billNumber,
+  };
 }
 
 export function ReportView({ kind }: { kind: ReportKind }) {
@@ -345,12 +402,17 @@ export function ReportView({ kind }: { kind: ReportKind }) {
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [currentStockSummary, setCurrentStockSummary] = useState<CurrentStockSummary | null>(null);
   const [openingStockSummary, setOpeningStockSummary] = useState<OpeningStockSummary | null>(null);
+  const [sourceDetailOpen, setSourceDetailOpen] = useState(false);
+  const [sourceDetailLoading, setSourceDetailLoading] = useState(false);
+  const [sourceDetailError, setSourceDetailError] = useState<string | null>(null);
+  const [sourceDetail, setSourceDetail] = useState<CurrentStockSourceDetailResponse | null>(null);
 
   const meta = reportMeta[kind];
   const columns = useMemo(() => columnsForKind(kind), [kind]);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const showStockStatus = kind === "current-stock";
   const showStockSource = kind === "current-stock";
+  const showDocumentFilters = kind === "stock-source-traceability";
   const currentStockMetrics = useMemo<MetricCardDef[]>(
     () =>
       currentStockSummary
@@ -499,6 +561,14 @@ export function ReportView({ kind }: { kind: ReportKind }) {
         setCurrentStockSummary(null);
         return;
       }
+      if (kind === "stock-source-traceability") {
+        const response = await apiClient.getStockSourceTraceabilityReport(query);
+        setRows(response.data);
+        setTotal(response.total);
+        setCurrentStockSummary(null);
+        setOpeningStockSummary(null);
+        return;
+      }
 
       const response =
         kind === "stock-inward"
@@ -532,6 +602,25 @@ export function ReportView({ kind }: { kind: ReportKind }) {
       setLoading(false);
     }
   }, [appliedFilters, kind, page, pageSize]);
+
+  const openSourceDetail = useCallback(async (row: CurrentStockReportRow) => {
+    setSourceDetailOpen(true);
+    setSourceDetailLoading(true);
+    setSourceDetailError(null);
+    try {
+      const detail = await apiClient.getCurrentStockSourceDetail({
+        warehouse_id: row.warehouse_id,
+        product_id: row.product_id,
+        batch_id: row.batch_id,
+      });
+      setSourceDetail(detail);
+    } catch (caught) {
+      setSourceDetail(null);
+      setSourceDetailError(caught instanceof Error ? caught.message : "Failed to load source detail");
+    } finally {
+      setSourceDetailLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     void load();
@@ -660,16 +749,18 @@ export function ReportView({ kind }: { kind: ReportKind }) {
         value={draftFilters}
         onChange={setDraftFilters}
         onApply={() => {
-          setAppliedFilters(draftFilters);
+          setAppliedFilters(cloneReportFilters(draftFilters));
           setPage(1);
         }}
         onClear={() => {
-          setDraftFilters(defaultReportFilters);
-          setAppliedFilters(defaultReportFilters);
+          const cleared = cloneReportFilters(defaultReportFilters);
+          setDraftFilters(cleared);
+          setAppliedFilters(cleared);
           setPage(1);
         }}
         showStockStatus={showStockStatus}
         showStockSource={showStockSource}
+        showDocumentFilters={showDocumentFilters}
       />
 
       {kind === "current-stock" && currentStockSummary ? (
@@ -777,6 +868,11 @@ export function ReportView({ kind }: { kind: ReportKind }) {
                           />
                         </TableHead>
                       ))}
+                      {kind === "current-stock" ? (
+                        <TableHead className="border-b border-border/80 text-[hsl(var(--text-secondary))]">
+                          Batch Origin
+                        </TableHead>
+                      ) : null}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -794,6 +890,18 @@ export function ReportView({ kind }: { kind: ReportKind }) {
                             {column.render(row)}
                           </TableCell>
                         ))}
+                        {kind === "current-stock" ? (
+                          <TableCell className="py-3 text-[hsl(var(--text-primary))]">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="rounded-xl"
+                              onClick={() => void openSourceDetail(row as CurrentStockReportRow)}
+                            >
+                              View Source
+                            </Button>
+                          </TableCell>
+                        ) : null}
                       </TableRow>
                     ))}
                   </TableBody>
@@ -845,6 +953,133 @@ export function ReportView({ kind }: { kind: ReportKind }) {
           ) : null}
         </div>
       </AppTable>
+
+      <Transition appear show={sourceDetailOpen} as={Fragment}>
+        <Dialog as="div" className="relative z-50" onClose={() => setSourceDetailOpen(false)}>
+          <TransitionChild
+            as={Fragment}
+            enter="ease-out duration-200"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="ease-in duration-150"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
+          >
+            <DialogBackdrop className="fixed inset-0 bg-slate-950/35 backdrop-blur-sm" />
+          </TransitionChild>
+          <div className="fixed inset-0 overflow-y-auto">
+            <div className="flex min-h-full items-center justify-end">
+              <TransitionChild
+                as={Fragment}
+                enter="ease-out duration-200"
+                enterFrom="translate-x-full opacity-0"
+                enterTo="translate-x-0 opacity-100"
+                leave="ease-in duration-150"
+                leaveFrom="translate-x-0 opacity-100"
+                leaveTo="translate-x-full opacity-0"
+              >
+                <DialogPanel className="h-full w-full max-w-3xl overflow-y-auto border-l border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
+                  <div className="space-y-6">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h2 className="text-xl font-semibold text-[hsl(var(--text-primary))]">
+                          Batch Origin
+                        </h2>
+                        <p className="text-sm text-[hsl(var(--text-secondary))]">
+                          Supplier and purchase document chain for this stock bucket.
+                        </p>
+                      </div>
+                      <Button type="button" variant="outline" onClick={() => setSourceDetailOpen(false)}>
+                        Close
+                      </Button>
+                    </div>
+
+                    {sourceDetailLoading ? (
+                      <div className="rounded-2xl border border-border bg-[hsl(var(--surface-muted))] px-4 py-6 text-sm text-[hsl(var(--text-secondary))]">
+                        Loading source detail...
+                      </div>
+                    ) : null}
+                    {sourceDetailError ? (
+                      <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300">
+                        {sourceDetailError}
+                      </div>
+                    ) : null}
+                    {sourceDetail ? (
+                      <>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="rounded-2xl border border-border bg-[hsl(var(--surface-muted))] p-4">
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[hsl(var(--text-secondary))]">
+                              Product
+                            </p>
+                            <p className="mt-1 text-lg font-semibold text-[hsl(var(--text-primary))]">
+                              {sourceDetail.product_name}
+                            </p>
+                            <p className="mt-2 text-sm text-[hsl(var(--text-secondary))]">
+                              SKU: {sourceDetail.sku}
+                            </p>
+                            <p className="text-sm text-[hsl(var(--text-secondary))]">
+                              Warehouse: {sourceDetail.warehouse}
+                            </p>
+                          </div>
+                          <div className="rounded-2xl border border-border bg-[hsl(var(--surface-muted))] p-4">
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[hsl(var(--text-secondary))]">
+                              Batch Details
+                            </p>
+                            <p className="mt-1 text-lg font-semibold text-[hsl(var(--text-primary))]">
+                              {sourceDetail.batch_no}
+                            </p>
+                            <p className="mt-2 text-sm text-[hsl(var(--text-secondary))]">
+                              Expiry: {sourceDetail.expiry_date}
+                            </p>
+                            <p className="text-sm text-[hsl(var(--text-secondary))]">
+                              Qty On Hand:{" "}
+                              {formatQuantity(sourceDetail.qty_on_hand, sourceDetail.quantity_precision)}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="overflow-hidden rounded-2xl border border-border">
+                          <Table>
+                            <TableHeader className="bg-[hsl(var(--table-header))]">
+                              <TableRow>
+                                <TableHead>Source Supplier</TableHead>
+                                <TableHead>Source PO</TableHead>
+                                <TableHead>Source Bill</TableHead>
+                                <TableHead>Source GRN</TableHead>
+                                <TableHead>Received On</TableHead>
+                                <TableHead>Received Qty</TableHead>
+                                <TableHead>Free Qty</TableHead>
+                                <TableHead>Unit Cost</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {sourceDetail.sources.map((row) => (
+                                <TableRow
+                                  key={`${row.grn_batch_line_id}-${row.grn_line_id}`}
+                                  className="bg-[hsl(var(--surface))] even:bg-[hsl(var(--surface-muted))]/70"
+                                >
+                                  <TableCell>{row.supplier_name}</TableCell>
+                                  <TableCell>{row.po_number}</TableCell>
+                                  <TableCell>{row.purchase_bill_number ?? "-"}</TableCell>
+                                  <TableCell>{row.grn_number}</TableCell>
+                                  <TableCell>{row.received_date}</TableCell>
+                                  <TableCell>{formatQuantity(row.received_qty, sourceDetail.quantity_precision)}</TableCell>
+                                  <TableCell>{formatQuantity(row.free_qty, sourceDetail.quantity_precision)}</TableCell>
+                                  <TableCell>{row.unit_cost ?? "-"}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                </DialogPanel>
+              </TransitionChild>
+            </div>
+          </div>
+        </Dialog>
+      </Transition>
     </div>
   );
 }

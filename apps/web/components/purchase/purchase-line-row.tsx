@@ -15,8 +15,8 @@ import {
 } from "@/lib/quantity";
 
 export const PURCHASE_LINE_GRID_TEMPLATE =
-  "320px 140px 140px 120px 160px 120px 140px 160px 80px";
-export const PURCHASE_LINE_GRID_MIN_WIDTH = "1380px";
+  "320px 140px 140px 120px 150px 160px 150px 140px 160px 96px";
+export const PURCHASE_LINE_GRID_MIN_WIDTH = "1576px";
 const UNIT_COST_INPUT_PATTERN = /^\d*(?:\.\d{0,2})?$/;
 
 export type PurchaseGridField =
@@ -55,6 +55,8 @@ type PurchaseLineRowProps = {
     field: PurchaseGridField,
     element: HTMLElement | null,
   ) => void;
+  rowGstDisplay: string;
+  rowTaxAmountDisplay: string;
   rowTotalDisplay: string;
   canRemove: boolean;
 };
@@ -76,24 +78,17 @@ type ProductComboboxProps = {
   ) => void;
 };
 
-function formatGstRate(rate: string | null | undefined) {
-  if (!rate) {
-    return "0.00%";
-  }
-
-  const parsed = Number.parseFloat(rate);
-  if (!Number.isFinite(parsed)) {
-    return "0.00%";
-  }
-
-  return `${parsed.toFixed(2)}%`;
-}
-
 const purchaseCellInputClassName =
   "h-11 rounded-xl border border-input bg-background text-foreground shadow-none transition-colors placeholder:text-muted-foreground focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:ring-offset-0";
 
 const purchaseReadOnlyCellClassName =
   "flex h-11 w-full items-center rounded-xl border border-input bg-[hsl(var(--muted-bg))] px-3 text-sm text-[hsl(var(--text-primary))]";
+
+function formatProductGstLabel(product: Product) {
+  const parsedRate = Number.parseFloat(product.gst_rate ?? "0");
+  const gstRate = Number.isFinite(parsedRate) ? parsedRate : 0;
+  return `${product.name} (${gstRate.toFixed(0)}%)`;
+}
 
 function ProductCombobox({
   row,
@@ -112,7 +107,7 @@ function ProductCombobox({
   const productOptions = useMemo(
     () =>
       products.map((product) => ({
-        label: `${product.sku} - ${product.name}`,
+        label: formatProductGstLabel(product),
         value: String(product.id),
       })),
     [products],
@@ -197,6 +192,8 @@ export const PurchaseLineRow = memo(function PurchaseLineRow({
   onDuplicateLine,
   onCellKeyDown,
   registerCell,
+  rowGstDisplay,
+  rowTaxAmountDisplay,
   rowTotalDisplay,
   canRemove,
 }: PurchaseLineRowProps) {
@@ -207,7 +204,6 @@ export const PurchaseLineRow = memo(function PurchaseLineRow({
   const quantityPrecision = normalizeQuantityPrecision(
     selectedProduct?.quantity_precision,
   );
-  const gstRateDisplay = formatGstRate(selectedProduct?.gst_rate);
   const hsnDisplay = selectedProduct?.hsn?.trim() || "—";
 
   return (
@@ -302,8 +298,23 @@ export const PurchaseLineRow = memo(function PurchaseLineRow({
       </div>
 
       <div className="flex min-h-[56px] items-center px-3.5 py-2">
+        <div
+          className={cn(
+            purchaseReadOnlyCellClassName,
+            "justify-start",
+          )}
+        >
+          <span className="font-medium tabular-nums" data-testid={`po-line-gst-${rowIndex}`}>
+            {rowGstDisplay}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex min-h-[56px] items-center px-3.5 py-2">
         <div className={cn(purchaseReadOnlyCellClassName, "text-right tabular-nums")}>
-          <span className="ml-auto">{gstRateDisplay}</span>
+          <span className="ml-auto" data-testid={`po-line-tax-${rowIndex}`}>
+            {rowTaxAmountDisplay}
+          </span>
         </div>
       </div>
 
@@ -315,7 +326,9 @@ export const PurchaseLineRow = memo(function PurchaseLineRow({
 
       <div className="flex min-h-[56px] items-center px-3.5 py-2">
         <div className={cn(purchaseReadOnlyCellClassName, "text-right font-semibold tabular-nums")}>
-          <span className="ml-auto">{rowTotalDisplay}</span>
+          <span className="ml-auto" data-testid={`po-line-total-${rowIndex}`}>
+            {rowTotalDisplay}
+          </span>
         </div>
       </div>
 

@@ -25,10 +25,15 @@ test("main navigation keeps masters and reports outside inventory", async ({
   await expect(page.getByTestId("nav-masters-parties").first()).toBeVisible();
   await expect(page.getByTestId("nav-masters-products").first()).toBeVisible();
   await expect(page.getByTestId("nav-masters-warehouses").first()).toBeVisible();
+  await expect(page.getByTestId("nav-masters-reports").first()).toBeVisible();
+  await expect(page.getByTestId("nav-masters-data-quality")).toHaveCount(0);
 
   await page.getByTestId("nav-reports").first().click();
   await expect(page).toHaveURL(/\/reports(?:\/|$)/);
+  await expect(page.getByTestId("nav-reports-masters").first()).toBeVisible();
+  await expect(page.getByTestId("nav-reports-data-quality").first()).toBeVisible();
+  await expect(page.getByTestId("nav-reports-operational").first()).toBeVisible();
+  await expect(page.getByTestId("nav-reports-masters-current-stock").first()).toBeVisible();
+  await expect(page.getByTestId("nav-reports-data-quality-missing-fields").first()).toBeVisible();
   await expect(page.getByTestId("nav-reports-current-stock").first()).toBeVisible();
-  await expect(page.getByTestId("nav-reports-stock-movement").first()).toBeVisible();
-  await expect(page.getByTestId("nav-reports-stock-ageing").first()).toBeVisible();
 });

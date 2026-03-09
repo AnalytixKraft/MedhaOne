@@ -74,6 +74,8 @@ def _create_supplier(client: TestClient, headers: dict[str, str], name: str) -> 
         json={
             "name": name,
             "party_type": "SUPER_STOCKIST",
+            "gstin": "27ABCDE1234F1Z5",
+            "state": "Maharashtra",
             "phone": "9999999999",
             "is_active": True,
         },
@@ -402,6 +404,70 @@ def test_view_only_user_cannot_post_grn(client_with_test_db: tuple[TestClient, S
     response = client.post(f"/purchase/grn/{grn['id']}/post", headers=view_headers)
     assert response.status_code == 403
     assert response.json()["error_code"] == "FORBIDDEN"
+
+
+def test_view_only_user_cannot_edit_cancel_or_attach_bill_to_grn(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db = client_with_test_db
+    admin_user = _create_user(db, email="admin-grn-actions@medhaone.app", role_names=["ADMIN"])
+    view_only_user = _create_user(
+        db,
+        email="view-grn-actions@medhaone.app",
+        role_names=["VIEW_ONLY"],
+    )
+    admin_headers = {"Authorization": f"Bearer {_token_for(admin_user)}"}
+    view_headers = {"Authorization": f"Bearer {_token_for(view_only_user)}"}
+
+    supplier_id = _create_supplier(client, admin_headers, "GRN Action Supplier")
+    warehouse_id = _create_warehouse(client, admin_headers, "GRAWWH")
+    product_id = _create_product(client, admin_headers, "GRAW-SKU-1")
+    po = _create_po(
+        client,
+        admin_headers,
+        supplier_id=supplier_id,
+        warehouse_id=warehouse_id,
+        product_id=product_id,
+    )
+    approve_response = client.post(f"/purchase/po/{po['id']}/approve", headers=admin_headers)
+    assert approve_response.status_code == 200, approve_response.text
+    grn = _create_grn(
+        client,
+        admin_headers,
+        po_id=po["id"],
+        po_line_id=po["lines"][0]["id"],
+        received_qty="2",
+    )
+
+    update_response = client.patch(
+        f"/purchase/grn/{grn['id']}",
+        headers=view_headers,
+        json={
+            "received_date": "2026-03-09",
+            "lines": [
+                {
+                    "po_line_id": po["lines"][0]["id"],
+                    "received_qty": "2",
+                    "batch_no": "GRN-BATCH-EDIT",
+                    "expiry_date": "2030-12-31",
+                }
+            ],
+        },
+    )
+    assert update_response.status_code == 403
+    assert update_response.json()["error_code"] == "FORBIDDEN"
+
+    cancel_response = client.post(f"/purchase/grn/{grn['id']}/cancel", headers=view_headers)
+    assert cancel_response.status_code == 403
+    assert cancel_response.json()["error_code"] == "FORBIDDEN"
+
+    attach_response = client.post(
+        f"/purchase/grn/{grn['id']}/attach-bill",
+        headers=view_headers,
+        json={"purchase_bill_id": 999},
+    )
+    assert attach_response.status_code == 403
+    assert attach_response.json()["error_code"] == "FORBIDDEN"
 
 
 def test_user_without_reports_view_cannot_access_reports(

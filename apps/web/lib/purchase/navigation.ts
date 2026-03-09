@@ -9,9 +9,9 @@ export type PurchaseModuleItem = {
 export const PURCHASE_NAV_ITEMS: PurchaseModuleItem[] = [
   {
     id: "po",
-    href: "/purchase/po",
+    href: "/purchase-orders",
     label: "Purchase Orders",
-    description: "Create and approve purchase orders.",
+    description: "Create, review, approve, and track purchase orders.",
     requiredPermission: "purchase:view",
   },
   {

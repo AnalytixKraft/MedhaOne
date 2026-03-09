@@ -44,7 +44,7 @@ class PartyBase(BaseModel):
     display_name: str | None = None
     party_code: str | None = None
     party_type: PartyType
-    party_category: PartyCategory | None = None
+    party_category: str | None = None
     contact_person: str | None = None
     designation: str | None = None
     mobile: str | None = Field(default=None, validation_alias=AliasChoices("mobile", "phone"))
@@ -113,7 +113,7 @@ class PartyUpdate(BaseModel):
     display_name: str | None = None
     party_code: str | None = None
     party_type: PartyType | None = None
-    party_category: PartyCategory | None = None
+    party_category: str | None = None
     contact_person: str | None = None
     designation: str | None = None
     mobile: str | None = Field(default=None, validation_alias=AliasChoices("mobile", "phone"))
@@ -212,6 +212,105 @@ class WarehouseUpdate(BaseModel):
 
 
 class WarehouseRead(WarehouseBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WarehouseDeleteResult(BaseModel):
+    id: int
+    action: str
+    message: str
+    warehouse: WarehouseRead
+
+
+class WarehouseBulkDeleteRequest(BaseModel):
+    ids: list[int]
+
+    @field_validator("ids")
+    @classmethod
+    def validate_ids(cls, value: list[int]) -> list[int]:
+        normalized = [item for item in dict.fromkeys(value) if item > 0]
+        if not normalized:
+            raise ValueError("At least one warehouse must be selected")
+        return normalized
+
+
+class WarehouseBulkDeleteError(BaseModel):
+    id: int | None = None
+    message: str
+
+
+class WarehouseBulkDeleteResult(BaseModel):
+    deleted_count: int
+    deactivated_count: int
+    failed_count: int
+    errors: list[WarehouseBulkDeleteError]
+
+
+class CategoryBase(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    is_active: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        return value.strip()
+
+
+class CategoryCreate(CategoryBase):
+    pass
+
+
+class CategoryUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    is_active: bool | None = None
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip()
+
+
+class CategoryRead(CategoryBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BrandBase(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    is_active: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        return value.strip()
+
+
+class BrandCreate(BrandBase):
+    pass
+
+
+class BrandUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    is_active: bool | None = None
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip()
+
+
+class BrandRead(BrandBase):
     id: int
     created_at: datetime
     updated_at: datetime

@@ -9,7 +9,7 @@ from app.models.enums import InventoryReason
 from app.models.inventory import InventoryLedger
 from app.models.party import Party
 from app.models.product import Product
-from app.models.purchase import GRN, GRNLine, PurchaseOrder
+from app.models.purchase import GRN, GRNBatchLine, GRNLine, PurchaseOrder
 from app.models.user import User
 from app.models.warehouse import Warehouse
 from app.models.batch import Batch
@@ -41,11 +41,13 @@ def get_stock_inward_report(
         select(
             GRNLine.grn_id.label("grn_id"),
             GRNLine.product_id.label("product_id"),
-            GRNLine.batch_id.label("batch_id"),
-            func.sum(GRNLine.received_qty).label("qty_received"),
-            func.sum(GRNLine.free_qty).label("free_qty"),
+            GRNBatchLine.batch_id.label("batch_id"),
+            func.sum(GRNBatchLine.received_qty).label("qty_received"),
+            func.sum(GRNBatchLine.free_qty).label("free_qty"),
         )
-        .group_by(GRNLine.grn_id, GRNLine.product_id, GRNLine.batch_id)
+        .select_from(GRNBatchLine)
+        .join(GRNLine, GRNLine.id == GRNBatchLine.grn_line_id)
+        .group_by(GRNLine.grn_id, GRNLine.product_id, GRNBatchLine.batch_id)
         .subquery()
     )
 

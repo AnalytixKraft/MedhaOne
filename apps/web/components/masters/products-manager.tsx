@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Trash2 } from "lucide-react";
+import { Copy, Save, SquarePen, Trash2, X } from "lucide-react";
 
 import { AppActionBar, AppTable } from "@/components/erp/app-primitives";
 import { usePermissions } from "@/components/auth/permission-provider";
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/table";
 import {
   apiClient,
+  type Brand,
   type BulkImportError,
   type Product,
   type ProductPayload,
@@ -30,6 +31,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const DEFAULT_UOM = "BOX";
+const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 
 type GridField =
   | "sku"
@@ -44,6 +46,7 @@ type GridField =
 
 type DraftProductRow = {
   id: string;
+  product_id?: number;
   sku: string;
   name: string;
   brand: string;
@@ -69,6 +72,7 @@ function normalizeTaxRateValue(value: string): string {
 function createEmptyRow(id: number): DraftProductRow {
   return {
     id: `product-row-${id}`,
+    product_id: undefined,
     sku: "",
     name: "",
     brand: "",
@@ -131,9 +135,16 @@ function validateRow(row: DraftProductRow): RowErrors {
 export function ProductsManager() {
   const { user, hasPermission, loading: permissionsLoading } = usePermissions();
   const [items, setItems] = useState<Product[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
   const [rows, setRows] = useState<DraftProductRow[]>([createEmptyRow(1)]);
   const [rowErrors, setRowErrors] = useState<Record<string, RowErrors>>({});
+  const [inlineEditProductId, setInlineEditProductId] = useState<number | null>(null);
+  const [inlineEditRow, setInlineEditRow] = useState<DraftProductRow | null>(null);
+  const [inlineEditErrors, setInlineEditErrors] = useState<RowErrors>({});
+  const [searchQuery, setSearchQuery] = useState("");
+  const [savedProductsPage, setSavedProductsPage] = useState(1);
+  const [savedProductsPageSize, setSavedProductsPageSize] = useState<number>(10);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -158,13 +169,18 @@ export function ProductsManager() {
     [taxRateOptions],
   );
 
-  const gstLabelByRate = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const taxRate of taxRateOptions) {
-      map.set(normalizeTaxRateValue(taxRate.rate_percent), taxRate.label);
-    }
-    return map;
-  }, [taxRateOptions]);
+  const brandOptions = useMemo(
+    () =>
+      [...brands]
+        .filter((brand) => brand.is_active)
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    [brands],
+  );
+
+  const activeBrandNames = useMemo(
+    () => new Set(brandOptions.map((brand) => brand.name)),
+    [brandOptions],
+  );
 
   const registerCell = useCallback(
     (rowId: string, field: GridField, element: HTMLElement | null) => {
@@ -190,9 +206,10 @@ export function ProductsManager() {
     setLoading(true);
     setError(null);
     try {
-      const [productsResult, taxRatesResult] = await Promise.allSettled([
+      const [productsResult, taxRatesResult, brandsResult] = await Promise.allSettled([
         apiClient.listProducts(),
         apiClient.listTaxRates(false),
+        apiClient.listBrands(false),
       ]);
 
       if (productsResult.status === "rejected") {
@@ -206,11 +223,18 @@ export function ProductsManager() {
         setTaxRates([]);
         setError("Tax rates could not be loaded. GST dropdown is unavailable.");
       }
+
+      if (brandsResult.status === "fulfilled") {
+        setBrands(brandsResult.value);
+      } else {
+        setBrands([]);
+        setError("Brands could not be loaded. Product brand selection is unavailable.");
+      }
     } catch (caught) {
       setError(
         caught instanceof Error
           ? caught.message
-          : "Failed to load products and tenant tax rates",
+          : "Failed to load products, brands, and tenant tax rates",
       );
     } finally {
       setLoading(false);
@@ -321,6 +345,7 @@ export function ProductsManager() {
     const clone: DraftProductRow = {
       ...source,
       id: `product-row-${nextRowId.current++}`,
+      product_id: undefined,
     };
     setRows((current) => {
       const index = current.findIndex((row) => row.id === source.id);
@@ -395,6 +420,11 @@ export function ProductsManager() {
 
     for (const row of candidateRows) {
       const errors = validateRow(row);
+      if (!row.brand.trim()) {
+        errors.brand = "Select an active brand";
+      } else if (!activeBrandNames.has(row.brand.trim())) {
+        errors.brand = "Brand must exist in Master Settings";
+      }
       if (row.gst_rate.trim()) {
         const normalizedRate = normalizeTaxRateValue(row.gst_rate.trim());
         if (!normalizedRate || !activeTaxRates.has(normalizedRate)) {
@@ -461,7 +491,7 @@ export function ProductsManager() {
     } finally {
       setSaving(false);
     }
-  }, [activeTaxRates, canManage, load, mapErrorsToRows, rows]);
+  }, [activeBrandNames, activeTaxRates, canManage, load, mapErrorsToRows, rows]);
 
   const handleCellKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>, rowId: string) => {
@@ -489,6 +519,143 @@ export function ProductsManager() {
     () => [...items].sort((a, b) => a.name.localeCompare(b.name)),
     [items],
   );
+
+  const filteredItems = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) {
+      return sortedItems;
+    }
+
+    return sortedItems.filter((item) =>
+      [
+        item.sku,
+        item.name,
+        item.brand ?? "",
+        item.hsn ?? "",
+        item.gst_rate ?? "",
+      ].some((value) => value.toLowerCase().includes(query)),
+    );
+  }, [searchQuery, sortedItems]);
+
+  const totalSavedProductPages = Math.max(
+    1,
+    Math.ceil(filteredItems.length / savedProductsPageSize),
+  );
+
+  const paginatedItems = useMemo(() => {
+    const startIndex = (savedProductsPage - 1) * savedProductsPageSize;
+    return filteredItems.slice(startIndex, startIndex + savedProductsPageSize);
+  }, [filteredItems, savedProductsPage, savedProductsPageSize]);
+
+  useEffect(() => {
+    setSavedProductsPage(1);
+  }, [searchQuery, savedProductsPageSize]);
+
+  useEffect(() => {
+    if (savedProductsPage > totalSavedProductPages) {
+      setSavedProductsPage(totalSavedProductPages);
+    }
+  }, [savedProductsPage, totalSavedProductPages]);
+
+  const beginInlineEdit = useCallback((product: Product) => {
+    setInlineEditProductId(product.id);
+    setInlineEditRow({
+      id: `inline-product-${product.id}`,
+      product_id: product.id,
+      sku: product.sku,
+      name: product.name,
+      brand: product.brand ?? "",
+      uom: product.uom,
+      quantity_precision: String(product.quantity_precision),
+      quantity_precision_overridden: true,
+      barcode: product.barcode ?? "",
+      hsn: product.hsn ?? "",
+      gst_rate: product.gst_rate ? normalizeTaxRateValue(product.gst_rate) : "",
+      is_active: product.is_active,
+    });
+    setInlineEditErrors({});
+    setError(null);
+    setSummary(null);
+  }, []);
+
+  const cancelInlineEdit = useCallback(() => {
+    setInlineEditProductId(null);
+    setInlineEditRow(null);
+    setInlineEditErrors({});
+  }, []);
+
+  const updateInlineEditRow = useCallback((patch: Partial<DraftProductRow>) => {
+    setInlineEditRow((current) => {
+      if (!current) {
+        return current;
+      }
+
+      let next = { ...current, ...patch };
+      if (patch.uom !== undefined && !current.quantity_precision_overridden) {
+        next = {
+          ...next,
+          uom: String(patch.uom).toUpperCase(),
+          quantity_precision: String(
+            inferQuantityPrecisionFromUom(String(patch.uom).toUpperCase()),
+          ),
+        };
+      }
+      return next;
+    });
+    setInlineEditErrors({});
+  }, []);
+
+  const saveInlineEdit = useCallback(async () => {
+    if (!canManage || inlineEditProductId === null || !inlineEditRow) {
+      return;
+    }
+
+    const errors = validateRow(inlineEditRow);
+    if (!inlineEditRow.brand.trim()) {
+      errors.brand = "Select an active brand";
+    } else if (!activeBrandNames.has(inlineEditRow.brand.trim())) {
+      errors.brand = "Brand must exist in Master Settings";
+    }
+    if (inlineEditRow.gst_rate.trim()) {
+      const normalizedRate = normalizeTaxRateValue(inlineEditRow.gst_rate.trim());
+      if (!normalizedRate || !activeTaxRates.has(normalizedRate)) {
+        errors.gst_rate = "Select an active GST rate";
+      }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setInlineEditErrors(errors);
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    setSummary(null);
+    try {
+      const payload: ProductPayload = {
+        sku: inlineEditRow.sku.trim(),
+        name: inlineEditRow.name.trim(),
+        brand: inlineEditRow.brand.trim() || undefined,
+        uom: inlineEditRow.uom.trim(),
+        quantity_precision: normalizeQuantityPrecision(
+          Number.parseInt(inlineEditRow.quantity_precision.trim() || "0", 10),
+        ),
+        barcode: inlineEditRow.barcode.trim() || undefined,
+        hsn: inlineEditRow.hsn.trim() || undefined,
+        gst_rate: inlineEditRow.gst_rate.trim() || undefined,
+        is_active: inlineEditRow.is_active,
+      };
+
+      await apiClient.updateProduct(inlineEditProductId, payload);
+      await load();
+      cancelInlineEdit();
+      setSummary(`Updated ${payload.sku}.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to update product.");
+    } finally {
+      setSaving(false);
+    }
+  }, [activeBrandNames, activeTaxRates, cancelInlineEdit, canManage, inlineEditProductId, inlineEditRow, load]);
 
   return (
     <div className="space-y-6">
@@ -587,15 +754,29 @@ export function ProductsManager() {
                             ) : null}
                           </td>
                           <td className="px-3 py-2">
-                            <Input
+                            <select
                               ref={(element) => registerCell(row.id, "brand", element)}
+                              data-testid={index === 0 ? "product-brand" : undefined}
                               value={row.brand}
                               onChange={(event) =>
                                 updateRow(row.id, { brand: event.target.value })
                               }
                               onKeyDown={(event) => handleCellKeyDown(event, row.id)}
-                              className="h-9"
-                            />
+                              className={cn(
+                                "h-9 w-full rounded-xl border border-input bg-background px-2 text-sm",
+                                errors.brand && "border-rose-500",
+                              )}
+                            >
+                              <option value="">Select Brand</option>
+                              {brandOptions.map((brand) => (
+                                <option key={brand.id} value={brand.name}>
+                                  {brand.name}
+                                </option>
+                              ))}
+                            </select>
+                            {errors.brand ? (
+                              <p className="mt-1 text-xs text-rose-600">{errors.brand}</p>
+                            ) : null}
                           </td>
                           <td className="px-3 py-2">
                             <Input
@@ -753,7 +934,34 @@ export function ProductsManager() {
         </CardContent>
       </Card>
 
-      <AppTable title="Saved Products" description="Existing product master records.">
+      <AppTable
+        title="Saved Products"
+        description="Search products and edit them inline."
+        actions={
+          <div className="flex w-full flex-col gap-3 md:w-auto md:flex-row md:items-center">
+            <Input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search by SKU, name, brand, HSN, GST"
+              className="w-full min-w-[280px] md:w-[320px]"
+            />
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span>Rows</span>
+              <select
+                value={savedProductsPageSize}
+                onChange={(event) => setSavedProductsPageSize(Number(event.target.value))}
+                className="h-10 rounded-xl border border-input bg-background px-3 text-sm text-foreground"
+              >
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        }
+      >
           {loading ? (
             <p className="p-4 text-sm text-muted-foreground">Loading products...</p>
           ) : (
@@ -768,30 +976,262 @@ export function ProductsManager() {
                   <TableHead>HSN</TableHead>
                   <TableHead>GST</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sortedItems.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell>{item.sku}</TableCell>
-                    <TableCell>{item.name}</TableCell>
-                    <TableCell>{item.brand ?? "-"}</TableCell>
-                    <TableCell>{item.uom}</TableCell>
-                    <TableCell>{item.quantity_precision}</TableCell>
-                    <TableCell>{item.hsn ?? "-"}</TableCell>
-                    <TableCell>
-                      {item.gst_rate
-                        ? `${gstLabelByRate.get(
-                            normalizeTaxRateValue(item.gst_rate),
-                          ) ?? "GST"} (${normalizeTaxRateValue(item.gst_rate)}%)`
-                        : "-"}
+                {filteredItems.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="py-10 text-center text-sm text-muted-foreground">
+                      No products match your search.
                     </TableCell>
-                    <TableCell>{item.is_active ? "Active" : "Inactive"}</TableCell>
                   </TableRow>
-                ))}
+                ) : (
+                  paginatedItems.map((item) => {
+                    const isEditing = inlineEditProductId === item.id && inlineEditRow !== null;
+
+                    return (
+                      <TableRow key={item.id}>
+                        <TableCell>
+                          {isEditing ? (
+                            <>
+                              <Input
+                                value={inlineEditRow.sku}
+                                onChange={(event) => updateInlineEditRow({ sku: event.target.value.toUpperCase() })}
+                                className={cn("h-9", inlineEditErrors.sku && "border-rose-500")}
+                              />
+                              {inlineEditErrors.sku ? (
+                                <p className="mt-1 text-xs text-rose-600">{inlineEditErrors.sku}</p>
+                              ) : null}
+                            </>
+                          ) : (
+                            item.sku
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {isEditing ? (
+                            <>
+                              <Input
+                                value={inlineEditRow.name}
+                                onChange={(event) => updateInlineEditRow({ name: event.target.value })}
+                                className={cn("h-9", inlineEditErrors.name && "border-rose-500")}
+                              />
+                              {inlineEditErrors.name ? (
+                                <p className="mt-1 text-xs text-rose-600">{inlineEditErrors.name}</p>
+                              ) : null}
+                            </>
+                          ) : (
+                            item.name
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {isEditing ? (
+                            <>
+                              <select
+                                value={inlineEditRow.brand}
+                                onChange={(event) => updateInlineEditRow({ brand: event.target.value })}
+                                className={cn(
+                                  "h-9 w-full rounded-xl border border-input bg-background px-2 text-sm",
+                                  inlineEditErrors.brand && "border-rose-500",
+                                )}
+                              >
+                                <option value="">Select Brand</option>
+                                {brandOptions.map((brand) => (
+                                  <option key={brand.id} value={brand.name}>
+                                    {brand.name}
+                                  </option>
+                                ))}
+                              </select>
+                              {inlineEditErrors.brand ? (
+                                <p className="mt-1 text-xs text-rose-600">{inlineEditErrors.brand}</p>
+                              ) : null}
+                            </>
+                          ) : (
+                            item.brand ?? "-"
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {isEditing ? (
+                            <>
+                              <Input
+                                value={inlineEditRow.uom}
+                                onChange={(event) => updateInlineEditRow({ uom: event.target.value.toUpperCase() })}
+                                className={cn("h-9", inlineEditErrors.uom && "border-rose-500")}
+                              />
+                              {inlineEditErrors.uom ? (
+                                <p className="mt-1 text-xs text-rose-600">{inlineEditErrors.uom}</p>
+                              ) : null}
+                            </>
+                          ) : (
+                            item.uom
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {isEditing ? (
+                            <>
+                              <Input
+                                value={inlineEditRow.quantity_precision}
+                                onChange={(event) =>
+                                  updateInlineEditRow({
+                                    quantity_precision: event.target.value.replace(/[^0-9]/g, "").slice(0, 1),
+                                    quantity_precision_overridden: true,
+                                  })
+                                }
+                                className={cn("h-9 text-right", inlineEditErrors.quantity_precision && "border-rose-500")}
+                                inputMode="numeric"
+                              />
+                              {inlineEditErrors.quantity_precision ? (
+                                <p className="mt-1 text-xs text-rose-600">{inlineEditErrors.quantity_precision}</p>
+                              ) : null}
+                            </>
+                          ) : (
+                            item.quantity_precision
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {isEditing ? (
+                            <>
+                              <Input
+                                value={inlineEditRow.hsn}
+                                onChange={(event) =>
+                                  updateInlineEditRow({
+                                    hsn: event.target.value.replace(/[^\d]/g, "").slice(0, 8),
+                                  })
+                                }
+                                className={cn("h-9", inlineEditErrors.hsn && "border-rose-500")}
+                              />
+                              {inlineEditErrors.hsn ? (
+                                <p className="mt-1 text-xs text-rose-600">{inlineEditErrors.hsn}</p>
+                              ) : null}
+                            </>
+                          ) : (
+                            item.hsn ?? "-"
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {isEditing ? (
+                            <>
+                              <select
+                                value={inlineEditRow.gst_rate ? normalizeTaxRateValue(inlineEditRow.gst_rate) : ""}
+                                onChange={(event) => updateInlineEditRow({ gst_rate: event.target.value })}
+                                className={cn(
+                                  "h-9 w-full rounded-xl border border-input bg-background px-2 text-sm",
+                                  inlineEditErrors.gst_rate && "border-rose-500",
+                                )}
+                              >
+                                <option value="">Select GST</option>
+                                {taxRateOptions.map((taxRate) => {
+                                  const normalized = normalizeTaxRateValue(taxRate.rate_percent);
+                                  return (
+                                    <option key={taxRate.id} value={normalized}>
+                                      {normalized}%
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                              {inlineEditErrors.gst_rate ? (
+                                <p className="mt-1 text-xs text-rose-600">{inlineEditErrors.gst_rate}</p>
+                              ) : null}
+                            </>
+                          ) : item.gst_rate ? (
+                            `${normalizeTaxRateValue(item.gst_rate)}%`
+                          ) : (
+                            "-"
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {isEditing ? (
+                            <select
+                              value={inlineEditRow.is_active ? "ACTIVE" : "INACTIVE"}
+                              onChange={(event) => updateInlineEditRow({ is_active: event.target.value === "ACTIVE" })}
+                              className="h-9 w-full rounded-xl border border-input bg-background px-2 text-sm"
+                            >
+                              <option value="ACTIVE">Active</option>
+                              <option value="INACTIVE">Inactive</option>
+                            </select>
+                          ) : (
+                            item.is_active ? "Active" : "Inactive"
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {isEditing ? (
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => void saveInlineEdit()}
+                                disabled={!canManage || saving}
+                              >
+                                <Save className="mr-2 h-4 w-4" />
+                                Save
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={cancelInlineEdit}
+                                disabled={saving}
+                              >
+                                <X className="mr-2 h-4 w-4" />
+                                Cancel
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => beginInlineEdit(item)}
+                              disabled={!canManage || saving}
+                            >
+                              <SquarePen className="mr-2 h-4 w-4" />
+                              Edit
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
               </TableBody>
             </Table>
           )}
+          {!loading && filteredItems.length > 0 ? (
+            <div className="flex flex-col gap-3 border-t border-border px-4 py-4 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
+              <span>
+                Showing {(savedProductsPage - 1) * savedProductsPageSize + 1}
+                {" - "}
+                {Math.min(savedProductsPage * savedProductsPageSize, filteredItems.length)}
+                {" of "}
+                {filteredItems.length}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSavedProductsPage((current) => Math.max(1, current - 1))}
+                  disabled={savedProductsPage === 1}
+                >
+                  Previous
+                </Button>
+                <span className="min-w-24 text-center">
+                  Page {savedProductsPage} of {totalSavedProductPages}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setSavedProductsPage((current) => Math.min(totalSavedProductPages, current + 1))
+                  }
+                  disabled={savedProductsPage >= totalSavedProductPages}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          ) : null}
       </AppTable>
     </div>
   );

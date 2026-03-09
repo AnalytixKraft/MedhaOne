@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Building2,
   ImageIcon,
@@ -105,11 +106,11 @@ const tabs: Array<{ id: SettingsTab; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "company-profile", label: "Company Profile" },
   { id: "organization-users", label: "Organization Users" },
-  { id: "taxes", label: "Taxes" },
   { id: "branding", label: "Branding" },
 ];
 
 export default function SettingsPage() {
+  const router = useRouter();
   const { user, hasPermission, loading: permissionsLoading } = usePermissions();
   const [activeTab, setActiveTab] = useState<SettingsTab>("overview");
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null);
@@ -659,15 +660,15 @@ export default function SettingsPage() {
 
           <OverviewCard
             icon={Shield}
-            title="Tax Master"
-            actionLabel={canViewTaxes ? "Manage Taxes" : "View Taxes"}
-            onAction={() => setActiveTab("taxes")}
+            title="Master Settings"
+            actionLabel={canViewTaxes ? "Open GST Settings" : "Open Master Settings"}
+            onAction={() => router.push("/masters/settings?tab=gst")}
           >
             <OverviewRow label="Total Slabs" value={String(taxRates.length)} />
             <OverviewRow label="Active Slabs" value={String(activeTaxRatesCount)} />
             <OverviewRow
-              label="Manage Access"
-              value={canManageTaxes ? "tax:manage" : "Read only"}
+              label="Location"
+              value="Masters / Master Settings"
             />
           </OverviewCard>
 
@@ -1214,7 +1215,7 @@ export default function SettingsPage() {
               <div className="mt-4 grid gap-3 md:grid-cols-3">
                 <ThemeTile label="Core Shell" value="Slate / Neutral" icon={Palette} />
                 <ThemeTile label="Header Brand" value={companyName} icon={Building2} />
-                <ThemeTile label="Footer" value="Powered by MedhaOne" icon={Shield} />
+                <ThemeTile label="Footer" value="Powered by AnalytixKraft - MedhaOne" icon={Shield} />
               </div>
             </div>
           </div>

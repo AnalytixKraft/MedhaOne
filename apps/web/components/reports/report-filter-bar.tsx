@@ -14,6 +14,10 @@ type FilterOption = {
   value: string;
 };
 
+function toFilterTestId(label: string) {
+  return `report-filter-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}`;
+}
+
 export type ReportFilterState = {
   brandValues: string[];
   productIds: string[];
@@ -26,6 +30,9 @@ export type ReportFilterState = {
   expiryStatus: "all" | "expiring_30" | "expired" | "safe";
   stockStatus: "all" | "available" | "zero" | "negative";
   stockSource: "all" | "opening" | "non_opening";
+  poNumber: string;
+  grnNumber: string;
+  billNumber: string;
 };
 
 export const defaultReportFilters: ReportFilterState = {
@@ -40,6 +47,9 @@ export const defaultReportFilters: ReportFilterState = {
   expiryStatus: "all",
   stockStatus: "all",
   stockSource: "all",
+  poNumber: "",
+  grnNumber: "",
+  billNumber: "",
 };
 
 function MultiSelectFilter({
@@ -91,6 +101,7 @@ function MultiSelectFilter({
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
+        data-testid={toFilterTestId(label)}
         className="flex h-11 w-full items-center justify-between rounded-xl border border-border bg-[hsl(var(--surface-elevated))] px-3 text-left text-sm text-[hsl(var(--text-primary))] shadow-sm transition-colors hover:bg-[hsl(var(--surface-muted))]"
       >
         <span className="truncate">
@@ -174,6 +185,7 @@ export function ReportFilterBar({
   onClear,
   showStockStatus = false,
   showStockSource = false,
+  showDocumentFilters = false,
 }: {
   options: ReportFilterOptions;
   value: ReportFilterState;
@@ -182,6 +194,7 @@ export function ReportFilterBar({
   onClear: () => void;
   showStockStatus?: boolean;
   showStockSource?: boolean;
+  showDocumentFilters?: boolean;
 }) {
   const brandOptions = useMemo(
     () => options.brands.map((entry) => ({ label: entry, value: entry })),
@@ -232,7 +245,10 @@ export function ReportFilterBar({
     value.categoryValues.length > 0 ||
     value.batchNos.length > 0 ||
     value.stockStatus !== "all" ||
-    value.stockSource !== "all";
+    value.stockSource !== "all" ||
+    value.poNumber.trim().length > 0 ||
+    value.grnNumber.trim().length > 0 ||
+    value.billNumber.trim().length > 0;
   const [showAdvanced, setShowAdvanced] = useState(hasAdvancedFilters);
 
   useEffect(() => {
@@ -387,16 +403,49 @@ export function ReportFilterBar({
                 </select>
               </label>
             ) : null}
+            {showDocumentFilters ? (
+              <>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-semibold text-[hsl(var(--text-secondary))]">PO Number</span>
+                  <Input
+                    value={value.poNumber}
+                    onChange={(event) => updateField("poNumber", event.target.value)}
+                    placeholder="Search PO number"
+                    className={secondaryFieldClass}
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-semibold text-[hsl(var(--text-secondary))]">GRN Number</span>
+                  <Input
+                    value={value.grnNumber}
+                    onChange={(event) => updateField("grnNumber", event.target.value)}
+                    placeholder="Search GRN number"
+                    className={secondaryFieldClass}
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-semibold text-[hsl(var(--text-secondary))]">Bill Number</span>
+                  <Input
+                    value={value.billNumber}
+                    onChange={(event) => updateField("billNumber", event.target.value)}
+                    placeholder="Search bill number"
+                    className={secondaryFieldClass}
+                  />
+                </label>
+              </>
+            ) : null}
           </div>
         </div>
       ) : null}
 
       <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
         <Button type="button" variant="outline" onClick={onClear} className="gap-1 rounded-xl">
+          <span data-testid="report-filter-clear" className="hidden" />
           <X className="h-4 w-4" />
           Clear Filters
         </Button>
         <Button type="button" onClick={onApply} className="gap-1 rounded-xl px-5">
+          <span data-testid="report-filter-apply" className="hidden" />
           <Funnel className="h-4 w-4" />
           Apply Filters
         </Button>

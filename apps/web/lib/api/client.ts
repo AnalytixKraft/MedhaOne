@@ -87,14 +87,7 @@ export type PartyType =
   | "RETAILER"
   | "CONSUMER";
 
-export type PartyCategory =
-  | "RETAILER"
-  | "DISTRIBUTOR"
-  | "STOCKIST"
-  | "HOSPITAL"
-  | "PHARMACY"
-  | "INSTITUTION"
-  | "OTHER";
+export type PartyCategory = string;
 
 export type RegistrationType =
   | "REGISTERED"
@@ -112,7 +105,7 @@ export type Party = {
   display_name: string | null;
   party_code: string | null;
   party_type: PartyType;
-  party_category: PartyCategory | null;
+  party_category: string | null;
   contact_person: string | null;
   designation: string | null;
   mobile: string | null;
@@ -153,6 +146,20 @@ export type Warehouse = {
   updated_at: string;
 };
 
+export type WarehouseDeleteResult = {
+  id: number;
+  action: "deleted" | "deactivated";
+  message: string;
+  warehouse: Warehouse;
+};
+
+export type WarehouseBulkDeleteResult = {
+  deleted_count: number;
+  deactivated_count: number;
+  failed_count: number;
+  errors: Array<{ id: number | null; message: string }>;
+};
+
 export type Product = {
   id: number;
   sku: string;
@@ -173,6 +180,22 @@ export type TaxRate = {
   code: string;
   label: string;
   rate_percent: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Category = {
+  id: number;
+  name: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Brand = {
+  id: number;
+  name: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -225,13 +248,23 @@ export type TaxRatePayload = {
   is_active?: boolean;
 };
 
+export type CategoryPayload = {
+  name: string;
+  is_active?: boolean;
+};
+
+export type BrandPayload = {
+  name: string;
+  is_active?: boolean;
+};
+
 export type PartyPayload = {
   party_name: string;
   name?: string;
   display_name?: string;
   party_code?: string;
   party_type: PartyType;
-  party_category?: PartyCategory;
+  party_category?: string;
   contact_person?: string;
   designation?: string;
   mobile?: string;
@@ -471,10 +504,24 @@ export type PurchaseOrderLine = {
   id: number;
   purchase_order_id: number;
   product_id: number;
+  product_name?: string | null;
+  product_sku?: string | null;
+  hsn_code?: string | null;
   ordered_qty: string;
   received_qty: string;
   unit_cost: string | null;
   free_qty: string;
+  discount_amount: string;
+  taxable_value: string;
+  gst_percent: string;
+  cgst_percent: string;
+  sgst_percent: string;
+  igst_percent: string;
+  cgst_amount: string;
+  sgst_amount: string;
+  igst_amount: string;
+  tax_amount: string;
+  line_total: string;
   line_notes: string | null;
 };
 
@@ -482,7 +529,9 @@ export type PurchaseOrder = {
   id: number;
   po_number: string;
   supplier_id: number;
+  supplier_name?: string | null;
   warehouse_id: number;
+  warehouse_name?: string | null;
   status: PurchaseOrderStatus;
   order_date: string;
   expected_date: string | null;
@@ -499,12 +548,23 @@ export type PurchaseOrder = {
   cgst_amount: string;
   sgst_amount: string;
   igst_amount: string;
+  total_tax: string;
   adjustment: string;
   final_total: string;
   created_by: number;
+  created_by_name?: string | null;
   created_at: string;
   updated_at: string;
   lines: PurchaseOrderLine[];
+};
+
+export type PurchaseOrderListQuery = {
+  search?: string;
+  status?: PurchaseOrderStatus | "ALL";
+  supplier_id?: number;
+  warehouse_id?: number;
+  date_from?: string;
+  date_to?: string;
 };
 
 export type PurchaseOrderLinePayload = {
@@ -632,31 +692,67 @@ export type PurchaseBillUpdatePayload = {
   lines?: PurchaseBillLinePayload[];
 };
 
-export type GrnLine = {
+export type GrnBatchLine = {
   id: number;
-  grn_id: number;
-  po_line_id: number;
-  product_id: number;
-  batch_id: number;
+  grn_line_id: number;
+  batch_no: string;
+  expiry_date: string;
+  mfg_date: string | null;
+  mrp: string | null;
   received_qty: string;
   free_qty: string;
   unit_cost: string | null;
-  expiry_date: string;
+  batch_id: number | null;
+  remarks: string | null;
+};
+
+export type GrnLine = {
+  id: number;
+  grn_id: number;
+  po_line_id: number | null;
+  purchase_order_line_id: number | null;
+  purchase_bill_line_id: number | null;
+  product_id: number;
+  product_name: string | null;
+  product_sku: string | null;
+  hsn_code: string | null;
+  product_name_snapshot: string | null;
+  ordered_qty_snapshot: string | null;
+  billed_qty_snapshot: string | null;
+  received_qty_total: string;
+  free_qty_total: string;
+  batch_id: number | null;
+  received_qty: string;
+  free_qty: string;
+  unit_cost: string | null;
+  expiry_date: string | null;
+  remarks: string | null;
+  batch_lines: GrnBatchLine[];
 };
 
 export type Grn = {
   id: number;
   grn_number: string;
   purchase_order_id: number;
+  po_number: string | null;
+  purchase_bill_id: number | null;
+  purchase_bill_number: string | null;
   supplier_id: number;
+  supplier_name: string | null;
   warehouse_id: number;
+  warehouse_name: string | null;
   status: GrnStatus;
   received_date: string;
+  remarks: string | null;
   posted_at: string | null;
   posted_by: number | null;
+  posted_by_name: string | null;
   created_by: number;
+  created_by_name: string | null;
   created_at: string;
   updated_at: string;
+  total_products: number;
+  total_received_qty: string;
   lines: GrnLine[];
 };
 
@@ -829,21 +925,68 @@ export type DispatchNotePayload = {
   lines: DispatchLinePayload[];
 };
 
+export type GrnBatchLinePayload = {
+  batch_id?: number | null;
+  batch_no?: string;
+  expiry_date?: string;
+  mfg_date?: string;
+  mrp?: string;
+  received_qty: string;
+  free_qty?: string;
+  unit_cost?: string;
+  remarks?: string;
+};
+
 export type GrnLinePayload = {
-  po_line_id: number;
+  po_line_id: number | null;
+  purchase_bill_line_id?: number | null;
   received_qty: string;
   free_qty?: string;
   unit_cost?: string;
   batch_id?: number;
   batch_no?: string;
   expiry_date?: string;
+  mfg_date?: string;
+  mrp?: string;
+  remarks?: string;
+  batch_lines?: GrnBatchLinePayload[];
 };
 
 export type CreateGrnFromPoPayload = {
   received_date?: string;
   supplier_id?: number;
   warehouse_id?: number;
+  purchase_bill_id?: number | null;
+  remarks?: string;
   lines: GrnLinePayload[];
+};
+
+export type CreateGrnFromBillPayload = {
+  purchase_order_id?: number | null;
+  received_date?: string;
+  supplier_id?: number;
+  warehouse_id?: number;
+  remarks?: string;
+  lines: GrnLinePayload[];
+};
+
+export type UpdateGrnPayload = {
+  purchase_bill_id?: number | null;
+  received_date: string;
+  remarks?: string;
+  lines: GrnLinePayload[];
+};
+
+export type GrnListQuery = {
+  search?: string;
+  status?: string;
+  supplier_id?: number;
+  warehouse_id?: number;
+  po_number?: string;
+  bill_number?: string;
+  grn_number?: string;
+  date_from?: string;
+  date_to?: string;
 };
 
 export type TestResetResponse = {
@@ -931,6 +1074,10 @@ export type StockMovementReportRow = {
   product: string;
   batch: string;
   warehouse: string;
+  source_supplier: string | null;
+  source_po: string | null;
+  source_bill: string | null;
+  source_grn: string | null;
   qty_in: string;
   qty_out: string;
   running_balance: string;
@@ -938,11 +1085,14 @@ export type StockMovementReportRow = {
 };
 
 export type CurrentStockReportRow = {
+  product_id: number;
   sku: string;
   product_name: string;
   brand: string | null;
   category: string | null;
+  warehouse_id: number;
   warehouse: string;
+  batch_id: number;
   batch: string;
   expiry_date: string;
   available_qty: string;
@@ -961,6 +1111,54 @@ export type CurrentStockSummary = {
 
 export type CurrentStockReportResponse = PagedResponse<CurrentStockReportRow> & {
   summary: CurrentStockSummary;
+};
+
+export type StockSourceTraceabilityReportRow = {
+  product_id: number;
+  warehouse_id: number;
+  batch_id: number;
+  product: string;
+  sku: string;
+  batch_no: string;
+  expiry_date: string;
+  warehouse: string;
+  qty_on_hand: string;
+  received_qty: string;
+  free_qty: string;
+  supplier_name: string;
+  po_number: string;
+  purchase_bill_number: string | null;
+  grn_number: string;
+  received_date: string;
+  unit_cost: string | null;
+  quantity_precision: number;
+};
+
+export type CurrentStockSourceDetailRow = {
+  supplier_name: string;
+  po_number: string;
+  purchase_bill_number: string | null;
+  grn_number: string;
+  received_date: string;
+  received_qty: string;
+  free_qty: string;
+  unit_cost: string | null;
+  grn_line_id: number;
+  grn_batch_line_id: number;
+};
+
+export type CurrentStockSourceDetailResponse = {
+  product_id: number;
+  warehouse_id: number;
+  batch_id: number;
+  sku: string;
+  product_name: string;
+  warehouse: string;
+  batch_no: string;
+  expiry_date: string;
+  qty_on_hand: string;
+  quantity_precision: number;
+  sources: CurrentStockSourceDetailRow[];
 };
 
 export type OpeningStockReportRow = {
@@ -1000,6 +1198,34 @@ export type ReportFilterOptions = {
   products: ReportEntityOption[];
   suppliers: ReportEntityOption[];
   warehouses: ReportEntityOption[];
+};
+
+export type MasterReportFilterOptions = ReportFilterOptions & {
+  party_types: string[];
+  party_categories: string[];
+  states: string[];
+  cities: string[];
+};
+
+export type DataQualityFilterOptions = {
+  entity_types: string[];
+  missing_field_types: string[];
+  duplicate_types: string[];
+  compliance_types: string[];
+};
+
+export type ReportSummaryMetric = {
+  key: string;
+  label: string;
+  value: string | number | boolean | null;
+};
+
+export type GenericTabularReportResponse = {
+  total: number;
+  page: number;
+  page_size: number;
+  summary: ReportSummaryMetric[];
+  data: Array<Record<string, string | number | boolean | null>>;
 };
 
 function toErrorMessage(errorBody: ApiError): string {
@@ -1132,6 +1358,44 @@ export const apiClient = {
     request<TaxRate>(`/api/tax-rates/${id}`, {
       method: "DELETE",
     }),
+  listCategories: (includeInactive = false) =>
+    request<Category[]>(
+      withQuery("/api/masters/categories", { include_inactive: includeInactive }),
+      { method: "GET" },
+    ),
+  createCategory: (payload: CategoryPayload) =>
+    request<Category>("/api/masters/categories", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateCategory: (id: number, payload: Partial<CategoryPayload>) =>
+    request<Category>(`/api/masters/categories/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  deleteCategory: (id: number) =>
+    request<Category>(`/api/masters/categories/${id}`, {
+      method: "DELETE",
+    }),
+  listBrands: (includeInactive = false) =>
+    request<Brand[]>(
+      withQuery("/api/masters/brands", { include_inactive: includeInactive }),
+      { method: "GET" },
+    ),
+  createBrand: (payload: BrandPayload) =>
+    request<Brand>("/api/masters/brands", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateBrand: (id: number, payload: Partial<BrandPayload>) =>
+    request<Brand>(`/api/masters/brands/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  deleteBrand: (id: number) =>
+    request<Brand>(`/api/masters/brands/${id}`, {
+      method: "DELETE",
+    }),
 
   listParties: () =>
     request<Party[]>("/api/masters/parties", { method: "GET" }),
@@ -1173,8 +1437,13 @@ export const apiClient = {
       body: JSON.stringify(payload),
     }),
 
-  listWarehouses: () =>
-    request<Warehouse[]>("/api/masters/warehouses", { method: "GET" }),
+  listWarehouses: (includeInactive = false) =>
+    request<Warehouse[]>(
+      withQuery("/api/masters/warehouses", {
+        include_inactive: includeInactive ? "true" : undefined,
+      }),
+      { method: "GET" },
+    ),
   createWarehouse: (payload: WarehousePayload) =>
     request<Warehouse>("/api/masters/warehouses", {
       method: "POST",
@@ -1184,6 +1453,15 @@ export const apiClient = {
     request<Warehouse>(`/api/masters/warehouses/${id}`, {
       method: "PUT",
       body: JSON.stringify(payload),
+    }),
+  deleteWarehouse: (id: number) =>
+    request<WarehouseDeleteResult>(`/api/masters/warehouses/${id}`, {
+      method: "DELETE",
+    }),
+  bulkDeleteWarehouses: (ids: number[]) =>
+    request<WarehouseBulkDeleteResult>("/api/masters/warehouses/bulk-delete", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
     }),
   bulkUploadOpeningStock: (payload: { rows?: Record<string, unknown>[]; csv_data?: string }) =>
     request<BulkImportResult>("/api/inventory/opening-stock/bulk", {
@@ -1287,14 +1565,23 @@ export const apiClient = {
       method: "GET",
     }),
 
-  listPurchaseOrders: () =>
-    request<{ items: PurchaseOrder[] }>("/api/purchase/po", { method: "GET" }),
+  listPurchaseOrders: (query?: PurchaseOrderListQuery) =>
+    request<{ items: PurchaseOrder[] }>(withQuery("/api/purchase/po", query), { method: "GET" }),
   getPurchaseOrder: (id: number) =>
     request<PurchaseOrder>(`/api/purchase/po/${id}`, { method: "GET" }),
   createPurchaseOrder: (payload: PurchaseOrderPayload) =>
     request<PurchaseOrder>("/api/purchase/po", {
       method: "POST",
       body: JSON.stringify(payload),
+    }),
+  updatePurchaseOrder: (id: number, payload: PurchaseOrderPayload) =>
+    request<PurchaseOrder>(`/api/purchase/po/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  cancelPurchaseOrder: (id: number) =>
+    request<PurchaseOrder>(`/api/purchase/po/${id}/cancel`, {
+      method: "POST",
     }),
   listPurchaseBills: () =>
     request<{ items: PurchaseBill[] }>("/api/purchase-bills", { method: "GET" }),
@@ -1345,7 +1632,8 @@ export const apiClient = {
       method: "POST",
     }),
 
-  listGrns: () => request<Grn[]>("/api/purchase/grn", { method: "GET" }),
+  listGrns: (query?: GrnListQuery) =>
+    request<Grn[]>(withQuery("/api/purchase/grn", query), { method: "GET" }),
   getGrn: (id: number) =>
     request<Grn>(`/api/purchase/grn/${id}`, { method: "GET" }),
   createGrnFromPo: (poId: number, payload: CreateGrnFromPoPayload) =>
@@ -1353,9 +1641,28 @@ export const apiClient = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  createGrnFromBill: (billId: number, payload: CreateGrnFromBillPayload) =>
+    request<Grn>(`/api/purchase/grn/from-bill/${billId}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateGrn: (id: number, payload: UpdateGrnPayload) =>
+    request<Grn>(`/api/purchase/grn/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
   postGrn: (id: number) =>
     request<Grn>(`/api/purchase/grn/${id}/post`, {
       method: "POST",
+    }),
+  cancelGrn: (id: number) =>
+    request<Grn>(`/api/purchase/grn/${id}/cancel`, {
+      method: "POST",
+    }),
+  attachBillToGrn: (id: number, purchaseBillId: number) =>
+    request<Grn>(`/api/purchase/grn/${id}/attach-bill`, {
+      method: "POST",
+      body: JSON.stringify({ purchase_bill_id: purchaseBillId }),
     }),
   listPurchaseCreditNotes: () =>
     request<PurchaseCreditNote[]>("/api/purchase-credit-notes", {
@@ -1390,12 +1697,43 @@ export const apiClient = {
     request<CurrentStockReportResponse>(withQuery("/api/reports/current-stock", query), {
       method: "GET",
     }),
+  getCurrentStockSourceDetail: (query: {
+    warehouse_id: number;
+    product_id: number;
+    batch_id: number;
+  }) =>
+    request<CurrentStockSourceDetailResponse>(
+      withQuery("/api/reports/current-stock/source-details", query),
+      {
+        method: "GET",
+      },
+    ),
   getOpeningStockReport: (query?: Record<string, string | number | boolean | undefined | null>) =>
     request<OpeningStockReportResponse>(withQuery("/api/reports/opening-stock", query), {
       method: "GET",
     }),
+  getStockSourceTraceabilityReport: (
+    query?: Record<string, string | number | boolean | undefined | null>,
+  ) =>
+    request<PagedResponse<StockSourceTraceabilityReportRow>>(
+      withQuery("/api/reports/stock-source-traceability", query),
+      {
+        method: "GET",
+      },
+    ),
   getReportFilterOptions: () =>
     request<ReportFilterOptions>("/api/reports/filter-options", { method: "GET" }),
+  getMasterReportFilterOptions: () =>
+    request<MasterReportFilterOptions>("/api/reports/masters/filter-options", { method: "GET" }),
+  getDataQualityFilterOptions: () =>
+    request<DataQualityFilterOptions>("/api/reports/data-quality/filter-options", { method: "GET" }),
+  getGenericReport: (
+    path: string,
+    query?: Record<string, string | number | boolean | undefined | null>,
+  ) =>
+    request<GenericTabularReportResponse>(withQuery(path, query), {
+      method: "GET",
+    }),
   listUsers: () =>
     request<{ items: ManagedUser[] }>("/api/users", { method: "GET" }),
   listUserRoleOptions: () =>

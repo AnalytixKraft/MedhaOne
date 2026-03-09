@@ -612,6 +612,70 @@ def _ensure_runtime_schema_compatibility(db: Session, schema_name: str) -> None:
             _SCHEMA_COMPATIBILITY_CHECKED.add(schema_name)
         return
 
+    categories_table_exists = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = :schema_name
+              AND table_name = 'categories'
+            """
+        ),
+        {"schema_name": schema_name},
+    ).scalar_one_or_none()
+
+    if categories_table_exists is None:
+        db.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS {_build_quoted_schema_table(schema_name, "categories")} (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(120) NOT NULL UNIQUE,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+        )
+        db.commit()
+        logger.warning(
+            "Auto-repaired tenant schema to add missing categories table",
+            extra={"schema": schema_name},
+        )
+
+    brands_table_exists = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = :schema_name
+              AND table_name = 'brands'
+            """
+        ),
+        {"schema_name": schema_name},
+    ).scalar_one_or_none()
+
+    if brands_table_exists is None:
+        db.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS {_build_quoted_schema_table(schema_name, "brands")} (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(120) NOT NULL UNIQUE,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+        )
+        db.commit()
+        logger.warning(
+            "Auto-repaired tenant schema to add missing brands table",
+            extra={"schema": schema_name},
+        )
+
     _auto_repair_inventory_tables(db, schema_name)
     _auto_repair_purchase_tables(db, schema_name)
     _auto_repair_purchase_bill_tables(db, schema_name)
@@ -1045,6 +1109,14 @@ def _auto_repair_purchase_tables(db: Session, schema_name: str) -> None:
     parties_table = _build_quoted_schema_table(schema_name, "parties")
     po_table = _build_quoted_schema_table(schema_name, "purchase_orders")
     po_lines_table = _build_quoted_schema_table(schema_name, "purchase_order_lines")
+    grn_table = _build_quoted_schema_table(schema_name, "grns")
+    grn_lines_table = _build_quoted_schema_table(schema_name, "grn_lines")
+    grn_batch_lines_table = _build_quoted_schema_table(schema_name, "grn_batch_lines")
+    stock_source_provenance_table = _build_quoted_schema_table(schema_name, "stock_source_provenance")
+    inventory_ledger_table = _build_quoted_schema_table(schema_name, "inventory_ledger")
+    batches_table = _build_quoted_schema_table(schema_name, "batches")
+    purchase_bills_table = _build_quoted_schema_table(schema_name, "purchase_bills")
+    purchase_bill_lines_table = _build_quoted_schema_table(schema_name, "purchase_bill_lines")
     users_id_data_type = (
         db.execute(
             text(
@@ -1161,6 +1233,17 @@ def _auto_repair_purchase_tables(db: Session, schema_name: str) -> None:
                     received_qty NUMERIC(18, 3) NOT NULL DEFAULT 0,
                     unit_cost NUMERIC(14, 4) NULL,
                     free_qty NUMERIC(18, 3) NOT NULL DEFAULT 0,
+                    discount_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+                    taxable_value NUMERIC(14, 2) NOT NULL DEFAULT 0,
+                    gst_percent NUMERIC(5, 2) NOT NULL DEFAULT 0,
+                    cgst_percent NUMERIC(5, 2) NOT NULL DEFAULT 0,
+                    sgst_percent NUMERIC(5, 2) NOT NULL DEFAULT 0,
+                    igst_percent NUMERIC(5, 2) NOT NULL DEFAULT 0,
+                    cgst_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+                    sgst_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+                    igst_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+                    tax_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+                    line_total NUMERIC(14, 2) NOT NULL DEFAULT 0,
                     line_notes TEXT NULL
                 )
                 """
@@ -1168,12 +1251,265 @@ def _auto_repair_purchase_tables(db: Session, schema_name: str) -> None:
         )
         did_repair = True
 
+    purchase_order_line_columns = {
+        "discount_amount": "NUMERIC(14, 2) NOT NULL DEFAULT 0",
+        "taxable_value": "NUMERIC(14, 2) NOT NULL DEFAULT 0",
+        "gst_percent": "NUMERIC(5, 2) NOT NULL DEFAULT 0",
+        "cgst_percent": "NUMERIC(5, 2) NOT NULL DEFAULT 0",
+        "sgst_percent": "NUMERIC(5, 2) NOT NULL DEFAULT 0",
+        "igst_percent": "NUMERIC(5, 2) NOT NULL DEFAULT 0",
+        "cgst_amount": "NUMERIC(14, 2) NOT NULL DEFAULT 0",
+        "sgst_amount": "NUMERIC(14, 2) NOT NULL DEFAULT 0",
+        "igst_amount": "NUMERIC(14, 2) NOT NULL DEFAULT 0",
+        "tax_amount": "NUMERIC(14, 2) NOT NULL DEFAULT 0",
+        "line_total": "NUMERIC(14, 2) NOT NULL DEFAULT 0",
+    }
+    for column_name, column_sql in purchase_order_line_columns.items():
+        exists = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = :schema_name
+                  AND table_name = 'purchase_order_lines'
+                  AND column_name = :column_name
+                """
+            ),
+            {"schema_name": schema_name, "column_name": column_name},
+        ).scalar_one_or_none()
+        if exists is None:
+            did_ddl = True
+            db.execute(
+                text(
+                    f"""
+                    ALTER TABLE {po_lines_table}
+                    ADD COLUMN IF NOT EXISTS {column_name} {column_sql}
+                    """
+                )
+            )
+            did_repair = True
+
+    if all(_table_exists(db, schema_name, table_name) for table_name in ("batches",)):
+        purchase_bill_fk_sql = (
+            f"INTEGER NULL REFERENCES {purchase_bills_table}(id)"
+            if _table_exists(db, schema_name, "purchase_bills")
+            else "INTEGER NULL"
+        )
+        purchase_bill_line_fk_sql = (
+            f"INTEGER NULL REFERENCES {purchase_bill_lines_table}(id)"
+            if _table_exists(db, schema_name, "purchase_bill_lines")
+            else "INTEGER NULL"
+        )
+        if not _table_exists(db, schema_name, "grns"):
+            did_ddl = True
+            db.execute(
+                text(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS {grn_table} (
+                        id SERIAL PRIMARY KEY,
+                        grn_number VARCHAR(60) NOT NULL UNIQUE,
+                        purchase_order_id INTEGER NOT NULL REFERENCES {po_table}(id),
+                        purchase_bill_id {purchase_bill_fk_sql},
+                        supplier_id INTEGER NOT NULL REFERENCES {parties_table}(id),
+                        warehouse_id INTEGER NOT NULL REFERENCES {warehouses_table}(id),
+                        status grn_status_enum NOT NULL DEFAULT 'DRAFT',
+                        received_date DATE NOT NULL,
+                        remarks TEXT NULL,
+                        posted_at TIMESTAMPTZ NULL,
+                        posted_by {users_id_type} NULL,
+                        {created_by_column_sql}
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                    """
+                )
+            )
+            did_repair = True
+
+        grn_columns = {
+            "purchase_bill_id": purchase_bill_fk_sql,
+            "remarks": "TEXT NULL",
+            "posted_at": "TIMESTAMPTZ NULL",
+            "posted_by": f"{users_id_type} NULL",
+            "created_at": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+            "updated_at": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+        }
+        for column_name, column_sql in grn_columns.items():
+            exists = db.execute(
+                text(
+                    """
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = :schema_name
+                      AND table_name = 'grns'
+                      AND column_name = :column_name
+                    """
+                ),
+                {"schema_name": schema_name, "column_name": column_name},
+            ).scalar_one_or_none()
+            if exists is None:
+                did_ddl = True
+                db.execute(
+                    text(
+                        f"""
+                        ALTER TABLE {grn_table}
+                        ADD COLUMN IF NOT EXISTS {column_name} {column_sql}
+                        """
+                    )
+                )
+                did_repair = True
+
+        if not _table_exists(db, schema_name, "grn_lines"):
+            did_ddl = True
+            db.execute(
+                text(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS {grn_lines_table} (
+                        id SERIAL PRIMARY KEY,
+                        grn_id INTEGER NOT NULL REFERENCES {grn_table}(id),
+                        po_line_id INTEGER NULL REFERENCES {po_lines_table}(id),
+                        purchase_bill_line_id {purchase_bill_line_fk_sql},
+                        product_id INTEGER NOT NULL REFERENCES {products_table}(id),
+                        product_name_snapshot VARCHAR(255) NULL,
+                        ordered_qty_snapshot NUMERIC(18, 3) NULL,
+                        billed_qty_snapshot NUMERIC(18, 3) NULL,
+                        received_qty_total NUMERIC(18, 3) NOT NULL DEFAULT 0,
+                        free_qty_total NUMERIC(18, 3) NOT NULL DEFAULT 0,
+                        batch_id INTEGER NULL REFERENCES {batches_table}(id),
+                        received_qty NUMERIC(18, 3) NOT NULL,
+                        free_qty NUMERIC(18, 3) NOT NULL DEFAULT 0,
+                        unit_cost NUMERIC(14, 4) NULL,
+                        expiry_date DATE NULL,
+                        remarks TEXT NULL
+                    )
+                    """
+                )
+            )
+            did_repair = True
+
+        grn_line_columns = {
+            "purchase_bill_line_id": purchase_bill_line_fk_sql,
+            "product_name_snapshot": "VARCHAR(255) NULL",
+            "ordered_qty_snapshot": "NUMERIC(18, 3) NULL",
+            "billed_qty_snapshot": "NUMERIC(18, 3) NULL",
+            "received_qty_total": "NUMERIC(18, 3) NOT NULL DEFAULT 0",
+            "free_qty_total": "NUMERIC(18, 3) NOT NULL DEFAULT 0",
+            "remarks": "TEXT NULL",
+        }
+        for column_name, column_sql in grn_line_columns.items():
+            exists = db.execute(
+                text(
+                    """
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = :schema_name
+                      AND table_name = 'grn_lines'
+                      AND column_name = :column_name
+                    """
+                ),
+                {"schema_name": schema_name, "column_name": column_name},
+            ).scalar_one_or_none()
+            if exists is None:
+                did_ddl = True
+                db.execute(
+                    text(
+                        f"""
+                        ALTER TABLE {grn_lines_table}
+                        ADD COLUMN IF NOT EXISTS {column_name} {column_sql}
+                        """
+                    )
+                )
+                did_repair = True
+
+        for nullable_column in ("po_line_id", "batch_id", "expiry_date"):
+            did_ddl = True
+            db.execute(
+                text(
+                    f"""
+                    ALTER TABLE {grn_lines_table}
+                    ALTER COLUMN {nullable_column} DROP NOT NULL
+                    """
+                )
+            )
+
+        if not _table_exists(db, schema_name, "grn_batch_lines"):
+            did_ddl = True
+            db.execute(
+                text(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS {grn_batch_lines_table} (
+                        id SERIAL PRIMARY KEY,
+                        grn_line_id INTEGER NOT NULL REFERENCES {grn_lines_table}(id),
+                        batch_no VARCHAR(80) NOT NULL,
+                        expiry_date DATE NOT NULL,
+                        mfg_date DATE NULL,
+                        mrp NUMERIC(14, 2) NULL,
+                        received_qty NUMERIC(18, 3) NOT NULL,
+                        free_qty NUMERIC(18, 3) NOT NULL DEFAULT 0,
+                        unit_cost NUMERIC(14, 4) NULL,
+                        batch_id INTEGER NULL REFERENCES {batches_table}(id),
+                        remarks TEXT NULL
+                    )
+                    """
+                )
+            )
+            did_repair = True
+
+        if _table_exists(db, schema_name, "inventory_ledger"):
+            provenance_purchase_bill_fk_sql = (
+                f"INTEGER NULL REFERENCES {purchase_bills_table}(id)"
+                if _table_exists(db, schema_name, "purchase_bills")
+                else "INTEGER NULL"
+            )
+            if not _table_exists(db, schema_name, "stock_source_provenance"):
+                did_ddl = True
+                db.execute(
+                    text(
+                        f"""
+                        CREATE TABLE IF NOT EXISTS {stock_source_provenance_table} (
+                            id SERIAL PRIMARY KEY,
+                            ledger_id INTEGER NOT NULL REFERENCES {inventory_ledger_table}(id),
+                            supplier_id INTEGER NOT NULL REFERENCES {parties_table}(id),
+                            purchase_order_id INTEGER NOT NULL REFERENCES {po_table}(id),
+                            purchase_bill_id {provenance_purchase_bill_fk_sql},
+                            grn_id INTEGER NOT NULL REFERENCES {grn_table}(id),
+                            grn_line_id INTEGER NOT NULL REFERENCES {grn_lines_table}(id),
+                            grn_batch_line_id INTEGER NOT NULL REFERENCES {grn_batch_lines_table}(id),
+                            warehouse_id INTEGER NOT NULL REFERENCES {warehouses_table}(id),
+                            product_id INTEGER NOT NULL REFERENCES {products_table}(id),
+                            batch_id INTEGER NOT NULL REFERENCES {batches_table}(id),
+                            batch_no VARCHAR(100) NOT NULL,
+                            expiry_date DATE NOT NULL,
+                            inward_date DATE NOT NULL,
+                            received_qty NUMERIC(18, 3) NOT NULL,
+                            free_qty NUMERIC(18, 3) NOT NULL DEFAULT 0,
+                            unit_cost_snapshot NUMERIC(14, 4) NULL,
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            CONSTRAINT uq_stock_source_provenance_ledger_id UNIQUE (ledger_id)
+                        )
+                        """
+                    )
+                )
+                did_repair = True
+
     for sql in [
         f"CREATE INDEX IF NOT EXISTS ix_purchase_orders_supplier_id ON {po_table} (supplier_id)",
         f"CREATE INDEX IF NOT EXISTS ix_purchase_orders_warehouse_id ON {po_table} (warehouse_id)",
         f"CREATE INDEX IF NOT EXISTS ix_purchase_orders_status ON {po_table} (status)",
         f"CREATE INDEX IF NOT EXISTS ix_purchase_orders_order_date ON {po_table} (order_date)",
         f"CREATE INDEX IF NOT EXISTS ix_purchase_order_lines_purchase_order_id ON {po_lines_table} (purchase_order_id)",
+        f"CREATE INDEX IF NOT EXISTS ix_grns_purchase_order_id ON {grn_table} (purchase_order_id)",
+        f"CREATE INDEX IF NOT EXISTS ix_grns_supplier_id ON {grn_table} (supplier_id)",
+        f"CREATE INDEX IF NOT EXISTS ix_grns_warehouse_id ON {grn_table} (warehouse_id)",
+        f"CREATE INDEX IF NOT EXISTS ix_grns_status ON {grn_table} (status)",
+        f"CREATE INDEX IF NOT EXISTS ix_grns_posted_at ON {grn_table} (posted_at)",
+        f"CREATE INDEX IF NOT EXISTS ix_grn_batch_lines_grn_line_id ON {grn_batch_lines_table} (grn_line_id)",
+        f"CREATE INDEX IF NOT EXISTS ix_stock_source_provenance_supplier_id ON {stock_source_provenance_table} (supplier_id)",
+        f"CREATE INDEX IF NOT EXISTS ix_stock_source_provenance_purchase_order_id ON {stock_source_provenance_table} (purchase_order_id)",
+        f"CREATE INDEX IF NOT EXISTS ix_stock_source_provenance_purchase_bill_id ON {stock_source_provenance_table} (purchase_bill_id)",
+        f"CREATE INDEX IF NOT EXISTS ix_stock_source_provenance_grn_id ON {stock_source_provenance_table} (grn_id)",
+        f"CREATE INDEX IF NOT EXISTS ix_stock_source_provenance_bucket ON {stock_source_provenance_table} (warehouse_id, product_id, batch_id)",
     ]:
         did_ddl = True
         db.execute(text(sql))

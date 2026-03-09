@@ -12,6 +12,12 @@ import {
   PurchaseLineRow,
 } from "@/components/purchase/purchase-line-row";
 
+export type PurchaseLineFinancials = {
+  gstDisplay: string;
+  taxAmount: number;
+  lineTotal: number;
+};
+
 const FIELD_ORDER: PurchaseGridField[] = [
   "item",
   "batch",
@@ -28,6 +34,7 @@ type PurchaseLineGridProps = {
   onRemoveLine: (lineId: string) => void;
   onDuplicateLine: (line: PurchaseLineDraft) => string;
   formatAmount: (value: number) => string;
+  lineFinancialsById: Record<string, PurchaseLineFinancials>;
 };
 
 export function PurchaseLineGrid({
@@ -38,6 +45,7 @@ export function PurchaseLineGrid({
   onRemoveLine,
   onDuplicateLine,
   formatAmount,
+  lineFinancialsById,
 }: PurchaseLineGridProps) {
   const cellRefs = useRef<Record<string, HTMLElement | null>>({});
   const rowsRef = useRef(rows);
@@ -158,9 +166,10 @@ export function PurchaseLineGrid({
               <div className="px-3.5 py-3">Expiry</div>
               <div className="px-3.5 py-3 text-right">Qty</div>
               <div className="px-3.5 py-3 text-right">Unit Cost</div>
-              <div className="px-3.5 py-3 text-right">GST Rate</div>
+              <div className="px-3.5 py-3">GST %</div>
+              <div className="px-3.5 py-3 text-right">Tax Amount</div>
               <div className="px-3.5 py-3">HSN Code</div>
-              <div className="px-3.5 py-3 text-right">Total</div>
+              <div className="px-3.5 py-3 text-right">Line Total</div>
               <div className="px-3.5 py-3 text-center">Action</div>
             </div>
 
@@ -178,14 +187,15 @@ export function PurchaseLineGrid({
                 <div />
                 <div />
                 <div />
+                <div />
               </div>
             ) : (
               rows.map((row, index) => {
-                const quantity = Number.parseFloat(row.ordered_qty || "0");
-                const unitCost = Number.parseFloat(row.unit_cost || "0");
-                const rowTotal =
-                  (Number.isFinite(quantity) ? quantity : 0) *
-                  (Number.isFinite(unitCost) ? unitCost : 0);
+                const lineFinancials = lineFinancialsById[row.id] ?? {
+                  gstDisplay: "0.00%",
+                  taxAmount: 0,
+                  lineTotal: 0,
+                };
 
                 return (
                   <PurchaseLineRow
@@ -199,7 +209,9 @@ export function PurchaseLineGrid({
                     onDuplicateLine={handleDuplicateLine}
                     onCellKeyDown={handleCellKeyDown}
                     registerCell={registerCell}
-                    rowTotalDisplay={formatAmount(rowTotal)}
+                    rowGstDisplay={lineFinancials.gstDisplay}
+                    rowTaxAmountDisplay={formatAmount(lineFinancials.taxAmount)}
+                    rowTotalDisplay={formatAmount(lineFinancials.lineTotal)}
                     canRemove={rows.length > 1}
                   />
                 );

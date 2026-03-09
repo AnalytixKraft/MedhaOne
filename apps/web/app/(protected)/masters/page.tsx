@@ -24,6 +24,18 @@ const masterCards = [
     description: "Storage locations used by stock ledger and summary.",
   },
   {
+    href: "/masters/settings",
+    testId: "masters-settings-card",
+    title: "Master Settings",
+    description: "GST slabs, TDS/TCS placeholder, and category masters managed centrally.",
+  },
+  {
+    href: "/masters/reports",
+    testId: "masters-reports-card",
+    title: "Reports",
+    description: "Business-facing master reports for warehouses, items, parties, brands, and categories.",
+  },
+  {
     href: "/masters/bulk-import",
     testId: "masters-bulk-import-card",
     title: "Bulk Import",
@@ -36,7 +48,7 @@ export default function MastersPage() {
     <div>
       <PageTitle title="Masters" description="Manage foundational data for operations." />
       <MastersNav />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         {masterCards.map((card) => (
           <Link key={card.href} href={card.href} data-testid={card.testId}>
             <Card className="h-full transition hover:border-primary">

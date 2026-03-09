@@ -8,6 +8,7 @@ import { useRbacSession } from "@/components/rbac/session-provider";
 import { SudoBanner } from "@/components/rbac/sudo-banner";
 import { SuperAdminHeader } from "@/components/rbac/super-admin/header";
 import { SuperAdminSidebar } from "@/components/rbac/super-admin/sidebar";
+import { AppFooter } from "@/components/layout/app-footer";
 import { cn } from "@/lib/utils";
 
 export function SuperAdminLayout({ children }: { children: ReactNode }) {
@@ -42,6 +43,7 @@ export function SuperAdminLayout({ children }: { children: ReactNode }) {
                 <SudoBanner />
                 <div className="transition-opacity duration-200 opacity-100">{children}</div>
               </main>
+              <AppFooter />
             </div>
           </div>
         </div>

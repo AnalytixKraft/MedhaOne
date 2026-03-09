@@ -25,6 +25,7 @@ import {
 import {
   apiClient,
   type BulkImportError,
+  type Category,
   type Party,
   type PartyCategory,
   type PartyPayload,
@@ -43,15 +44,6 @@ import { cn } from "@/lib/utils";
 type ViewMode = "form" | "grid";
 
 const partyTypeOptions: PartyType[] = ["CUSTOMER", "SUPPLIER", "BOTH"];
-const partyCategoryOptions: PartyCategory[] = [
-  "RETAILER",
-  "DISTRIBUTOR",
-  "STOCKIST",
-  "HOSPITAL",
-  "PHARMACY",
-  "INSTITUTION",
-  "OTHER",
-];
 const registrationTypeOptions: RegistrationType[] = [
   "REGISTERED",
   "UNREGISTERED",
@@ -64,6 +56,7 @@ const outstandingTrackingOptions: OutstandingTrackingMode[] = [
   "FIFO",
   "ON_ACCOUNT",
 ];
+const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 
 type PartyFormState = {
   party_name: string;
@@ -220,6 +213,14 @@ function isGridRowBlank(row: GridRow) {
   );
 }
 
+function formatCategoryLabel(value: string) {
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
 function applyGstinIntelligence<T extends { gstin: string; pan_number: string; state: string }>(
   record: T,
   rawValue: string,
@@ -282,7 +283,9 @@ function validateForm(form: PartyFormState): ValidationErrors {
   if (!form.party_type) {
     errors.party_type = "Party Type is required";
   }
-  if (form.gstin.trim() && !GSTIN_PATTERN.test(form.gstin.trim())) {
+  if (!form.gstin.trim()) {
+    errors.gstin = "GSTIN is required";
+  } else if (!GSTIN_PATTERN.test(form.gstin.trim())) {
     errors.gstin = "Invalid GSTIN format";
   }
   if (form.pincode.trim() && !/^\d{6}$/.test(form.pincode.trim())) {
@@ -302,7 +305,9 @@ function validateGridRow(row: GridRow): ValidationErrors {
   if (!row.party_name.trim()) {
     errors.party_name = "Required";
   }
-  if (row.gstin.trim() && !GSTIN_PATTERN.test(row.gstin.trim())) {
+  if (!row.gstin.trim()) {
+    errors.gstin = "Required";
+  } else if (!GSTIN_PATTERN.test(row.gstin.trim())) {
     errors.gstin = "Invalid GSTIN";
   }
   if (row.mobile.trim() && !/^\d{10}$/.test(row.mobile.trim())) {
@@ -407,6 +412,7 @@ export function PartiesManager() {
 
   const [viewMode, setViewMode] = useState<ViewMode>("form");
   const [items, setItems] = useState<Party[]>([]);
+  const [partyCategories, setPartyCategories] = useState<Category[]>([]);
   const [form, setForm] = useState<PartyFormState>(createEmptyForm);
   const [formErrors, setFormErrors] = useState<ValidationErrors>({});
   const [editingPartyId, setEditingPartyId] = useState<number | null>(null);
@@ -414,6 +420,8 @@ export function PartiesManager() {
   const [gridErrors, setGridErrors] = useState<Record<string, ValidationErrors>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savedPartiesPage, setSavedPartiesPage] = useState(1);
+  const [savedPartiesPageSize, setSavedPartiesPageSize] = useState<number>(10);
   const [summary, setSummary] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const nextGridId = useRef(2);
@@ -423,8 +431,12 @@ export function PartiesManager() {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiClient.listParties();
-      setItems(data);
+      const [parties, categories] = await Promise.all([
+        apiClient.listParties(),
+        apiClient.listCategories(),
+      ]);
+      setItems(parties);
+      setPartyCategories(categories);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load Party Master");
     } finally {
@@ -440,6 +452,27 @@ export function PartiesManager() {
     () => [...items].sort((left, right) => (left.party_name ?? left.name).localeCompare(right.party_name ?? right.name)),
     [items],
   );
+
+  const partyCategoryOptions = useMemo(
+    () => partyCategories.map((category) => category.name).sort((left, right) => left.localeCompare(right)),
+    [partyCategories],
+  );
+
+  const totalSavedPartyPages = Math.max(
+    1,
+    Math.ceil(savedParties.length / savedPartiesPageSize),
+  );
+
+  const paginatedSavedParties = useMemo(() => {
+    const startIndex = (savedPartiesPage - 1) * savedPartiesPageSize;
+    return savedParties.slice(startIndex, startIndex + savedPartiesPageSize);
+  }, [savedParties, savedPartiesPage, savedPartiesPageSize]);
+
+  useEffect(() => {
+    if (savedPartiesPage > totalSavedPartyPages) {
+      setSavedPartiesPage(totalSavedPartyPages);
+    }
+  }, [savedPartiesPage, totalSavedPartyPages]);
 
   function resetForm() {
     setEditingPartyId(null);
@@ -690,7 +723,7 @@ export function PartiesManager() {
                   <option value="">Select category</option>
                   {partyCategoryOptions.map((option) => (
                     <option key={option} value={option}>
-                      {option}
+                      {formatCategoryLabel(option)}
                     </option>
                   ))}
                 </NativeSelect>
@@ -753,7 +786,11 @@ export function PartiesManager() {
             <div className="mt-5 space-y-6">
               <AppSectionCard title="Tax & Compliance">
                 <AppFormGrid className="xl:grid-cols-3">
-                  <FieldShell label="GSTIN" error={formErrors.gstin} hint="Entering GSTIN auto-fills PAN and State.">
+                  <FieldShell
+                    label="GSTIN"
+                    error={formErrors.gstin}
+                    hint="GSTIN is mandatory. Entering GSTIN auto-fills PAN and State."
+                  >
                     <Input
                       value={form.gstin}
                       className="uppercase"
@@ -916,7 +953,7 @@ export function PartiesManager() {
                           <option value="">Select</option>
                           {partyCategoryOptions.map((option) => (
                             <option key={option} value={option}>
-                              {option}
+                              {formatCategoryLabel(option)}
                             </option>
                           ))}
                         </NativeSelect>
@@ -1037,7 +1074,29 @@ export function PartiesManager() {
       {summary ? <p className="text-sm text-emerald-700 dark:text-emerald-300">{summary}</p> : null}
       {error ? <p className="text-sm text-rose-600">{error}</p> : null}
 
-      <AppTable title="Saved Party Master Records" description="Customers, suppliers, institutions, and dual-role business accounts in the current tenant.">
+      <AppTable
+        title="Saved Party Master Records"
+        description="Customers, suppliers, institutions, and dual-role business accounts in the current tenant."
+        actions={
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span>Rows</span>
+            <select
+              value={savedPartiesPageSize}
+              onChange={(event) => {
+                setSavedPartiesPageSize(Number(event.target.value));
+                setSavedPartiesPage(1);
+              }}
+              className="h-10 rounded-xl border border-input bg-background px-3 text-sm text-foreground"
+            >
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </label>
+        }
+      >
         <Table>
           <TableHeader className="sticky top-0 bg-slate-100 dark:bg-slate-900">
             <TableRow>
@@ -1065,7 +1124,7 @@ export function PartiesManager() {
                 </TableCell>
               </TableRow>
             ) : (
-              savedParties.map((party) => (
+              paginatedSavedParties.map((party) => (
                 <TableRow key={party.id}>
                   <TableCell>
                     <div>
@@ -1074,7 +1133,7 @@ export function PartiesManager() {
                     </div>
                   </TableCell>
                   <TableCell>{party.party_type}</TableCell>
-                  <TableCell>{party.party_category ?? "-"}</TableCell>
+                  <TableCell>{party.party_category ? formatCategoryLabel(party.party_category) : "-"}</TableCell>
                   <TableCell>{party.contact_person ?? party.mobile ?? party.phone ?? "-"}</TableCell>
                   <TableCell>{party.gstin ?? "-"}</TableCell>
                   <TableCell>{party.state ?? "-"}</TableCell>
@@ -1113,6 +1172,42 @@ export function PartiesManager() {
             )}
           </TableBody>
         </Table>
+        {!loading && savedParties.length > 0 ? (
+          <div className="flex flex-col gap-3 border-t border-border px-4 py-4 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
+            <span>
+              Showing {(savedPartiesPage - 1) * savedPartiesPageSize + 1}
+              {" - "}
+              {Math.min(savedPartiesPage * savedPartiesPageSize, savedParties.length)}
+              {" of "}
+              {savedParties.length}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setSavedPartiesPage((current) => Math.max(1, current - 1))}
+                disabled={savedPartiesPage === 1}
+              >
+                Previous
+              </Button>
+              <span className="min-w-24 text-center">
+                Page {savedPartiesPage} of {totalSavedPartyPages}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setSavedPartiesPage((current) => Math.min(totalSavedPartyPages, current + 1))
+                }
+                disabled={savedPartiesPage >= totalSavedPartyPages}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </AppTable>
     </div>
   );

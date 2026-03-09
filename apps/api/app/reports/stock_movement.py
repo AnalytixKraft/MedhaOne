@@ -8,6 +8,10 @@ from sqlalchemy.orm import Session
 from app.models.inventory import InventoryLedger
 from app.models.product import Product
 from app.models.batch import Batch
+from app.models.purchase import GRN, PurchaseOrder
+from app.models.purchase_bill import PurchaseBill
+from app.models.stock_provenance import StockSourceProvenance
+from app.models.party import Party
 from app.models.warehouse import Warehouse
 
 
@@ -45,6 +49,10 @@ def _movement_base_stmt(filters: StockMovementFilters):
             Product.quantity_precision.label("quantity_precision"),
             Batch.batch_no.label("batch"),
             Warehouse.name.label("warehouse"),
+            Party.name.label("source_supplier"),
+            PurchaseOrder.po_number.label("source_po"),
+            PurchaseBill.bill_number.label("source_bill"),
+            GRN.grn_number.label("source_grn"),
             qty_in_expr.label("qty_in"),
             qty_out_expr.label("qty_out"),
             InventoryLedger.qty.label("signed_qty"),
@@ -53,6 +61,11 @@ def _movement_base_stmt(filters: StockMovementFilters):
         .join(Product, Product.id == InventoryLedger.product_id)
         .join(Batch, Batch.id == InventoryLedger.batch_id)
         .join(Warehouse, Warehouse.id == InventoryLedger.warehouse_id)
+        .outerjoin(StockSourceProvenance, StockSourceProvenance.ledger_id == InventoryLedger.id)
+        .outerjoin(Party, Party.id == StockSourceProvenance.supplier_id)
+        .outerjoin(PurchaseOrder, PurchaseOrder.id == StockSourceProvenance.purchase_order_id)
+        .outerjoin(PurchaseBill, PurchaseBill.id == StockSourceProvenance.purchase_bill_id)
+        .outerjoin(GRN, GRN.id == StockSourceProvenance.grn_id)
     )
 
     if filters.product_id is not None:
@@ -96,6 +109,10 @@ def _serialize_row(row, running_balance: Decimal) -> dict[str, object]:
         "quantity_precision": row["quantity_precision"],
         "batch": row["batch"],
         "warehouse": row["warehouse"],
+        "source_supplier": row["source_supplier"],
+        "source_po": row["source_po"],
+        "source_bill": row["source_bill"],
+        "source_grn": row["source_grn"],
         "qty_in": row["qty_in"] or Decimal("0"),
         "qty_out": row["qty_out"] or Decimal("0"),
         "running_balance": running_balance,

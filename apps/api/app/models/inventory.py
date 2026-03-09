@@ -45,6 +45,12 @@ class InventoryLedger(Base):
     product = relationship("Product", back_populates="inventory_ledgers")
     batch = relationship("Batch", back_populates="inventory_ledgers")
     creator = relationship("User")
+    source_provenance = relationship(
+        "StockSourceProvenance",
+        back_populates="ledger",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
 
 class StockSummary(Base):

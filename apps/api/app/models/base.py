@@ -1,6 +1,8 @@
 from app.core.database import Base
 from app.models.audit import AuditLog
 from app.models.batch import Batch
+from app.models.brand import Brand
+from app.models.category import Category
 from app.models.company_settings import CompanySettings
 from app.models.inventory import InventoryLedger, StockSummary
 from app.models.login_audit import LoginAudit
@@ -8,6 +10,7 @@ from app.models.party import Party
 from app.models.product import Product
 from app.models.purchase import (
     GRN,
+    GRNBatchLine,
     GRNLine,
     PurchaseCreditNote,
     PurchaseOrder,
@@ -18,6 +21,7 @@ from app.models.purchase import (
 from app.models.rbac import Permission, RolePermission, UserRole
 from app.models.role import Role
 from app.models.stock_operations import StockAdjustment, StockCorrection
+from app.models.stock_provenance import StockSourceProvenance
 from app.models.tax_rate import TaxRate
 from app.models.user import User
 from app.models.warehouse import Warehouse
@@ -31,11 +35,14 @@ __all__ = [
     "Warehouse",
     "Product",
     "Batch",
+    "Brand",
+    "Category",
     "CompanySettings",
     "AuditLog",
     "PurchaseOrder",
     "PurchaseOrderLine",
     "GRN",
+    "GRNBatchLine",
     "GRNLine",
     "PurchaseReturn",
     "PurchaseReturnLine",
@@ -48,5 +55,6 @@ __all__ = [
     "StockSummary",
     "StockCorrection",
     "StockAdjustment",
+    "StockSourceProvenance",
     "TaxRate",
 ]

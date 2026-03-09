@@ -9,6 +9,8 @@ const links = [
   { href: "/masters/parties", label: "Party Master" },
   { href: "/masters/products", label: "Products" },
   { href: "/masters/warehouses", label: "Warehouses" },
+  { href: "/masters/settings", label: "Master Settings" },
+  { href: "/masters/reports", label: "Reports" },
   { href: "/masters/bulk-import", label: "Bulk Import" },
 ];
 

@@ -25,6 +25,7 @@ import {
   INVENTORY_TABS,
 } from "@/lib/inventory/navigation";
 import { PURCHASE_NAV_ITEMS } from "@/lib/purchase/navigation";
+import { DATA_QUALITY_REPORTS, MASTERS_REPORTS } from "@/lib/reports/navigation";
 import { SALES_NAV_ITEMS } from "@/lib/sales/navigation";
 import { cn } from "@/lib/utils";
 
@@ -56,7 +57,16 @@ const navItems: NavNode[] = [
       testId: `nav-masters-${item.id}`,
       icon: item.icon,
       requiredPermission: item.requiredPermission,
-    })),
+    })).concat([
+      {
+        id: "masters-reports",
+        label: "Reports",
+        href: "/masters/reports",
+        testId: "nav-masters-reports",
+        icon: BarChart3,
+        requiredPermission: "masters:view",
+      },
+    ]),
   },
   {
     id: "purchase",
@@ -126,14 +136,56 @@ const navItems: NavNode[] = [
     icon: BarChart3,
     testId: "nav-reports",
     requiredPermission: "reports:view",
-    children: INVENTORY_REPORTS_TAB.items.map((item) => ({
-      id: `reports-${item.id}`,
-      label: item.label,
-      href: item.href,
-      testId: `nav-reports-${item.id}`,
-      icon: item.icon,
-      requiredPermission: item.requiredPermission,
-    })),
+    children: [
+      {
+        id: "reports-masters",
+        label: "Masters",
+        href: "/reports/masters",
+        testId: "nav-reports-masters",
+        icon: Building2,
+        requiredPermission: "reports:view",
+        children: MASTERS_REPORTS.map((item) => ({
+          id: `reports-masters-${item.slug}`,
+          label: item.title,
+          href: item.href,
+          testId: `nav-reports-masters-${item.slug}`,
+          icon: BarChart3,
+          requiredPermission: "reports:view",
+        })),
+      },
+      {
+        id: "reports-data-quality",
+        label: "Data Quality",
+        href: "/reports/data-quality",
+        testId: "nav-reports-data-quality",
+        icon: FileSearch,
+        requiredPermission: "reports:view",
+        children: DATA_QUALITY_REPORTS.map((item) => ({
+          id: `reports-data-quality-${item.slug}`,
+          label: item.title,
+          href: item.href,
+          testId: `nav-reports-data-quality-${item.slug}`,
+          icon: FileSearch,
+          requiredPermission: "reports:view",
+        })),
+      },
+      {
+        id: "reports-operational",
+        label: "Operational",
+        href: "/reports/operational",
+        testId: "nav-reports-operational",
+        icon: BarChart3,
+        requiredPermission: "reports:view",
+        children: INVENTORY_REPORTS_TAB.items.map((item) => ({
+          id: `reports-${item.id}`,
+          label: item.label,
+          href: item.href,
+          testId: `nav-reports-${item.id}`,
+          icon: item.icon,
+          requiredPermission: item.requiredPermission,
+        })),
+      },
+    ],
   },
   {
     id: "settings",

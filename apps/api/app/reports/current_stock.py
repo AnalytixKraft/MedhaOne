@@ -46,7 +46,9 @@ def get_current_stock_report(
             Product.brand.label("brand"),
             Product.hsn.label("category"),
             Product.quantity_precision.label("quantity_precision"),
+            Warehouse.id.label("warehouse_id"),
             Warehouse.name.label("warehouse"),
+            Batch.id.label("batch_id"),
             Batch.batch_no.label("batch"),
             Batch.expiry_date.label("expiry_date"),
             available_qty_expr.label("available_qty"),
@@ -65,7 +67,9 @@ def get_current_stock_report(
             Product.brand,
             Product.hsn,
             Product.quantity_precision,
+            Warehouse.id,
             Warehouse.name,
+            Batch.id,
             Batch.batch_no,
             Batch.expiry_date,
         )
@@ -154,10 +158,13 @@ def get_current_stock_report(
         data.append(
             {
                 "sku": row["sku"],
+                "product_id": row["product_id"],
                 "product_name": row["product_name"],
                 "brand": row["brand"],
                 "category": row["category"],
+                "warehouse_id": row["warehouse_id"],
                 "warehouse": row["warehouse"],
+                "batch_id": row["batch_id"],
                 "batch": row["batch"],
                 "expiry_date": row["expiry_date"],
                 "available_qty": row["available_qty"] or Decimal("0"),

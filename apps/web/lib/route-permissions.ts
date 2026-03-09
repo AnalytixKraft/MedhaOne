@@ -1,4 +1,8 @@
 const routePermissions = [
+  { prefix: "/reports/masters", permission: "reports:view" },
+  { prefix: "/reports/data-quality", permission: "reports:view" },
+  { prefix: "/masters/reports", permission: "masters:view" },
+  { prefix: "/purchase-orders", permission: "purchase:view" },
   { prefix: "/purchase/bills", permission: "purchase_bill:view" },
   { prefix: "/sales/dispatches", permission: "dispatch:view" },
   { prefix: "/sales/orders", permission: "sales:view" },

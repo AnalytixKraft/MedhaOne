@@ -14,3 +14,14 @@ export async function GET(_: NextRequest, context: RouteContext) {
     method: "GET",
   });
 }
+
+export async function PATCH(request: NextRequest, context: RouteContext) {
+  const { id } = await context.params;
+  const payload = await request.json();
+
+  return proxyWithAuth({
+    path: `/purchase/grn/${id}`,
+    method: "PATCH",
+    body: payload,
+  });
+}

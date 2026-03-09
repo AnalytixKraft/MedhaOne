@@ -24,6 +24,7 @@ from app.models.product import Product
 from app.models.purchase_bill import DocumentAttachment, PurchaseBill, PurchaseBillLine
 from app.models.purchase import (
     GRN,
+    GRNBatchLine,
     GRNLine,
     PurchaseCreditNote,
     PurchaseOrder,
@@ -35,6 +36,7 @@ from app.models.rbac import Permission, RolePermission, UserRole
 from app.models.role import Role
 from app.models.sales import DispatchLine, DispatchNote, SalesOrder, SalesOrderLine, StockReservation
 from app.models.stock_operations import StockAdjustment, StockCorrection
+from app.models.stock_provenance import StockSourceProvenance
 from app.models.tax_rate import TaxRate
 from app.models.user import User
 from app.models.warehouse import Warehouse
@@ -52,6 +54,7 @@ __all__ = [
     "PurchaseOrder",
     "PurchaseOrderLine",
     "GRN",
+    "GRNBatchLine",
     "GRNLine",
     "PurchaseBill",
     "PurchaseBillLine",
@@ -71,6 +74,7 @@ __all__ = [
     "StockSummary",
     "StockCorrection",
     "StockAdjustment",
+    "StockSourceProvenance",
     "TaxRate",
     "PartyType",
     "InventoryTxnType",

@@ -1,5 +1,5 @@
-import { PurchaseOrderManager } from "@/components/purchase/po-manager";
+import { redirect } from "next/navigation";
 
-export default function PurchaseOrdersPage() {
-  return <PurchaseOrderManager />;
+export default function LegacyPurchaseOrderPage() {
+  redirect("/purchase-orders/new");
 }

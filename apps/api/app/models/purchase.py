@@ -81,6 +81,31 @@ class PurchaseOrder(Base):
     )
     grns = relationship("GRN", back_populates="purchase_order")
 
+    @property
+    def supplier_name(self) -> str | None:
+        supplier = self.__dict__.get("supplier")
+        if supplier is None:
+            return None
+        return getattr(supplier, "name", None) or getattr(supplier, "party_name", None)
+
+    @property
+    def warehouse_name(self) -> str | None:
+        warehouse = self.__dict__.get("warehouse")
+        if warehouse is None:
+            return None
+        return getattr(warehouse, "name", None)
+
+    @property
+    def created_by_name(self) -> str | None:
+        creator = self.__dict__.get("creator")
+        if creator is None:
+            return None
+        return getattr(creator, "full_name", None) or getattr(creator, "email", None)
+
+    @property
+    def total_tax(self) -> Decimal:
+        return (self.cgst_amount or Decimal("0")) + (self.sgst_amount or Decimal("0")) + (self.igst_amount or Decimal("0"))
+
 
 class PurchaseOrderLine(Base):
     __tablename__ = "purchase_order_lines"
@@ -89,6 +114,8 @@ class PurchaseOrderLine(Base):
         CheckConstraint("ordered_qty > 0", name="ck_po_line_ordered_qty_gt_zero"),
         CheckConstraint("received_qty >= 0", name="ck_po_line_received_qty_non_negative"),
         CheckConstraint("free_qty >= 0", name="ck_po_line_free_qty_non_negative"),
+        CheckConstraint("gst_percent >= 0", name="ck_po_line_gst_percent_non_negative"),
+        CheckConstraint("line_total >= 0", name="ck_po_line_total_non_negative"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
@@ -98,11 +125,43 @@ class PurchaseOrderLine(Base):
     received_qty: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False, default=0)
     unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True)
     free_qty: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False, default=0)
+    discount_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    taxable_value: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    gst_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0)
+    cgst_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0)
+    sgst_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0)
+    igst_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0)
+    cgst_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    sgst_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    igst_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    tax_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    line_total: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     line_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     purchase_order = relationship("PurchaseOrder", back_populates="lines")
     product = relationship("Product")
     grn_lines = relationship("GRNLine", back_populates="po_line")
+
+    @property
+    def product_name(self) -> str | None:
+        product = self.__dict__.get("product")
+        if product is None:
+            return None
+        return getattr(product, "name", None)
+
+    @property
+    def product_sku(self) -> str | None:
+        product = self.__dict__.get("product")
+        if product is None:
+            return None
+        return getattr(product, "sku", None)
+
+    @property
+    def hsn_code(self) -> str | None:
+        product = self.__dict__.get("product")
+        if product is None:
+            return None
+        return getattr(product, "hsn", None)
 
 
 class GRN(Base):
@@ -118,6 +177,7 @@ class GRN(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     grn_number: Mapped[str] = mapped_column(String(60), nullable=False, unique=True, index=True)
     purchase_order_id: Mapped[int] = mapped_column(ForeignKey("purchase_orders.id"), nullable=False)
+    purchase_bill_id: Mapped[int | None] = mapped_column(ForeignKey("purchase_bills.id"), nullable=True)
     supplier_id: Mapped[int] = mapped_column(ForeignKey("parties.id"), nullable=False)
     warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), nullable=False)
     status: Mapped[GrnStatus] = mapped_column(
@@ -126,6 +186,7 @@ class GRN(Base):
         default=GrnStatus.DRAFT,
     )
     received_date: Mapped[date] = mapped_column(Date, nullable=False)
+    remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
     posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     posted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -135,11 +196,65 @@ class GRN(Base):
     )
 
     purchase_order = relationship("PurchaseOrder", back_populates="grns")
+    purchase_bill = relationship("PurchaseBill", foreign_keys=[purchase_bill_id])
     supplier = relationship("Party")
     warehouse = relationship("Warehouse")
     creator = relationship("User", foreign_keys=[created_by])
     poster = relationship("User", foreign_keys=[posted_by])
     lines = relationship("GRNLine", back_populates="grn", cascade="all, delete-orphan")
+
+    @property
+    def po_number(self) -> str | None:
+        purchase_order = self.__dict__.get("purchase_order")
+        if purchase_order is None:
+            return None
+        return getattr(purchase_order, "po_number", None)
+
+    @property
+    def purchase_bill_number(self) -> str | None:
+        purchase_bill = self.__dict__.get("purchase_bill")
+        if purchase_bill is None:
+            return None
+        return getattr(purchase_bill, "bill_number", None)
+
+    @property
+    def supplier_name(self) -> str | None:
+        supplier = self.__dict__.get("supplier")
+        if supplier is None:
+            return None
+        return getattr(supplier, "name", None) or getattr(supplier, "party_name", None)
+
+    @property
+    def warehouse_name(self) -> str | None:
+        warehouse = self.__dict__.get("warehouse")
+        if warehouse is None:
+            return None
+        return getattr(warehouse, "name", None)
+
+    @property
+    def created_by_name(self) -> str | None:
+        creator = self.__dict__.get("creator")
+        if creator is None:
+            return None
+        return getattr(creator, "full_name", None) or getattr(creator, "email", None)
+
+    @property
+    def posted_by_name(self) -> str | None:
+        poster = self.__dict__.get("poster")
+        if poster is None:
+            return None
+        return getattr(poster, "full_name", None) or getattr(poster, "email", None)
+
+    @property
+    def total_products(self) -> int:
+        return len(self.__dict__.get("lines") or [])
+
+    @property
+    def total_received_qty(self) -> Decimal:
+        return sum(
+            (line.received_qty_total or Decimal("0"))
+            for line in (self.__dict__.get("lines") or [])
+        )
 
 
 class GRNLine(Base):
@@ -151,17 +266,80 @@ class GRNLine(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     grn_id: Mapped[int] = mapped_column(ForeignKey("grns.id"), nullable=False, index=True)
-    po_line_id: Mapped[int] = mapped_column(ForeignKey("purchase_order_lines.id"), nullable=False)
+    po_line_id: Mapped[int | None] = mapped_column(ForeignKey("purchase_order_lines.id"), nullable=True)
+    purchase_bill_line_id: Mapped[int | None] = mapped_column(
+        ForeignKey("purchase_bill_lines.id"),
+        nullable=True,
+    )
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False)
-    batch_id: Mapped[int] = mapped_column(ForeignKey("batches.id"), nullable=False)
+    product_name_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ordered_qty_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(18, 3), nullable=True)
+    billed_qty_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(18, 3), nullable=True)
+    received_qty_total: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False, default=0)
+    free_qty_total: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False, default=0)
+    batch_id: Mapped[int | None] = mapped_column(ForeignKey("batches.id"), nullable=True)
     received_qty: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
     free_qty: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False, default=0)
     unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True)
-    expiry_date: Mapped[date] = mapped_column(Date, nullable=False)
+    expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     grn = relationship("GRN", back_populates="lines")
     po_line = relationship("PurchaseOrderLine", back_populates="grn_lines")
+    purchase_bill_line = relationship("PurchaseBillLine")
     product = relationship("Product")
+    batch = relationship("Batch")
+    batch_lines = relationship("GRNBatchLine", back_populates="grn_line", cascade="all, delete-orphan")
+
+    @property
+    def purchase_order_line_id(self) -> int | None:
+        return self.po_line_id
+
+    @property
+    def product_name(self) -> str | None:
+        if self.product_name_snapshot:
+            return self.product_name_snapshot
+        product = self.__dict__.get("product")
+        if product is None:
+            return None
+        return getattr(product, "name", None)
+
+    @property
+    def product_sku(self) -> str | None:
+        product = self.__dict__.get("product")
+        if product is None:
+            return None
+        return getattr(product, "sku", None)
+
+    @property
+    def hsn_code(self) -> str | None:
+        product = self.__dict__.get("product")
+        if product is None:
+            return None
+        return getattr(product, "hsn", None)
+
+
+class GRNBatchLine(Base):
+    __tablename__ = "grn_batch_lines"
+    __table_args__ = (
+        Index("ix_grn_batch_lines_grn_line_id", "grn_line_id"),
+        CheckConstraint("received_qty > 0", name="ck_grn_batch_line_received_qty_gt_zero"),
+        CheckConstraint("free_qty >= 0", name="ck_grn_batch_line_free_qty_non_negative"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    grn_line_id: Mapped[int] = mapped_column(ForeignKey("grn_lines.id"), nullable=False)
+    batch_no: Mapped[str] = mapped_column(String(80), nullable=False)
+    expiry_date: Mapped[date] = mapped_column(Date, nullable=False)
+    mfg_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    mrp: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    received_qty: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
+    free_qty: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False, default=0)
+    unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True)
+    batch_id: Mapped[int | None] = mapped_column(ForeignKey("batches.id"), nullable=True)
+    remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    grn_line = relationship("GRNLine", back_populates="batch_lines")
     batch = relationship("Batch")
 
 

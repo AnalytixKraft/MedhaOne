@@ -67,7 +67,7 @@ export const purchaseWorkflow: WorkflowDefinition = {
     `Supplier name: '${context.generatedData.supplierName}'.`,
     `Warehouse name: '${context.generatedData.warehouseName}', code '${context.generatedData.warehouseCode}'.`,
     `Product SKU: '${context.generatedData.productSku}', product name '${context.generatedData.productName}'.`,
-    "Create a purchase order for quantity 10, approve it, create a GRN for quantity 10, and post the GRN.",
+    "Create a purchase order for quantity 10, approve it, then create a GRN from the new GRN draft page for quantity 10 and post it.",
     `Use batch '${context.generatedData.batchNo}' with expiry '${context.generatedData.expiryDate}'.`,
     "Stop only after the PO is CLOSED and stock is visible.",
   ],

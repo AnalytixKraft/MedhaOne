@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { PageTitle } from "@/components/layout/page-title";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,12 @@ export default async function InventoryModulePlaceholderPage({
   params,
 }: ModulePageProps) {
   const resolved = await params;
+  if (resolved.module === "categories") {
+    redirect("/masters/settings?tab=categories");
+  }
+  if (resolved.module === "brands") {
+    redirect("/masters/settings?tab=brands");
+  }
   const moduleMeta = findInventoryModuleBySlug(resolved.module);
   if (!moduleMeta) {
     notFound();

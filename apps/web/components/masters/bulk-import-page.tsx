@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { Download, FileSpreadsheet, Users } from "lucide-react";
 
-import { PageTitle } from "@/components/layout/page-title";
+import { AppSectionCard } from "@/components/erp/app-primitives";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiClient, type BulkImportResult } from "@/lib/api/client";
 
@@ -90,14 +90,17 @@ export function BulkImportPage() {
 
   return (
     <div className="space-y-6">
-      <PageTitle title="Bulk Import" description="Import parties and items using CSV templates." />
-
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Import Party Master Data</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        <AppSectionCard
+          title="Import Parties"
+          description="Upload business parties in bulk using the standard CSV structure."
+          actions={
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-500/12 dark:text-amber-200">
+              <Users className="h-5 w-5" />
+            </span>
+          }
+        >
+          <div className="space-y-4">
             <Input
               type="file"
               accept=".csv,text/csv"
@@ -108,18 +111,26 @@ export function BulkImportPage() {
                 {importingParties ? "Importing..." : "Import Party Master Data"}
               </Button>
               <Button asChild type="button" variant="outline">
-                <a href="/api/masters/templates/party-import.csv">Download Template</a>
+                <a href="/api/masters/templates/party-import.csv" className="inline-flex items-center gap-2">
+                  <Download className="h-4 w-4" />
+                  Download Template
+                </a>
               </Button>
             </div>
             <ImportResult result={partyResult} />
-          </CardContent>
-        </Card>
+          </div>
+        </AppSectionCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Import Items</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        <AppSectionCard
+          title="Import Items"
+          description="Upload item master data in bulk with SKU, GST, and classification details."
+          actions={
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 dark:bg-emerald-500/12 dark:text-emerald-200">
+              <FileSpreadsheet className="h-5 w-5" />
+            </span>
+          }
+        >
+          <div className="space-y-4">
             <Input
               type="file"
               accept=".csv,text/csv"
@@ -130,12 +141,15 @@ export function BulkImportPage() {
                 {importingItems ? "Importing..." : "Import Items"}
               </Button>
               <Button asChild type="button" variant="outline">
-                <a href="/api/masters/templates/item-import.csv">Download Template</a>
+                <a href="/api/masters/templates/item-import.csv" className="inline-flex items-center gap-2">
+                  <Download className="h-4 w-4" />
+                  Download Template
+                </a>
               </Button>
             </div>
             <ImportResult result={itemResult} />
-          </CardContent>
-        </Card>
+          </div>
+        </AppSectionCard>
       </div>
     </div>
   );
