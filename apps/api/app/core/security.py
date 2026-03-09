@@ -35,8 +35,30 @@ def decode_access_token(token: str) -> tuple[dict[str, Any] | None, str | None]:
 
     for source, secret in secrets_to_try:
         try:
-            return jwt.decode(token, secret, algorithms=[ALGORITHM]), source
+            payload = jwt.decode(token, secret, algorithms=[ALGORITHM])
+            if _token_claims_match_source(payload, source):
+                return payload, source
         except JWTError:
             continue
 
     return None, None
+
+
+def _token_claims_match_source(payload: dict[str, Any], source: str) -> bool:
+    if source == "LOCAL":
+        return (
+            payload.get("sub") is not None
+            and payload.get("userId") is None
+            and payload.get("organizationId") is None
+            and payload.get("schemaName") is None
+        )
+
+    if source == "RBAC":
+        return (
+            payload.get("sub") is None
+            and payload.get("userId") is not None
+            and payload.get("organizationId") is not None
+            and payload.get("schemaName") is not None
+        )
+
+    return False

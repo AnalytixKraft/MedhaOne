@@ -95,6 +95,13 @@ def _create_warehouse(client: TestClient, headers: dict[str, str], code: str) ->
 
 
 def _create_product(client: TestClient, headers: dict[str, str], sku: str) -> int:
+    brand_response = client.post(
+        "/masters/brands",
+        headers=headers,
+        json={"name": "AK", "is_active": True},
+    )
+    assert brand_response.status_code in {201, 400}, brand_response.text
+
     response = client.post(
         "/masters/products",
         headers=headers,

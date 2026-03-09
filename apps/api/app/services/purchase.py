@@ -58,8 +58,12 @@ def _money(value: Decimal | float | int) -> Decimal:
     return _as_decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-def _new_po_number() -> str:
-    return f"PO-{uuid4().hex[:10].upper()}"
+def _temporary_po_number() -> str:
+    return f"PO-TMP-{uuid4().hex.upper()}"
+
+
+def _format_po_number(po_id: int) -> str:
+    return f"PO-{datetime.now(timezone.utc):%Y%m%d}-{po_id:06d}"
 
 
 def _new_grn_number() -> str:
@@ -616,7 +620,7 @@ def create_po(db: Session, payload: PurchaseOrderCreate, created_by: int) -> Pur
             },
         )
         po = PurchaseOrder(
-            po_number=_new_po_number(),
+            po_number=_temporary_po_number(),
             supplier_id=payload.supplier_id,
             warehouse_id=payload.warehouse_id,
             status=PurchaseOrderStatus.DRAFT,
@@ -642,6 +646,7 @@ def create_po(db: Session, payload: PurchaseOrderCreate, created_by: int) -> Pur
 
         db.add(po)
         db.flush()
+        po.po_number = _format_po_number(po.id)
 
         for index, line in enumerate(payload.lines):
             _assert_product_exists(db, line.product_id)

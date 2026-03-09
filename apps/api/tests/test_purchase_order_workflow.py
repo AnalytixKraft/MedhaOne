@@ -54,10 +54,24 @@ def _create_warehouse(client: TestClient, headers: dict[str, str], code: str = "
 
 
 def _create_product(client: TestClient, headers: dict[str, str], sku: str = "POWF-SKU-1") -> int:
+    brand_response = client.post(
+        "/masters/brands",
+        headers=headers,
+        json={"name": "AK", "is_active": True},
+    )
+    assert brand_response.status_code in {201, 400}, brand_response.text
+
     response = client.post(
         "/masters/products",
         headers=headers,
-        json={"sku": sku, "name": "PO Workflow Product", "uom": "EA", "gst_rate": "12.00", "is_active": True},
+        json={
+            "sku": sku,
+            "name": "PO Workflow Product",
+            "brand": "AK",
+            "uom": "EA",
+            "gst_rate": "12.00",
+            "is_active": True,
+        },
     )
     assert response.status_code == 201, response.text
     return response.json()["id"]
@@ -117,6 +131,7 @@ def test_purchase_order_draft_can_be_updated_and_listed(
         warehouse_id=warehouse_id,
         product_id=product_id,
     )
+    assert purchase_order["po_number"].startswith("PO-202")
 
     update_response = client.patch(
         f"/purchase/po/{purchase_order['id']}",

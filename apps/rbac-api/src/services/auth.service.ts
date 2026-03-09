@@ -15,6 +15,10 @@ export const loginInputSchema = z.object({
   organizationId: z.string().regex(/^[a-z0-9_]+$/).optional(),
 });
 
+const DUMMY_PASSWORD_HASH =
+  "$2b$12$kTKvAnW2f0S9Vjv2nJ8QY.pvW0sQ0m7Md7r8vCjYvKJ4XrM3Y7FCG";
+const MIN_LOGIN_DURATION_MS = 250;
+
 export async function seedSuperAdminIfMissing(email: string, passwordHash: string) {
   const existing = await prisma.superAdmin.findUnique({ where: { email } });
   if (existing) {
@@ -30,87 +34,93 @@ export async function seedSuperAdminIfMissing(email: string, passwordHash: strin
 }
 
 export async function login(rawInput: unknown) {
+  const startedAt = Date.now();
   const input = loginInputSchema.parse(rawInput);
   const normalizedEmail = input.email.trim().toLowerCase();
 
-  if (!input.organizationId) {
-    const admin = await prisma.superAdmin.findFirst({
-      where: {
-        email: {
-          equals: normalizedEmail,
-          mode: "insensitive",
+  try {
+    if (!input.organizationId) {
+      const admin = await prisma.superAdmin.findFirst({
+        where: {
+          email: {
+            equals: normalizedEmail,
+            mode: "insensitive",
+          },
         },
-      },
-    });
-    if (admin) {
-      if (!admin.isActive) {
-        throw new Error("Invalid credentials");
-      }
-      const valid = await verifyPassword(input.password, admin.passwordHash);
-      if (!valid) {
-        throw new Error("Invalid credentials");
-      }
-
-      await prisma.superAdmin.update({
-        where: { id: admin.id },
-        data: { lastLoginAt: new Date() },
       });
+      if (admin) {
+        if (!admin.isActive) {
+          await consumePasswordCheck(input.password);
+          throw new Error("Invalid credentials");
+        }
+        const valid = await verifyPassword(input.password, admin.passwordHash);
+        if (!valid) {
+          throw new Error("Invalid credentials");
+        }
 
-      const token = signToken({
-        userId: admin.id,
-        email: admin.email,
-        fullName: admin.fullName,
-        role: "SUPER_ADMIN",
-        sudoFlag: false,
-      });
+        await prisma.superAdmin.update({
+          where: { id: admin.id },
+          data: { lastLoginAt: new Date() },
+        });
 
-      await writeGlobalAuditLog({
-        actorType: "SUPER_ADMIN",
-        actorId: admin.id,
-        action: "SUPER_ADMIN_LOGIN",
-        targetType: "SUPER_ADMIN",
-        targetId: admin.id,
-      });
-
-      return {
-        token,
-        user: {
-          id: admin.id,
+        const token = signToken({
+          userId: admin.id,
           email: admin.email,
           fullName: admin.fullName,
-          role: admin.role,
-        },
-      };
+          role: "SUPER_ADMIN",
+          sudoFlag: false,
+        });
+
+        await writeGlobalAuditLog({
+          actorType: "SUPER_ADMIN",
+          actorId: admin.id,
+          action: "SUPER_ADMIN_LOGIN",
+          targetType: "SUPER_ADMIN",
+          targetId: admin.id,
+        });
+
+        return {
+          token,
+          user: {
+            id: admin.id,
+            email: admin.email,
+            fullName: admin.fullName,
+            role: admin.role,
+          },
+        };
+      }
+
+      const matches = await findTenantMatches(normalizedEmail, input.password);
+      if (matches.length === 0) {
+        throw new Error("Invalid credentials");
+      }
+      if (matches.length > 1) {
+        throw new AppError(
+          409,
+          "ORG_SELECTION_REQUIRED",
+          "Multiple organizations found for this account",
+          {
+            organizations: matches.map((match) => ({
+              id: match.organization.id,
+              name: match.organization.name,
+            })),
+          },
+        );
+      }
+
+      return issueTenantLogin(matches[0]);
     }
 
-    const matches = await findTenantMatches(normalizedEmail, input.password);
-    if (matches.length === 0) {
+    const organization = await prisma.organization.findUniqueOrThrow({ where: { id: input.organizationId } });
+    const match = await findTenantMatchInOrganization(organization, normalizedEmail, input.password);
+    if (!match) {
       throw new Error("Invalid credentials");
     }
-    if (matches.length > 1) {
-      throw new AppError(
-        409,
-        "ORG_SELECTION_REQUIRED",
-        "Multiple organizations found for this account",
-        {
-          organizations: matches.map((match) => ({
-            id: match.organization.id,
-            name: match.organization.name,
-          })),
-        },
-      );
-    }
 
-    return issueTenantLogin(matches[0]);
+    return issueTenantLogin(match);
+  } finally {
+    await ensureMinimumLoginDuration(startedAt);
   }
-
-  const organization = await prisma.organization.findUniqueOrThrow({ where: { id: input.organizationId } });
-  const match = await findTenantMatchInOrganization(organization, normalizedEmail, input.password);
-  if (!match) {
-    throw new Error("Invalid credentials");
-  }
-
-  return issueTenantLogin(match);
 }
 
 export async function createSudoToken(superAdminId: string, organizationId: string) {
@@ -119,7 +129,7 @@ export async function createSudoToken(superAdminId: string, organizationId: stri
   return withPgClient(async (client) => {
     await client.query("BEGIN");
     try {
-      await client.query(`SET LOCAL search_path TO ${organization.schemaName}, public`);
+      await client.query(`SET LOCAL search_path TO ${quoteIdentifier(organization.schemaName)}, public`);
       const result = await client.query<{
         id: string;
         email: string;
@@ -235,6 +245,7 @@ async function findTenantMatchInOrganization(
 
     const user = result.rows[0];
     if (!user || !user.is_active) {
+      await consumePasswordCheck(password);
       return null;
     }
 
@@ -259,7 +270,7 @@ async function issueTenantLogin(match: TenantMatch) {
   return withPgClient(async (client) => {
     await client.query("BEGIN");
     try {
-      await client.query(`SET LOCAL search_path TO ${match.organization.schemaName}, public`);
+      await client.query(`SET LOCAL search_path TO ${quoteIdentifier(match.organization.schemaName)}, public`);
       await client.query(`UPDATE users SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1`, [
         match.user.id,
       ]);
@@ -291,4 +302,15 @@ async function issueTenantLogin(match: TenantMatch) {
       throw error;
     }
   });
+}
+
+async function consumePasswordCheck(password: string) {
+  await verifyPassword(password, DUMMY_PASSWORD_HASH);
+}
+
+async function ensureMinimumLoginDuration(startedAt: number) {
+  const remainingMs = MIN_LOGIN_DURATION_MS - (Date.now() - startedAt);
+  if (remainingMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, remainingMs));
+  }
 }

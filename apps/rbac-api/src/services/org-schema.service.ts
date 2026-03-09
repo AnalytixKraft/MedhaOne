@@ -3,6 +3,7 @@ import type { PoolClient } from "pg";
 
 import { buildCreateTenantSchemaSql } from "../sql/tenant-schema.js";
 import { seedTenantTaxRatesFromGlobalDefaults } from "./tax-rate.service.js";
+import { quoteIdentifier } from "../utils/schema.js";
 
 export async function createOrganizationSchema(
   client: PoolClient,
@@ -11,7 +12,7 @@ export async function createOrganizationSchema(
   admin: { email: string; passwordHash: string; fullName: string },
 ) {
   await client.query(buildCreateTenantSchemaSql(schemaName));
-  await client.query(`SET LOCAL search_path TO ${schemaName}, public`);
+  await client.query(`SET LOCAL search_path TO ${quoteIdentifier(schemaName)}, public`);
   await client.query(
     `INSERT INTO company_settings (id, company_name)
      VALUES (1, $1)

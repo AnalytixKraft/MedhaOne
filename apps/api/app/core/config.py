@@ -1,4 +1,5 @@
 from functools import lru_cache
+import os
 from pathlib import Path
 
 from pydantic import field_validator
@@ -48,6 +49,22 @@ class Settings(BaseSettings):
                 "DATABASE_URL must point to the shared PostgreSQL tenant database (postgresql+psycopg://...)",
             )
 
+        return normalized
+
+    @field_validator("secret_key")
+    @classmethod
+    def require_non_placeholder_secret_key(cls, value: str) -> str:
+        normalized = value.strip()
+        if normalized == "change-me-in-production" and "PYTEST_CURRENT_TEST" not in os.environ:
+            raise ValueError("SECRET_KEY must be set to a non-placeholder value")
+        return normalized
+
+    @field_validator("default_admin_password")
+    @classmethod
+    def require_non_placeholder_admin_password(cls, value: str) -> str:
+        normalized = value.strip()
+        if normalized == "ChangeMe123!" and "PYTEST_CURRENT_TEST" not in os.environ:
+            raise ValueError("DEFAULT_ADMIN_PASSWORD must be set to a non-placeholder value")
         return normalized
 
 

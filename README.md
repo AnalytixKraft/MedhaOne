@@ -1,20 +1,115 @@
-# MedhaOne - Phase 1 Foundation
+# MedhaOne ERP
 
-Production-oriented monorepo foundation for **AnalytixKraft / MedhaOne**.
+Multi-tenant ERP monorepo for AnalytixKraft / MedhaOne.
 
-Phase 1 scope implemented:
-- Frontend shell (Next.js + Tailwind + shadcn-style components)
-- Backend auth core (FastAPI + SQLAlchemy + Alembic)
-- Inventory core schema + ledger engine (with stock summary maintenance)
-- Masters CRUD for Parties, Products, Warehouses
-- Deployment-agnostic architecture (local/LAN/cloud-ready by env)
+This repository now includes working foundations and module flows for:
+- auth + tenant isolation
+- RBAC + super-admin control plane
+- masters and master settings
+- inventory ledger and stock operations
+- purchase orders, GRN, and purchase bills
+- sales order reservation + dispatch
+- operational, masters, and data-quality reports
+- audit trail and record history
 
-## Tech Stack
+## Stack
 
-- Frontend: Next.js (App Router), React, TypeScript, Tailwind CSS, shadcn/ui style primitives
-- Backend: FastAPI, SQLAlchemy 2.x, Alembic, JWT auth
-- DB: SQLite by default, PostgreSQL-ready via `DATABASE_URL`
-- Monorepo: pnpm workspace
+- Web: Next.js 16, React 19, TypeScript, Tailwind
+- ERP API: FastAPI, SQLAlchemy, Alembic, PostgreSQL
+- RBAC API: Express, Prisma, PostgreSQL
+- Package manager: pnpm
+
+## Current Architecture
+
+- Tenant ERP data lives in PostgreSQL schemas named `org_<slug>`.
+- The inventory ledger is immutable. Stock movement is always insert-only through service flows.
+- `StockSummary` is maintained from ledger activity and used for availability, reporting, and validations.
+- Purchase, stock correction, stock adjustment, sales reservation, and GRN flows are implemented as business workflows on top of that ledger.
+
+## Major Modules
+
+### Masters
+
+- Party Master
+  - GST-aware party creation
+  - bulk create
+  - grid entry
+  - commercial and compliance fields
+- Products
+  - inline edit
+  - pagination
+  - brand-controlled creation
+- Warehouses
+  - bulk select and delete/deactivate logic
+  - stock-aware delete protection
+- Master Settings
+  - GST slabs
+  - Brands
+  - Party Categories
+  - placeholder tab for TDS / TCS
+
+### Inventory
+
+- Opening stock
+- Stock correction
+  - metadata reclassification only
+  - paired immutable ledger entries
+- Stock adjustment
+  - quantity correction only
+- stock availability and reporting
+
+### Purchase
+
+- Purchase Order workflow
+  - list
+  - create draft
+  - edit draft
+  - approve
+  - cancel
+  - detail view with activity
+- GRN workflow
+  - multiple GRNs against one PO
+  - multiple items per GRN
+  - multiple batch rows per item
+  - PO-first receiving
+  - bill linking later
+- Purchase Bill
+  - invoice upload
+  - AI extraction to draft only
+  - review / verify / post flow
+  - no stock movement on bill posting
+
+### Sales
+
+- Sales Orders
+  - draft and confirm
+  - stock reservation on confirmation
+- Dispatch Notes
+  - FEFO-aware dispatch suggestions
+  - physical stock reduction only at dispatch post
+
+### Reports
+
+- Operational reports
+  - Current Stock
+  - Stock Movement
+  - Expiry
+  - Dead Stock
+  - Stock Ageing
+  - Stock Inward
+  - Purchase Register
+  - Purchase Credit Notes
+  - Stock Source Traceability
+- Masters reports
+  - Warehouse, Item, and Party report groups
+- Data Quality reports
+  - kept separate from business-facing masters reports
+
+### Audit
+
+- Audit Trail screen
+- record-level history support
+- business events only
 
 ## Repository Structure
 
@@ -25,31 +120,40 @@ Phase 1 scope implemented:
 │   │   ├── alembic
 │   │   ├── app
 │   │   ├── alembic.ini
-│   │   ├── package.json
 │   │   └── pyproject.toml
+│   ├── rbac-api
+│   │   ├── prisma
+│   │   ├── src
+│   │   └── package.json
 │   └── web
 │       ├── app
 │       ├── components
+│       ├── e2e
 │       ├── lib
-│       ├── middleware.ts
 │       └── package.json
 ├── packages
-│   └── shared
-├── .env.example
+├── scripts
 ├── docker-compose.yml
 ├── package.json
 └── pnpm-workspace.yaml
 ```
 
+## Ports
+
+- Web: `http://localhost:1729`
+- ERP API: `http://localhost:1730`
+- RBAC API: `http://localhost:1740`
+- PostgreSQL: `127.0.0.1:55432`
+
 ## Prerequisites
 
-- Node.js 24.14.0
-- pnpm 10+
-- Python 3.10+
+- Node.js `24.14.0`
+- pnpm `10+`
+- Python `3.10+`
+- Docker Desktop
+- Cloudflared
 
 ## Environment Setup
-
-1. Copy env files:
 
 ```bash
 cp .env.example .env
@@ -57,21 +161,21 @@ cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env.local
 ```
 
-2. Optional PostgreSQL switch (instead of SQLite):
+The local dev stack uses PostgreSQL. The default shared local DB path is:
 
 ```env
-DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/medhaone
+postgresql+psycopg://postgres:postgres@127.0.0.1:55432/medhaone_rbac
 ```
 
-## Install Dependencies
+## Install
 
-### Frontend/Workspace
+### Workspace
 
 ```bash
 pnpm install
 ```
 
-### Backend
+### ERP API
 
 ```bash
 cd apps/api
@@ -80,177 +184,178 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-## Run Database Migration + Seed Admin
+## Recommended Local Startup
+
+Use the stack script from repo root:
 
 ```bash
-cd apps/api
-source .venv/bin/activate
-python -m alembic upgrade head
-python -m app.seed
+pnpm stack:up
 ```
 
-## Start Both Apps (Single Command)
+This will:
+- start PostgreSQL in Docker
+- run ERP migrations against the shared PostgreSQL instance
+- start the ERP API
+- start the Next.js web app
 
-From repository root:
+Related commands:
+
+```bash
+pnpm stack:down
+pnpm stack:restart
+```
+
+## Alternate Local Startup
+
+If you only want web + ERP API without the full stack helper:
 
 ```bash
 pnpm dev
 ```
 
-This starts:
-- Web: `http://localhost:1729`
-- API: `http://localhost:1730`
-
-## Default Admin Credentials (Seed Example)
-
-- Email: `admin@medhaone.app`
-- Password: `ChangeMe123!`
-
-Set production-safe values via:
-- `DEFAULT_ADMIN_EMAIL`
-- `DEFAULT_ADMIN_PASSWORD`
-
-## Implemented Endpoints
-
-- `GET /health`
-- `POST /auth/login`
-- `GET /auth/me`
-- `GET /dashboard/metrics`
-- `POST /inventory/in`
-- `POST /inventory/out`
-- `POST /inventory/adjust`
-- `GET|POST /masters/parties`
-- `GET|PUT|DELETE /masters/parties/{id}`
-- `GET|POST /masters/products`
-- `GET|PUT|DELETE /masters/products/{id}`
-- `GET|POST /masters/warehouses`
-- `GET|PUT|DELETE /masters/warehouses/{id}`
-
-## Inventory Notes
-
-- `InventoryLedger` is immutable (insert-only via service layer).
-- `StockSummary` is updated atomically with each ledger entry.
-- Negative stock is blocked for `OUT` and negative `ADJUST`.
-
-## Run Tests
+If you need RBAC API separately:
 
 ```bash
-pnpm --filter api test
+pnpm rbac:dev
 ```
 
-## E2E Test Agent (Playwright)
+## Database and Migrations
 
-The E2E suite is under `apps/web/e2e` and runs user-like workflow tests for:
-- Login
-- Masters creation (supplier, warehouse, product)
-- Purchase PO -> GRN -> Post
-- Stock verification via gated test API
-
-### Safety Gate (Important)
-
-Test reset endpoints are disabled by default and only enabled when:
-
-```env
-ENABLE_TEST_ENDPOINTS=true
-```
-
-When this is `false` (default), `/test/*` endpoints return `404`.
-
-### Local Run
-
-Terminal 1:
+ERP API:
 
 ```bash
-ENABLE_TEST_ENDPOINTS=true pnpm dev
+cd apps/api
+source .venv/bin/activate
+python -m alembic upgrade head
 ```
 
-Terminal 2:
+RBAC API:
 
 ```bash
+pnpm rbac:prisma:generate
+pnpm rbac:prisma:migrate
+```
+
+## Useful Commands
+
+```bash
+pnpm lint
+pnpm format
+pnpm build
+pnpm seed
 pnpm e2e
-```
-
-Optional:
-
-```bash
 pnpm e2e:ui
 pnpm e2e:debug
+pnpm ai:test
 ```
 
-## Guided UI Testing Agent
-
-For manual acceptance runs with step-by-step pauses and screenshots:
-
-```bash
-ENABLE_TEST_ENDPOINTS=true pnpm dev
-```
-
-In another terminal:
-
-```bash
-pnpm guided:test:po-grn
-```
-
-Or run any script:
-
-```bash
-pnpm guided:test -- --script apps/web/e2e/guided/scripts/po_grn_guided.json --baseURL http://localhost:1729 --headless false
-```
-
-Artifacts are written under:
-
-`apps/web/e2e/guided/artifacts/<timestamp>/`
-
-## Frontend Auth Flow
-
-- Login form posts to Next API route: `POST /api/auth/login`
-- Next API route proxies to FastAPI `/auth/login`
-- JWT stored as `httpOnly` cookie (`medhaone_token`)
-- Protected pages guarded by `middleware.ts`
-- Dashboard loads authenticated profile via `/api/auth/me` -> backend `/auth/me`
-
-## Multi-Tenant Isolation Model
-
-- Tenant data lives in PostgreSQL schemas named `org_<slug>`.
-- FastAPI tenant routes are mounted under a dedicated tenant router that always applies schema binding before route logic runs.
-- The tenant binding utility validates the JWT tenant context, verifies the organization in `public.organizations`, and sets:
-  - `SET search_path TO org_<slug>, public`
-- Pooled connections are reset back to `public` on checkout and on session cleanup to prevent tenant bleed.
-- Background and scheduled work must use `app.core.tenant.run_in_tenant_schema()` (or `app.services.tenancy.run_tenant_job()`) so non-request code gets the same schema isolation.
-
-Developers must not:
-- Add tenant ERP routes outside the tenant router
-- Accept schema names from request bodies or query params
-- Reuse a global DB session for tenant work
-- Hardcode tenant schema names in SQL
-
-## Code Quality Tooling
-
-### Frontend
-
-```bash
-pnpm --filter web lint
-pnpm --filter web format
-```
-
-### Backend
+Backend quality:
 
 ```bash
 cd apps/api
 source .venv/bin/activate
 black .
 ruff check .
+pytest
 ```
 
-## Docker (Scaffold)
+RBAC typecheck:
 
 ```bash
-docker compose up
+pnpm rbac:build
 ```
 
-This scaffold is provided for deployment-ready direction; local dev remains `pnpm dev` + Python venv.
+## E2E and AI Testing
+
+Playwright tests live under `apps/web/e2e`.
+
+Common flows covered include:
+- navigation
+- masters
+- purchase order tax and workflow
+- stock adjustment
+- settings
+- reports
+- sales flow
+
+AI workflow runner:
+
+```bash
+pnpm ai:test
+```
+
+Guided/manual workflow runner:
+
+```bash
+pnpm guided:test
+pnpm guided:test:po-grn
+```
+
+Some local test helpers require:
+
+```env
+ENABLE_TEST_ENDPOINTS=true
+```
+
+## Key Business Rules Implemented
+
+### Inventory
+
+- Ledger is immutable.
+- Stock correction is metadata reclassification, not quantity adjustment.
+- Stock adjustment is quantity correction.
+
+### Purchase
+
+- PO tax is calculated from supplier GST state vs company GST state.
+- GST is shown and rolled up per line.
+- GRN posting creates stock inward.
+- Purchase Bill posting does not create stock movement.
+
+### Sales
+
+- Sales Order confirmation reserves stock.
+- Physical stock is reduced only on dispatch post.
+- `available_qty = on_hand_qty - reserved_qty`
+
+### Traceability
+
+- inward stock provenance stores supplier, PO, bill, and GRN chain
+- stock source traceability report answers who supplied current stock
+
+## Current App Areas
+
+Main ERP app includes:
+- Dashboard
+- Masters
+- Inventory
+- Purchase
+- Sales
+- Reports
+- Settings
+
+Super-admin / RBAC app includes:
+- organizations
+- platform reports
+- audit logs
+- support
+
+## Repo Hygiene
+
+Generated files should not be committed.
+
+Ignored examples now include:
+- `.next`
+- `.next_*`
+- `dist`
+- `backups`
+- Playwright reports and guided artifacts
+- logs, temp files, and build outputs
+
+If old generated files were already committed, they must be removed from the Git index separately from `.gitignore`.
 
 ## Notes
 
-- Purchase/Sales order workflows are intentionally not implemented yet.
-- Foundation is modular and ready for Phase 1 module expansion.
+- TDS / TCS UI is planned but not implemented yet.
+- Accounting, payments, receivables, and journals are intentionally out of scope at this stage.
+- Purchase Bill, GRN, and Sales flows are built to support future deeper reconciliation and finance modules.

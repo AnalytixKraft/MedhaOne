@@ -888,6 +888,23 @@ def _table_exists(db: Session, schema_name: str, table_name: str) -> bool:
     )
 
 
+def _index_exists(db: Session, schema_name: str, index_name: str) -> bool:
+    return (
+        db.execute(
+            text(
+                """
+                SELECT 1
+                FROM pg_indexes
+                WHERE schemaname = :schema_name
+                  AND indexname = :index_name
+                """
+            ),
+            {"schema_name": schema_name, "index_name": index_name},
+        ).scalar_one_or_none()
+        is not None
+    )
+
+
 def _auto_repair_inventory_tables(db: Session, schema_name: str) -> None:
     # Some legacy tenant schemas were provisioned partially. Repair missing
     # inventory tables in-place to keep stock reports operational.
@@ -946,33 +963,36 @@ def _auto_repair_inventory_tables(db: Session, schema_name: str) -> None:
         )
         did_repair = True
 
-    did_ddl = True
-    db.execute(
-        text(
-            f"""
-            CREATE INDEX IF NOT EXISTS ix_batches_product_id
-            ON {batches_table} (product_id)
-            """
+    if not _index_exists(db, schema_name, "ix_batches_product_id"):
+        did_ddl = True
+        db.execute(
+            text(
+                f"""
+                CREATE INDEX IF NOT EXISTS ix_batches_product_id
+                ON {batches_table} (product_id)
+                """
+            )
         )
-    )
-    did_ddl = True
-    db.execute(
-        text(
-            f"""
-            CREATE INDEX IF NOT EXISTS ix_batches_expiry_date
-            ON {batches_table} (expiry_date)
-            """
+    if not _index_exists(db, schema_name, "ix_batches_expiry_date"):
+        did_ddl = True
+        db.execute(
+            text(
+                f"""
+                CREATE INDEX IF NOT EXISTS ix_batches_expiry_date
+                ON {batches_table} (expiry_date)
+                """
+            )
         )
-    )
-    did_ddl = True
-    db.execute(
-        text(
-            f"""
-            CREATE INDEX IF NOT EXISTS ix_batches_batch_no
-            ON {batches_table} (batch_no)
-            """
+    if not _index_exists(db, schema_name, "ix_batches_batch_no"):
+        did_ddl = True
+        db.execute(
+            text(
+                f"""
+                CREATE INDEX IF NOT EXISTS ix_batches_batch_no
+                ON {batches_table} (batch_no)
+                """
+            )
         )
-    )
     reference_id_exists = db.execute(
         text(
             """
@@ -1021,42 +1041,46 @@ def _auto_repair_inventory_tables(db: Session, schema_name: str) -> None:
         )
         did_repair = True
 
-    did_ddl = True
-    db.execute(
-        text(
-            f"""
-            CREATE INDEX IF NOT EXISTS ix_inventory_ledger_batch_id
-            ON {ledger_table} (batch_id)
-            """
+    if not _index_exists(db, schema_name, "ix_inventory_ledger_batch_id"):
+        did_ddl = True
+        db.execute(
+            text(
+                f"""
+                CREATE INDEX IF NOT EXISTS ix_inventory_ledger_batch_id
+                ON {ledger_table} (batch_id)
+                """
+            )
         )
-    )
-    did_ddl = True
-    db.execute(
-        text(
-            f"""
-            CREATE INDEX IF NOT EXISTS ix_inventory_ledger_created_at
-            ON {ledger_table} (created_at)
-            """
+    if not _index_exists(db, schema_name, "ix_inventory_ledger_created_at"):
+        did_ddl = True
+        db.execute(
+            text(
+                f"""
+                CREATE INDEX IF NOT EXISTS ix_inventory_ledger_created_at
+                ON {ledger_table} (created_at)
+                """
+            )
         )
-    )
-    did_ddl = True
-    db.execute(
-        text(
-            f"""
-            CREATE INDEX IF NOT EXISTS ix_inventory_ledger_wh_prod
-            ON {ledger_table} (warehouse_id, product_id)
-            """
+    if not _index_exists(db, schema_name, "ix_inventory_ledger_wh_prod"):
+        did_ddl = True
+        db.execute(
+            text(
+                f"""
+                CREATE INDEX IF NOT EXISTS ix_inventory_ledger_wh_prod
+                ON {ledger_table} (warehouse_id, product_id)
+                """
+            )
         )
-    )
-    did_ddl = True
-    db.execute(
-        text(
-            f"""
-            CREATE INDEX IF NOT EXISTS ix_inventory_ledger_reason
-            ON {ledger_table} (reason)
-            """
+    if not _index_exists(db, schema_name, "ix_inventory_ledger_reason"):
+        did_ddl = True
+        db.execute(
+            text(
+                f"""
+                CREATE INDEX IF NOT EXISTS ix_inventory_ledger_reason
+                ON {ledger_table} (reason)
+                """
+            )
         )
-    )
 
     if not _table_exists(db, schema_name, "stock_summary"):
         did_ddl = True
@@ -1078,15 +1102,16 @@ def _auto_repair_inventory_tables(db: Session, schema_name: str) -> None:
         )
         did_repair = True
 
-    did_ddl = True
-    db.execute(
-        text(
-            f"""
-            CREATE INDEX IF NOT EXISTS ix_stock_summary_wh_prod_qty
-            ON {stock_summary_table} (warehouse_id, product_id, qty_on_hand)
-            """
+    if not _index_exists(db, schema_name, "ix_stock_summary_wh_prod_qty"):
+        did_ddl = True
+        db.execute(
+            text(
+                f"""
+                CREATE INDEX IF NOT EXISTS ix_stock_summary_wh_prod_qty
+                ON {stock_summary_table} (warehouse_id, product_id, qty_on_hand)
+                """
+            )
         )
-    )
 
     if did_ddl:
         db.commit()

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { withPgClient } from "../lib/db.js";
 import { writeOrgAuditLog } from "./audit.service.js";
 import { hashPassword } from "../utils/password.js";
+import { quoteIdentifier } from "../utils/schema.js";
 
 const createUserInput = z.object({
   email: z.string().email().transform((value) => value.trim().toLowerCase()),
@@ -20,7 +21,7 @@ export async function listOrgUsers(schemaName: string) {
   return withPgClient(async (client) => {
     await client.query("BEGIN");
     try {
-      await client.query(`SET LOCAL search_path TO ${schemaName}, public`);
+      await client.query(`SET LOCAL search_path TO ${quoteIdentifier(schemaName)}, public`);
       const result = await client.query(
         `SELECT id, email, full_name AS "fullName", role, is_active AS "isActive", last_login_at AS "lastLoginAt", created_at AS "createdAt", updated_at AS "updatedAt"
          FROM users
@@ -46,7 +47,7 @@ export async function createOrgUser(
   return withPgClient(async (client) => {
     await client.query("BEGIN");
     try {
-      await client.query(`SET LOCAL search_path TO ${schemaName}, public`);
+      await client.query(`SET LOCAL search_path TO ${quoteIdentifier(schemaName)}, public`);
       await client.query("LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE");
       const orgResult = await client.query<{ max_users: number }>(
         `SELECT max_users FROM public.organizations WHERE id = $1 FOR UPDATE`,
@@ -103,7 +104,7 @@ export async function updateOrgUserRole(
   return withPgClient(async (client) => {
     await client.query("BEGIN");
     try {
-      await client.query(`SET LOCAL search_path TO ${schemaName}, public`);
+      await client.query(`SET LOCAL search_path TO ${quoteIdentifier(schemaName)}, public`);
       await client.query(`UPDATE users SET role = $1, updated_at = NOW() WHERE id = $2`, [input.role, userId]);
       await writeOrgAuditLog(client, "USER_ROLE_CHANGED", "USER", actorUserId, userId, {
         role: input.role,
@@ -131,7 +132,7 @@ export async function setOrgUserActive(
   return withPgClient(async (client) => {
     await client.query("BEGIN");
     try {
-      await client.query(`SET LOCAL search_path TO ${schemaName}, public`);
+      await client.query(`SET LOCAL search_path TO ${quoteIdentifier(schemaName)}, public`);
       await client.query(`UPDATE users SET is_active = $1, updated_at = NOW() WHERE id = $2`, [isActive, userId]);
       await writeOrgAuditLog(client, isActive ? "USER_ACTIVATED" : "USER_DEACTIVATED", "USER", actorUserId, userId, {
         isActive,
