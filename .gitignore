@@ -2,7 +2,9 @@
 node_modules
 .pnpm-store
 .next
+.next_*
 out
+dist
 
 # Python
 __pycache__/
@@ -23,5 +25,14 @@ __pycache__/
 coverage
 .run/
 *.tsbuildinfo
+*.log
+backups/
+playwright-report/
+test-results/
+artifacts/
+tmp/
+logs/
+apps/web/e2e/guided/artifacts/
+apps/web/e2e/reports/
 apps/web/e2e/ai/artifacts/*
 !apps/web/e2e/ai/artifacts/.gitkeep
