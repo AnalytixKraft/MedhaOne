@@ -19,10 +19,14 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-def upgrade() -> None:
-    bind = op.get_bind()
+def _schema_names(bind) -> list[str]:
     inspector = inspect(bind)
     schema_names = ["public"]
+
+    public_tables = set(inspector.get_table_names(schema="public"))
+    if "organizations" not in public_tables:
+        return schema_names
+
     organization_schemas = bind.execute(
         text(
             """
@@ -33,8 +37,13 @@ def upgrade() -> None:
         )
     ).scalars().all()
     schema_names.extend(schema for schema in organization_schemas if isinstance(schema, str))
+    return list(dict.fromkeys(schema_names))
 
-    for schema_name in dict.fromkeys(schema_names):
+
+def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = inspect(bind)
+    for schema_name in _schema_names(bind):
         user_tables = inspector.get_table_names(schema=schema_name)
         if "users" not in user_tables:
             continue
@@ -58,19 +67,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     bind = op.get_bind()
     inspector = inspect(bind)
-    schema_names = ["public"]
-    organization_schemas = bind.execute(
-        text(
-            """
-            SELECT schema_name
-            FROM public.organizations
-            WHERE is_active IS TRUE
-            """
-        )
-    ).scalars().all()
-    schema_names.extend(schema for schema in organization_schemas if isinstance(schema, str))
-
-    for schema_name in dict.fromkeys(schema_names):
+    for schema_name in _schema_names(bind):
         user_tables = inspector.get_table_names(schema=schema_name)
         if "users" not in user_tables:
             continue

@@ -226,6 +226,13 @@ ERP_DATABASE_URL="postgresql+psycopg://${RBAC_DB_USER}:${RBAC_DB_PASSWORD}@127.0
 log "Running ERP migrations against shared PostgreSQL"
 (cd "$ROOT_DIR/apps/api" && env "DATABASE_URL=$ERP_DATABASE_URL" "${PNPM_CMD[@]}" migrate >/dev/null)
 
+log "Generating RBAC Prisma client"
+(cd "$ROOT_DIR" && env "DATABASE_URL=$RBAC_DATABASE_URL" "${PNPM_CMD[@]}" rbac:prisma:generate >/dev/null)
+
+log "Bootstrapping RBAC public schema"
+(cd "$ROOT_DIR/apps/rbac-api" && env "DATABASE_URL=$RBAC_DATABASE_URL" pnpm exec prisma db execute --file prisma/migrations/0001_init_public/migration.sql --schema prisma/schema.prisma >/dev/null)
+(cd "$ROOT_DIR/apps/rbac-api" && env "DATABASE_URL=$RBAC_DATABASE_URL" pnpm exec prisma db execute --file prisma/migrations/0002_global_tax_rates/migration.sql --schema prisma/schema.prisma >/dev/null)
+
 stop_stale_listeners "web" "1729"
 stop_stale_listeners "api" "1730"
 rm -f "$PID_DIR/dev.pid"

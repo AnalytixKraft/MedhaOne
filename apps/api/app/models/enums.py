@@ -128,3 +128,32 @@ class PurchaseBillExtractionStatus(str, Enum):
     EXTRACTED = "EXTRACTED"
     REVIEWED = "REVIEWED"
     FAILED = "FAILED"
+
+
+class DrugLicenseVerifiedStatus(str, Enum):
+    NOT_VERIFIED = "NOT_VERIFIED"
+    VERIFIED = "VERIFIED"
+    FAILED = "FAILED"
+    EXPIRED = "EXPIRED"
+    PENDING_REVIEW = "PENDING_REVIEW"
+
+
+class DrugLicenseVerificationLogStatus(str, Enum):
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+    CAPTCHA_REQUIRED = "CAPTCHA_REQUIRED"
+    PARSE_FAILED = "PARSE_FAILED"
+
+
+class GSTVerifiedStatus(str, Enum):
+    NOT_VERIFIED = "NOT_VERIFIED"
+    VERIFIED = "VERIFIED"
+    FAILED = "FAILED"
+    INACTIVE = "INACTIVE"
+
+
+class GSTVerificationLogStatus(str, Enum):
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+    CAPTCHA_REQUIRED = "CAPTCHA_REQUIRED"
+    PARSE_FAILED = "PARSE_FAILED"

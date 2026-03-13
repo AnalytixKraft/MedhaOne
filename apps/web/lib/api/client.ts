@@ -98,6 +98,27 @@ export type RegistrationType =
 
 export type OutstandingTrackingMode = "BILL_WISE" | "FIFO" | "ON_ACCOUNT";
 
+export type DrugLicenseVerifiedStatus =
+  | "NOT_VERIFIED"
+  | "VERIFIED"
+  | "FAILED"
+  | "EXPIRED"
+  | "PENDING_REVIEW";
+
+export type DrugLicenseVerificationLogStatus =
+  | "SUCCESS"
+  | "FAILED"
+  | "CAPTCHA_REQUIRED"
+  | "PARSE_FAILED";
+
+export type GSTVerifiedStatus = "NOT_VERIFIED" | "VERIFIED" | "FAILED" | "INACTIVE";
+
+export type GSTVerificationLogStatus =
+  | "SUCCESS"
+  | "FAILED"
+  | "CAPTCHA_REQUIRED"
+  | "PARSE_FAILED";
+
 export type Party = {
   id: number;
   party_name: string;
@@ -125,6 +146,22 @@ export type Party = {
   pan_number: string | null;
   registration_type: RegistrationType | null;
   drug_license_number: string | null;
+  drug_license_verified_status: DrugLicenseVerifiedStatus;
+  drug_license_verified_at: string | null;
+  drug_license_verified_by: number | null;
+  drug_license_verification_source: string | null;
+  drug_license_holder_name: string | null;
+  drug_license_valid_upto: string | null;
+  drug_license_state: string | null;
+  drug_license_raw_snapshot: Record<string, unknown> | null;
+  gst_verified_status: GSTVerifiedStatus;
+  gst_verified_at: string | null;
+  gst_verified_by: number | null;
+  gst_verification_source: string | null;
+  gst_legal_name: string | null;
+  gst_trade_name: string | null;
+  gst_registration_date: string | null;
+  gst_raw_snapshot: Record<string, unknown> | null;
   fssai_number: string | null;
   udyam_number: string | null;
   credit_limit: string | null;
@@ -141,6 +178,17 @@ export type Warehouse = {
   name: string;
   code: string;
   address: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Rack = {
+  id: number;
+  warehouse_id: number;
+  warehouse_name: string | null;
+  rack_number: string;
+  description: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -164,12 +212,21 @@ export type Product = {
   id: number;
   sku: string;
   name: string;
+  display_name: string | null;
   brand: string | null;
+  category: string | null;
   uom: string;
+  decimal_allowed: boolean;
   quantity_precision: number;
   barcode: string | null;
   hsn: string | null;
   gst_rate: string | null;
+  default_warehouse_id: number | null;
+  default_warehouse_name: string | null;
+  rack_number: string | null;
+  default_purchase_rate: string | null;
+  default_sale_rate: string | null;
+  mrp: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -262,7 +319,6 @@ export type PartyPayload = {
   party_name: string;
   name?: string;
   display_name?: string;
-  party_code?: string;
   party_type: PartyType;
   party_category?: string;
   contact_person?: string;
@@ -303,6 +359,114 @@ export type BulkImportResult = {
   created_count: number;
   failed_count: number;
   errors: BulkImportError[];
+};
+
+export type DrugLicenseVerificationNormalizedResult = {
+  license_number: string;
+  holder_name: string | null;
+  status: string | null;
+  valid_upto: string | null;
+  authority: string | null;
+  state: string | null;
+  raw_snapshot: Record<string, unknown> | null;
+};
+
+export type DrugLicenseVerificationLog = {
+  id: number;
+  party_id: number;
+  party_name: string | null;
+  drug_license_number: string;
+  requested_by: number;
+  requested_by_name: string | null;
+  requested_at: string;
+  status: DrugLicenseVerificationLogStatus;
+  source_url: string | null;
+  extracted_data_json: Record<string, unknown> | null;
+  response_snapshot: string | null;
+  remarks: string | null;
+};
+
+export type DrugLicenseVerificationSession = {
+  log: DrugLicenseVerificationLog;
+  verification_state: string;
+  challenge_text: string | null;
+  result: DrugLicenseVerificationNormalizedResult | null;
+  can_resume: boolean;
+  can_save: boolean;
+};
+
+export type DrugLicenseVerificationHistoryResponse = {
+  items: DrugLicenseVerificationLog[];
+};
+
+export type DrugLicenseVerificationStartPayload = {
+  party_id?: number;
+  drug_license_number?: string;
+};
+
+export type DrugLicenseVerificationResumePayload = {
+  captcha_value: string;
+};
+
+export type DrugLicenseVerificationSavePayload = {
+  remarks?: string;
+};
+
+export type GSTVerificationNormalizedResult = {
+  gstin: string;
+  legal_name: string | null;
+  trade_name: string | null;
+  status: string | null;
+  registration_date: string | null;
+  cancellation_date: string | null;
+  constitution: string | null;
+  state_jurisdiction: string | null;
+  central_jurisdiction: string | null;
+  principal_address: string | null;
+  nature_of_business: string[] | null;
+  einvoice_status: string | null;
+  raw_snapshot: Record<string, unknown> | null;
+};
+
+export type GSTVerificationLog = {
+  id: number;
+  party_id: number | null;
+  party_name: string | null;
+  gstin: string;
+  requested_by: number;
+  requested_by_name: string | null;
+  requested_at: string;
+  status: GSTVerificationLogStatus;
+  source_url: string | null;
+  extracted_data_json: Record<string, unknown> | null;
+  response_snapshot: string | null;
+  remarks: string | null;
+};
+
+export type GSTVerificationSession = {
+  log: GSTVerificationLog;
+  verification_state: string;
+  challenge_text: string | null;
+  result: GSTVerificationNormalizedResult | null;
+  can_resume: boolean;
+  can_save: boolean;
+};
+
+export type GSTVerificationHistoryResponse = {
+  items: GSTVerificationLog[];
+};
+
+export type GSTVerificationStartPayload = {
+  party_id?: number;
+  gstin?: string;
+};
+
+export type GSTVerificationResumePayload = {
+  captcha_value: string;
+};
+
+export type GSTVerificationSavePayload = {
+  remarks?: string;
 };
 
 export type InventoryStockItem = {
@@ -479,15 +643,29 @@ export type WarehousePayload = {
   is_active: boolean;
 };
 
+export type RackPayload = {
+  warehouse_id: number;
+  rack_number: string;
+  description?: string;
+  is_active: boolean;
+};
+
 export type ProductPayload = {
   sku: string;
   name: string;
+  display_name?: string;
   brand?: string;
+  category?: string;
   uom: string;
-  quantity_precision?: number;
+  decimal_allowed?: boolean;
   barcode?: string;
   hsn?: string;
   gst_rate?: string;
+  default_warehouse_id?: number | null;
+  rack_number?: string;
+  default_purchase_rate?: string;
+  default_sale_rate?: string;
+  mrp?: string;
   is_active: boolean;
 };
 
@@ -1228,6 +1406,24 @@ export type GenericTabularReportResponse = {
   data: Array<Record<string, string | number | boolean | null>>;
 };
 
+export type PurchaseAnalyticsFilterOptions = ReportFilterOptions & {
+  years: number[];
+};
+
+export type PurchaseAnalyticsReportResponse = {
+  total: number;
+  page: number;
+  page_size: number;
+  summary: ReportSummaryMetric[];
+  charts: Record<string, Array<Record<string, string | number | boolean | null>>>;
+  data: Array<Record<string, string | number | boolean | null>>;
+  meta: Record<string, unknown>;
+};
+
+export type PurchaseAnalyticsDashboardResponse = {
+  summary: ReportSummaryMetric[];
+};
+
 function toErrorMessage(errorBody: ApiError): string {
   if (typeof errorBody.detail === "string") {
     return errorBody.detail;
@@ -1418,6 +1614,69 @@ export const apiClient = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  startDrugLicenseVerification: (payload: DrugLicenseVerificationStartPayload) =>
+    request<DrugLicenseVerificationSession>("/api/masters/drug-license-verification/start", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  resumeDrugLicenseVerification: (
+    logId: number,
+    payload: DrugLicenseVerificationResumePayload,
+  ) =>
+    request<DrugLicenseVerificationSession>(
+      `/api/masters/drug-license-verification/${logId}/resume`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
+  saveDrugLicenseVerification: (
+    logId: number,
+    payload: DrugLicenseVerificationSavePayload = {},
+  ) =>
+    request<Party>(`/api/masters/drug-license-verification/${logId}/save`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  listDrugLicenseVerificationHistory: (
+    query?: Record<string, string | number | undefined | null>,
+  ) =>
+    request<DrugLicenseVerificationHistoryResponse>(
+      withQuery("/api/masters/drug-license-verification/history", query),
+      { method: "GET" },
+    ),
+  getDrugLicenseVerificationHistoryDetail: (logId: number) =>
+    request<DrugLicenseVerificationLog>(
+      `/api/masters/drug-license-verification/history/${logId}`,
+      { method: "GET" },
+    ),
+
+  startGSTVerification: (payload: GSTVerificationStartPayload) =>
+    request<GSTVerificationSession>("/api/masters/gst-verification/start", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  resumeGSTVerification: (logId: number, payload: GSTVerificationResumePayload) =>
+    request<GSTVerificationSession>(`/api/masters/gst-verification/${logId}/resume`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  saveGSTVerification: (logId: number, payload: GSTVerificationSavePayload = {}) =>
+    request<Party>(`/api/masters/gst-verification/${logId}/save`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  listGSTVerificationHistory: (
+    query?: Record<string, string | number | undefined | null>,
+  ) =>
+    request<GSTVerificationHistoryResponse>(
+      withQuery("/api/masters/gst-verification/history", query),
+      { method: "GET" },
+    ),
+  getGSTVerificationHistoryDetail: (logId: number) =>
+    request<GSTVerificationLog>(`/api/masters/gst-verification/history/${logId}`, {
+      method: "GET",
+    }),
 
   listProducts: () =>
     request<Product[]>("/api/masters/products", { method: "GET" }),
@@ -1462,6 +1721,28 @@ export const apiClient = {
     request<WarehouseBulkDeleteResult>("/api/masters/warehouses/bulk-delete", {
       method: "POST",
       body: JSON.stringify({ ids }),
+    }),
+  listRacks: (query?: { warehouse_id?: number; include_inactive?: boolean }) =>
+    request<Rack[]>(
+      withQuery("/api/masters/racks", {
+        warehouse_id: query?.warehouse_id,
+        include_inactive: query?.include_inactive ? "true" : undefined,
+      }),
+      { method: "GET" },
+    ),
+  createRack: (payload: RackPayload) =>
+    request<Rack>("/api/masters/racks", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateRack: (id: number, payload: Partial<RackPayload>) =>
+    request<Rack>(`/api/masters/racks/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deactivateRack: (id: number) =>
+    request<Rack>(`/api/masters/racks/${id}`, {
+      method: "DELETE",
     }),
   bulkUploadOpeningStock: (payload: { rows?: Record<string, unknown>[]; csv_data?: string }) =>
     request<BulkImportResult>("/api/inventory/opening-stock/bulk", {
@@ -1727,6 +2008,52 @@ export const apiClient = {
     request<MasterReportFilterOptions>("/api/reports/masters/filter-options", { method: "GET" }),
   getDataQualityFilterOptions: () =>
     request<DataQualityFilterOptions>("/api/reports/data-quality/filter-options", { method: "GET" }),
+  getPurchaseAnalyticsFilterOptions: () =>
+    request<PurchaseAnalyticsFilterOptions>("/api/reports/purchase-analytics/filter-options", {
+      method: "GET",
+    }),
+  getPurchaseAnalyticsDashboard: (
+    query?: Record<string, string | number | boolean | undefined | null>,
+  ) =>
+    request<PurchaseAnalyticsDashboardResponse>(
+      withQuery("/api/reports/purchase-analytics/dashboard", query),
+      { method: "GET" },
+    ),
+  getPurchaseCostTrendReport: (
+    query?: Record<string, string | number | boolean | undefined | null>,
+  ) =>
+    request<PurchaseAnalyticsReportResponse>(
+      withQuery("/api/reports/purchase-analytics/purchase-cost-trend", query),
+      { method: "GET" },
+    ),
+  getSeasonalPurchasePatternReport: (
+    query?: Record<string, string | number | boolean | undefined | null>,
+  ) =>
+    request<PurchaseAnalyticsReportResponse>(
+      withQuery("/api/reports/purchase-analytics/seasonal-purchase-pattern", query),
+      { method: "GET" },
+    ),
+  getSupplierLeadTimeReport: (
+    query?: Record<string, string | number | boolean | undefined | null>,
+  ) =>
+    request<PurchaseAnalyticsReportResponse>(
+      withQuery("/api/reports/purchase-analytics/supplier-lead-time", query),
+      { method: "GET" },
+    ),
+  getSupplierPriceComparisonReport: (
+    query?: Record<string, string | number | boolean | undefined | null>,
+  ) =>
+    request<PurchaseAnalyticsReportResponse>(
+      withQuery("/api/reports/purchase-analytics/supplier-price-comparison", query),
+      { method: "GET" },
+    ),
+  getPoFulfillmentQualityReport: (
+    query?: Record<string, string | number | boolean | undefined | null>,
+  ) =>
+    request<PurchaseAnalyticsReportResponse>(
+      withQuery("/api/reports/purchase-analytics/po-fulfillment-quality", query),
+      { method: "GET" },
+    ),
   getGenericReport: (
     path: string,
     query?: Record<string, string | number | boolean | undefined | null>,

@@ -24,6 +24,7 @@ import {
   Grn,
   GrnBatchLinePayload,
   GrnLinePayload,
+  Product,
   PurchaseBill,
   PurchaseOrder,
   UpdateGrnPayload,
@@ -81,12 +82,22 @@ function sumBatchValues(rows: BatchDraft[], key: "received_qty" | "free_qty") {
   return rows.reduce((total, row) => total + Number(row[key] || 0), 0);
 }
 
+function normalizeQuantityInput(value: string, decimalAllowed: boolean) {
+  const normalized = value.replace(/[^\d.]/g, "");
+  if (decimalAllowed) {
+    const [whole, ...decimals] = normalized.split(".");
+    return decimals.length > 0 ? `${whole}.${decimals.join("").slice(0, 3)}` : whole;
+  }
+  return normalized.replace(/\./g, "");
+}
+
 export function GrnForm({ mode, source, grnId }: GrnFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { hasPermission } = usePermissions();
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [purchaseBills, setPurchaseBills] = useState<PurchaseBill[]>([]);
+  const [productsById, setProductsById] = useState<Record<number, Product>>({});
   const [existingGrn, setExistingGrn] = useState<Grn | null>(null);
   const [selectedPoId, setSelectedPoId] = useState(searchParams.get("poId") ?? "");
   const [selectedBillId, setSelectedBillId] = useState(searchParams.get("billId") ?? "");
@@ -199,12 +210,16 @@ export function GrnForm({ mode, source, grnId }: GrnFormProps) {
     setLoading(true);
     setError(null);
     try {
-      const [poData, billResponse] = await Promise.all([
+      const [poData, billResponse, products] = await Promise.all([
         apiClient.listPurchaseOrders(),
         apiClient.listPurchaseBills(),
+        apiClient.listProducts(),
       ]);
       setPurchaseOrders(poData.items);
       setPurchaseBills(billResponse.items);
+      setProductsById(
+        Object.fromEntries(products.map((product) => [product.id, product])),
+      );
 
       if (mode === "edit" && grnId) {
         const grn = await apiClient.getGrn(grnId);
@@ -554,12 +569,20 @@ export function GrnForm({ mode, source, grnId }: GrnFormProps) {
           {lineDrafts.map((line, lineIndex) => {
             const receivedTotal = sumBatchValues(line.batch_rows, "received_qty");
             const freeTotal = sumBatchValues(line.batch_rows, "free_qty");
+            const product = productsById[line.product_id];
+            const quantityStep = product?.decimal_allowed ? "0.001" : "1";
             return (
               <div key={`${line.po_line_id ?? "line"}-${lineIndex}`} className="rounded-2xl border border-border">
                 <div className="grid gap-4 border-b border-border/70 bg-[hsl(var(--muted-bg))] p-4 md:grid-cols-5">
                   <div className="md:col-span-2">
                     <p className="text-sm font-semibold">{line.product_name}</p>
                     <p className="text-xs text-muted-foreground">Ordered {line.ordered_qty} · Already Received {line.already_received_qty} · Pending {line.pending_qty}</p>
+                    {product?.default_warehouse_name || product?.rack_number ? (
+                      <p className="mt-1 text-xs text-sky-700 dark:text-sky-300">
+                        Preferred storage: {product.default_warehouse_name ?? "No default warehouse"}
+                        {product.rack_number ? ` / Rack ${product.rack_number}` : ""}
+                      </p>
+                    ) : null}
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[hsl(var(--text-secondary))]">This GRN Qty</p>
@@ -620,14 +643,33 @@ export function GrnForm({ mode, source, grnId }: GrnFormProps) {
                           <TableCell>
                             <Input
                               type="number"
-                              step="0.001"
+                              step={quantityStep}
                               value={batch.received_qty}
-                              onChange={(event) => updateBatch(lineIndex, batchIndex, { received_qty: event.target.value })}
+                              onChange={(event) =>
+                                updateBatch(lineIndex, batchIndex, {
+                                  received_qty: normalizeQuantityInput(
+                                    event.target.value,
+                                    product?.decimal_allowed ?? true,
+                                  ),
+                                })
+                              }
                               data-testid={`grn-line-qty-${lineIndex}-${batchIndex}`}
                             />
                           </TableCell>
                           <TableCell>
-                            <Input type="number" step="0.001" value={batch.free_qty} onChange={(event) => updateBatch(lineIndex, batchIndex, { free_qty: event.target.value })} />
+                            <Input
+                              type="number"
+                              step={quantityStep}
+                              value={batch.free_qty}
+                              onChange={(event) =>
+                                updateBatch(lineIndex, batchIndex, {
+                                  free_qty: normalizeQuantityInput(
+                                    event.target.value,
+                                    product?.decimal_allowed ?? true,
+                                  ),
+                                })
+                              }
+                            />
                           </TableCell>
                           <TableCell>
                             <Input type="number" step="0.01" value={batch.mrp} onChange={(event) => updateBatch(lineIndex, batchIndex, { mrp: event.target.value })} />

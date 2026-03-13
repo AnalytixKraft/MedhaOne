@@ -5,6 +5,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    ForeignKey,
     Index,
     Integer,
     Numeric,
@@ -30,7 +31,9 @@ class Product(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     sku: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     brand: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(120), nullable=True)
     uom: Mapped[str] = mapped_column(String(30), nullable=False)
     quantity_precision: Mapped[int] = mapped_column(
         Integer,
@@ -38,9 +41,15 @@ class Product(Base):
         default=0,
         server_default="0",
     )
+    decimal_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     barcode: Mapped[str | None] = mapped_column(String(120), nullable=True)
     hsn: Mapped[str | None] = mapped_column(String(50), nullable=True)
     gst_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    default_warehouse_id: Mapped[int | None] = mapped_column(ForeignKey("warehouses.id"), nullable=True, index=True)
+    rack_number: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    default_purchase_rate: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    default_sale_rate: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    mrp: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -50,3 +59,17 @@ class Product(Base):
     batches = relationship("Batch", back_populates="product")
     stock_summaries = relationship("StockSummary", back_populates="product")
     inventory_ledgers = relationship("InventoryLedger", back_populates="product")
+    default_warehouse = relationship("Warehouse")
+
+    @property
+    def product_name(self) -> str:
+        return self.name
+
+    @property
+    def hsn_code(self) -> str | None:
+        return self.hsn
+
+    @property
+    def default_warehouse_name(self) -> str | None:
+        warehouse = getattr(self, "default_warehouse", None)
+        return warehouse.name if warehouse else None

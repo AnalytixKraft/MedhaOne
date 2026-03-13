@@ -1,14 +1,24 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.domain.quantity import (
-    infer_quantity_precision_from_uom,
+    decimal_allowed_from_quantity_precision,
     normalize_quantity_precision,
+    quantity_precision_from_decimal_allowed,
 )
-from app.models.enums import OutstandingTrackingMode, PartyCategory, PartyType, RegistrationType
+from app.models.enums import (
+    DrugLicenseVerificationLogStatus,
+    DrugLicenseVerifiedStatus,
+    GSTVerificationLogStatus,
+    GSTVerifiedStatus,
+    OutstandingTrackingMode,
+    PartyCategory,
+    PartyType,
+    RegistrationType,
+)
 
 LEGACY_PARTY_TYPE_VALUES: dict[str, tuple[str, str | None]] = {
     "MANUFACTURER": (PartyType.SUPPLIER.value, PartyCategory.OTHER.value),
@@ -42,7 +52,6 @@ class PartyBase(BaseModel):
     party_name: str = Field(validation_alias=AliasChoices("party_name", "name"))
     name: str | None = None
     display_name: str | None = None
-    party_code: str | None = None
     party_type: PartyType
     party_category: str | None = None
     contact_person: str | None = None
@@ -111,7 +120,6 @@ class PartyUpdate(BaseModel):
     party_name: str | None = Field(default=None, validation_alias=AliasChoices("party_name", "name"))
     name: str | None = None
     display_name: str | None = None
-    party_code: str | None = None
     party_type: PartyType | None = None
     party_category: str | None = None
     contact_person: str | None = None
@@ -175,6 +183,23 @@ class PartyUpdate(BaseModel):
 
 class PartyRead(PartyBase):
     id: int
+    party_code: str | None = None
+    drug_license_verified_status: DrugLicenseVerifiedStatus = DrugLicenseVerifiedStatus.NOT_VERIFIED
+    drug_license_verified_at: datetime | None = None
+    drug_license_verified_by: int | None = None
+    drug_license_verification_source: str | None = None
+    drug_license_holder_name: str | None = None
+    drug_license_valid_upto: date | None = None
+    drug_license_state: str | None = None
+    drug_license_raw_snapshot: dict[str, Any] | None = None
+    gst_verified_status: GSTVerifiedStatus = GSTVerifiedStatus.NOT_VERIFIED
+    gst_verified_at: datetime | None = None
+    gst_verified_by: int | None = None
+    gst_verification_source: str | None = None
+    gst_legal_name: str | None = None
+    gst_trade_name: str | None = None
+    gst_registration_date: date | None = None
+    gst_raw_snapshot: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -250,6 +275,51 @@ class WarehouseBulkDeleteResult(BaseModel):
     errors: list[WarehouseBulkDeleteError]
 
 
+class RackBase(BaseModel):
+    warehouse_id: int
+    rack_number: str = Field(min_length=1, max_length=120)
+    description: str | None = None
+    is_active: bool = True
+
+    @field_validator("rack_number")
+    @classmethod
+    def normalize_rack_number(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Rack number is required")
+        return normalized
+
+
+class RackCreate(RackBase):
+    pass
+
+
+class RackUpdate(BaseModel):
+    warehouse_id: int | None = None
+    rack_number: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = None
+    is_active: bool | None = None
+
+    @field_validator("rack_number")
+    @classmethod
+    def normalize_optional_rack_number(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Rack number is required")
+        return normalized
+
+
+class RackRead(RackBase):
+    id: int
+    warehouse_name: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class CategoryBase(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     is_active: bool = True
@@ -321,20 +391,29 @@ class BrandRead(BrandBase):
 class ProductBase(BaseModel):
     sku: str
     name: str
+    display_name: str | None = None
     brand: str | None = None
+    category: str | None = None
     uom: str
-    quantity_precision: int | None = None
+    decimal_allowed: bool = False
     barcode: str | None = None
     hsn: str | None = None
     gst_rate: Decimal | None = None
+    default_warehouse_id: int | None = None
+    rack_number: str | None = None
+    default_purchase_rate: Decimal | None = None
+    default_sale_rate: Decimal | None = None
+    mrp: Decimal | None = None
     is_active: bool = True
+    quantity_precision: int | None = None
 
     @model_validator(mode="after")
-    def apply_default_quantity_precision(self) -> "ProductBase":
-        if self.quantity_precision is None:
-            self.quantity_precision = infer_quantity_precision_from_uom(self.uom)
-        else:
+    def apply_quantity_behavior(self) -> "ProductBase":
+        if self.quantity_precision is not None:
             self.quantity_precision = normalize_quantity_precision(self.quantity_precision)
+            self.decimal_allowed = decimal_allowed_from_quantity_precision(self.quantity_precision)
+        else:
+            self.quantity_precision = quantity_precision_from_decimal_allowed(self.decimal_allowed)
         return self
 
 
@@ -345,26 +424,161 @@ class ProductCreate(ProductBase):
 class ProductUpdate(BaseModel):
     sku: str | None = None
     name: str | None = None
+    display_name: str | None = None
     brand: str | None = None
+    category: str | None = None
     uom: str | None = None
-    quantity_precision: int | None = None
+    decimal_allowed: bool | None = None
     barcode: str | None = None
     hsn: str | None = None
     gst_rate: Decimal | None = None
+    default_warehouse_id: int | None = None
+    rack_number: str | None = None
+    default_purchase_rate: Decimal | None = None
+    default_sale_rate: Decimal | None = None
+    mrp: Decimal | None = None
     is_active: bool | None = None
+    quantity_precision: int | None = None
 
-    @field_validator("quantity_precision")
-    @classmethod
-    def clamp_quantity_precision(cls, value: int | None) -> int | None:
-        if value is None:
-            return None
-        return normalize_quantity_precision(value)
+    @model_validator(mode="after")
+    def apply_quantity_behavior(self) -> "ProductUpdate":
+        if self.quantity_precision is not None:
+            self.quantity_precision = normalize_quantity_precision(self.quantity_precision)
+            self.decimal_allowed = decimal_allowed_from_quantity_precision(self.quantity_precision)
+        elif self.decimal_allowed is not None:
+            self.quantity_precision = quantity_precision_from_decimal_allowed(self.decimal_allowed)
+        return self
 
 
 class ProductRead(ProductBase):
     id: int
     quantity_precision: int
+    display_name: str | None = None
+    category: str | None = None
+    default_warehouse_id: int | None = None
+    default_warehouse_name: str | None = None
+    rack_number: str | None = None
+    default_purchase_rate: Decimal | None = None
+    default_sale_rate: Decimal | None = None
+    mrp: Decimal | None = None
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class DrugLicenseVerificationNormalizedResult(BaseModel):
+    license_number: str
+    holder_name: str | None = None
+    status: str | None = None
+    valid_upto: date | None = None
+    authority: str | None = None
+    state: str | None = None
+    raw_snapshot: dict[str, Any] | None = None
+
+
+class DrugLicenseVerificationStartRequest(BaseModel):
+    party_id: int | None = None
+    drug_license_number: str | None = None
+
+
+class DrugLicenseVerificationResumeRequest(BaseModel):
+    captcha_value: str = Field(min_length=1, max_length=64)
+
+
+class DrugLicenseVerificationSaveRequest(BaseModel):
+    remarks: str | None = None
+
+
+class DrugLicenseVerificationLogRead(BaseModel):
+    id: int
+    party_id: int
+    party_name: str | None = None
+    drug_license_number: str
+    requested_by: int
+    requested_by_name: str | None = None
+    requested_at: datetime
+    status: DrugLicenseVerificationLogStatus
+    source_url: str | None = None
+    extracted_data_json: dict[str, Any] | None = None
+    response_snapshot: str | None = None
+    remarks: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DrugLicenseVerificationHistoryResponse(BaseModel):
+    items: list[DrugLicenseVerificationLogRead]
+
+
+class DrugLicenseVerificationSessionResponse(BaseModel):
+    log: DrugLicenseVerificationLogRead
+    verification_state: str
+    challenge_text: str | None = None
+    result: DrugLicenseVerificationNormalizedResult | None = None
+    can_resume: bool = False
+    can_save: bool = False
+
+
+# ---------------------------------------------------------------------------
+# GST Verification schemas
+# ---------------------------------------------------------------------------
+
+
+class GSTVerificationNormalizedResult(BaseModel):
+    gstin: str
+    legal_name: str | None = None
+    trade_name: str | None = None
+    status: str | None = None
+    registration_date: date | None = None
+    cancellation_date: date | None = None
+    constitution: str | None = None
+    state_jurisdiction: str | None = None
+    central_jurisdiction: str | None = None
+    principal_address: str | None = None
+    nature_of_business: list[str] | None = None
+    einvoice_status: str | None = None
+    raw_snapshot: dict[str, Any] | None = None
+
+
+class GSTVerificationStartRequest(BaseModel):
+    party_id: int | None = None
+    gstin: str | None = None
+
+
+class GSTVerificationResumeRequest(BaseModel):
+    captcha_value: str = Field(min_length=1, max_length=64)
+
+
+class GSTVerificationSaveRequest(BaseModel):
+    remarks: str | None = None
+
+
+class GSTVerificationLogRead(BaseModel):
+    id: int
+    party_id: int | None = None
+    party_name: str | None = None
+    gstin: str
+    requested_by: int
+    requested_by_name: str | None = None
+    requested_at: datetime
+    status: GSTVerificationLogStatus
+    source_url: str | None = None
+    extracted_data_json: dict[str, Any] | None = None
+    response_snapshot: str | None = None
+    remarks: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GSTVerificationHistoryResponse(BaseModel):
+    items: list[GSTVerificationLogRead]
+
+
+class GSTVerificationSessionResponse(BaseModel):
+    log: GSTVerificationLogRead
+    verification_state: str
+    challenge_text: str | None = None
+    result: GSTVerificationNormalizedResult | None = None
+    can_resume: bool = False
+    can_save: bool = False

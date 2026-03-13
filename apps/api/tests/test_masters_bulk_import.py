@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -10,7 +12,7 @@ from app.models.product import Product
 from app.models.purchase_bill import PurchaseBill
 from app.models.tax_rate import TaxRate
 from app.models.user import User
-from app.models.warehouse import Warehouse
+from app.models.warehouse import Rack, Warehouse
 from app.services.rbac import assign_roles_to_user, ensure_rbac_seeded
 from conftest import TEST_TENANT_SLUG
 
@@ -77,6 +79,41 @@ def test_party_gstin_extracts_pan(client_with_test_db: tuple[TestClient, Session
     assert body["gstin"] == "27ABCDE1234F1Z5"
     assert body["pan_number"] == "ABCDE1234F"
     assert body["state"] == "Maharashtra"
+    assert body["party_code"].startswith("PTY-")
+
+
+def test_party_code_is_auto_generated_and_not_editable(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, _db, headers = _headers_for_admin(client_with_test_db)
+    create_response = client.post(
+        "/masters/parties",
+        headers=headers,
+        json={
+            "party_name": "Auto Code Party",
+            "party_type": "SUPPLIER",
+            "party_category": "DISTRIBUTOR",
+            "gstin": "27ABCDE1234F1Z5",
+            "party_code": "MANUAL-CODE",
+            "is_active": True,
+        },
+    )
+
+    assert create_response.status_code == 201, create_response.text
+    created_party = create_response.json()
+    assert created_party["party_code"].startswith("PTY-")
+    assert created_party["party_code"] != "MANUAL-CODE"
+
+    update_response = client.patch(
+        f"/masters/parties/{created_party['id']}",
+        headers=headers,
+        json={"party_code": "UPDATED-CODE", "display_name": "Updated"},
+    )
+
+    assert update_response.status_code == 200, update_response.text
+    updated_party = update_response.json()
+    assert updated_party["display_name"] == "Updated"
+    assert updated_party["party_code"] == created_party["party_code"]
 
 
 def test_party_invalid_gstin_rejected(client_with_test_db: tuple[TestClient, Session]) -> None:
@@ -196,22 +233,22 @@ def test_bulk_item_import_mixed_rows(client_with_test_db: tuple[TestClient, Sess
             "rows": [
                 {
                     "sku": "SKU001",
-                    "name": "Paracetamol 500",
-                    "brand": "Medha",
+                    "product_name": "Paracetamol 500",
+                    "manufacturer": "Medha",
                     "uom": "PCS",
                     "gst_rate": "5",
                 },
                 {
                     "sku": "SKU002",
-                    "name": "Unknown Tax Rate",
-                    "brand": "Medha",
+                    "product_name": "Unknown Tax Rate",
+                    "manufacturer": "Medha",
                     "uom": "PCS",
                     "gst_rate": "18",
                 },
                 {
                     "sku": "SKU001",
-                    "name": "Duplicate SKU",
-                    "brand": "Medha",
+                    "product_name": "Duplicate SKU",
+                    "manufacturer": "Medha",
                     "uom": "PCS",
                     "gst_rate": "5",
                 },
@@ -225,6 +262,75 @@ def test_bulk_item_import_mixed_rows(client_with_test_db: tuple[TestClient, Sess
     assert body["failed_count"] == 2
     assert any(error["field"] == "gst_rate" for error in body["errors"])
     assert any(error["field"] == "sku" for error in body["errors"])
+
+
+def test_product_creation_supports_storage_defaults_and_decimal_behavior(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, _db, headers = _headers_for_admin(client_with_test_db)
+
+    brand_response = client.post(
+        "/masters/brands",
+        headers=headers,
+        json={"name": "Ops Brand", "is_active": True},
+    )
+    assert brand_response.status_code in {201, 400}, brand_response.text
+
+    tax_response = client.post(
+        "/tax-rates",
+        headers=headers,
+        json={"code": "GST_18", "label": "GST 18%", "rate_percent": 18, "is_active": True},
+    )
+    assert tax_response.status_code in {201, 400}, tax_response.text
+
+    warehouse_response = client.post(
+        "/masters/warehouses",
+        headers=headers,
+        json={"name": "Ops Warehouse", "code": "OPSWH1", "address": "Pune", "is_active": True},
+    )
+    assert warehouse_response.status_code == 201, warehouse_response.text
+    warehouse_id = warehouse_response.json()["id"]
+
+    create_response = client.post(
+        "/masters/products",
+        headers=headers,
+        json={
+            "sku": "OPS-SKU-001",
+            "name": "Ops Product",
+            "display_name": "Ops Product Display",
+            "brand": "Ops Brand",
+            "category": "Critical Care",
+            "uom": "KG",
+            "hsn": "30049099",
+            "gst_rate": "18.00",
+            "default_warehouse_id": warehouse_id,
+            "rack_number": "R-12",
+            "default_purchase_rate": "25.50",
+            "default_sale_rate": "31.75",
+            "mrp": "36.00",
+            "decimal_allowed": True,
+            "is_active": True,
+        },
+    )
+
+    assert create_response.status_code == 201, create_response.text
+    body = create_response.json()
+    assert body["display_name"] == "Ops Product Display"
+    assert body["category"] == "Critical Care"
+    assert body["default_warehouse_id"] == warehouse_id
+    assert body["default_warehouse_name"] == "Ops Warehouse"
+    assert body["rack_number"] == "R-12"
+    assert body["decimal_allowed"] is True
+    assert body["quantity_precision"] == 3
+    assert body["default_purchase_rate"] == "25.50"
+    assert body["default_sale_rate"] == "31.75"
+    assert body["mrp"] == "36.00"
+
+    list_response = client.get("/masters/products", headers=headers)
+    assert list_response.status_code == 200, list_response.text
+    listed_product = next(item for item in list_response.json() if item["sku"] == "OPS-SKU-001")
+    assert listed_product["default_warehouse_name"] == "Ops Warehouse"
+    assert listed_product["rack_number"] == "R-12"
 
 
 def test_category_crud_flow(client_with_test_db: tuple[TestClient, Session]) -> None:
@@ -471,7 +577,7 @@ def test_product_requires_existing_brand(client_with_test_db: tuple[TestClient, 
         },
     )
     assert missing_brand_response.status_code == 400, missing_brand_response.text
-    assert missing_brand_response.json()["message"] == "Brand must exist in Master Settings and be active"
+    assert missing_brand_response.json()["message"] == "Manufacturer must exist in Master Settings and be active"
 
     db.add(Brand(name="Known Brand", is_active=True))
     db.commit()
@@ -510,7 +616,60 @@ def test_import_templates_available(client_with_test_db: tuple[TestClient, Sessi
     item_template = client.get("/masters/templates/item-import.csv", headers=headers)
     assert item_template.status_code == 200, item_template.text
     assert "text/csv" in item_template.headers.get("content-type", "")
-    assert "sku,name,uom,price,gst_rate" in item_template.text
+    assert "sku,product_name,display_name,manufacturer,category,uom,gst_rate,hsn,default_warehouse_code" in item_template.text
+
+
+def test_bulk_item_import_accepts_current_product_fields(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db, headers = _headers_for_admin(client_with_test_db)
+    db.add(TaxRate(code="GST_12", label="GST 12%", rate_percent="12.00", is_active=True))
+    db.add(Brand(name="Medha Pharma", is_active=True))
+    db.add(Warehouse(name="Main Warehouse", code="MAINWH", address="Pune", is_active=True))
+    db.commit()
+
+    response = client.post(
+        "/masters/items/bulk",
+        headers=headers,
+        json={
+            "rows": [
+                {
+                    "sku": "SKU-CURRENT-001",
+                    "product_name": "Current Product",
+                    "display_name": "Current Product Display",
+                    "manufacturer": "Medha Pharma",
+                    "category": "General Medicines",
+                    "uom": "BOX",
+                    "gst_rate": "12.00",
+                    "hsn": "30049099",
+                    "default_warehouse_code": "MAINWH",
+                    "rack_number": "R-01",
+                    "decimal_allowed": "yes",
+                    "default_purchase_rate": "25.50",
+                    "default_sale_rate": "30.25",
+                    "mrp": "36.00",
+                    "is_active": "yes",
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["created_count"] == 1
+    assert body["failed_count"] == 0
+
+    product = db.query(Product).filter(Product.sku == "SKU-CURRENT-001").one()
+    assert product.name == "Current Product"
+    assert product.display_name == "Current Product Display"
+    assert product.brand == "Medha Pharma"
+    assert product.default_warehouse is not None
+    assert product.default_warehouse.code == "MAINWH"
+    assert product.rack_number == "R-01"
+    assert product.default_purchase_rate == Decimal("25.50")
+    assert product.default_sale_rate == Decimal("30.25")
+    assert product.mrp == Decimal("36.00")
+    assert product.decimal_allowed is True
 
 
 def test_party_duplicate_gstin_rejected(client_with_test_db: tuple[TestClient, Session]) -> None:
@@ -783,7 +942,6 @@ def test_party_advanced_fields_persist(client_with_test_db: tuple[TestClient, Se
         json={
             "party_name": "Compliance Rich Party",
             "display_name": "Compliance Rich",
-            "party_code": "PTY-001",
             "party_type": "BOTH",
             "party_category": "PHARMACY",
             "contact_person": "Lijo",
@@ -814,7 +972,7 @@ def test_party_advanced_fields_persist(client_with_test_db: tuple[TestClient, Se
 
     assert response.status_code == 201, response.text
     body = response.json()
-    assert body["party_code"] == "PTY-001"
+    assert body["party_code"].startswith("PTY-")
     assert body["contact_person"] == "Lijo"
     assert body["drug_license_number"] == "DL-123"
     assert body["fssai_number"] == "FSSAI-123"
@@ -822,3 +980,74 @@ def test_party_advanced_fields_persist(client_with_test_db: tuple[TestClient, Se
     assert body["credit_limit"] == "125000.00"
     assert body["opening_balance"] == "1500.00"
     assert body["outstanding_tracking_mode"] == "FIFO"
+
+
+def test_rack_master_and_product_rack_validation(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db, headers = _headers_for_admin(client_with_test_db)
+    db.add(Brand(name="RackBrand", is_active=True))
+    db.commit()
+
+    warehouse_response = client.post(
+        "/masters/warehouses",
+        headers=headers,
+        json={"name": "Rack Warehouse", "code": "RACKWH", "is_active": True},
+    )
+    assert warehouse_response.status_code == 201, warehouse_response.text
+    warehouse_id = warehouse_response.json()["id"]
+
+    rack_response = client.post(
+        "/masters/racks",
+        headers=headers,
+        json={
+            "warehouse_id": warehouse_id,
+            "rack_number": "A-01",
+            "description": "Primary aisle",
+            "is_active": True,
+        },
+    )
+    assert rack_response.status_code == 201, rack_response.text
+    created_rack = rack_response.json()
+    assert created_rack["warehouse_id"] == warehouse_id
+    assert created_rack["rack_number"] == "A-01"
+
+    list_response = client.get(f"/masters/racks?warehouse_id={warehouse_id}", headers=headers)
+    assert list_response.status_code == 200, list_response.text
+    rack_rows = list_response.json()
+    assert len(rack_rows) == 1
+    assert rack_rows[0]["warehouse_name"] == "Rack Warehouse"
+
+    invalid_product_response = client.post(
+        "/masters/products",
+        headers=headers,
+        json={
+            "sku": "RACK-SKU-1",
+            "name": "Rack Product Invalid",
+            "brand": "RackBrand",
+            "uom": "BOX",
+            "default_warehouse_id": warehouse_id,
+            "rack_number": "Z-99",
+            "is_active": True,
+        },
+    )
+    assert invalid_product_response.status_code == 400, invalid_product_response.text
+    assert invalid_product_response.json()["details"]["field"] == "rack_number"
+
+    valid_product_response = client.post(
+        "/masters/products",
+        headers=headers,
+        json={
+            "sku": "RACK-SKU-2",
+            "name": "Rack Product Valid",
+            "brand": "RackBrand",
+            "uom": "BOX",
+            "default_warehouse_id": warehouse_id,
+            "rack_number": "A-01",
+            "is_active": True,
+        },
+    )
+    assert valid_product_response.status_code == 201, valid_product_response.text
+    assert valid_product_response.json()["rack_number"] == "A-01"
+
+    assert db.query(Rack).filter(Rack.warehouse_id == warehouse_id).count() == 1

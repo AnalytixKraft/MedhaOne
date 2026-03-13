@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from jose import jwt
 
+from app.core import security
 from app.core.security import ALGORITHM, create_access_token, decode_access_token, get_settings
 
 
@@ -38,6 +39,8 @@ def test_local_secret_cannot_sign_rbac_style_claims() -> None:
 
 def test_rbac_secret_cannot_sign_local_style_claims() -> None:
     settings = get_settings()
+    original_rbac_secret = settings.rbac_jwt_secret
+    settings.rbac_jwt_secret = "rbac_distinct_secret_for_test_2026_1234567890"
     token = jwt.encode(
         {
             "sub": "123",
@@ -47,7 +50,12 @@ def test_rbac_secret_cannot_sign_local_style_claims() -> None:
         algorithm=ALGORITHM,
     )
 
-    payload, source = decode_access_token(token)
+    security.settings.rbac_jwt_secret = settings.rbac_jwt_secret
+    try:
+        payload, source = decode_access_token(token)
+    finally:
+        settings.rbac_jwt_secret = original_rbac_secret
+        security.settings.rbac_jwt_secret = original_rbac_secret
 
     assert payload is None
     assert source is None

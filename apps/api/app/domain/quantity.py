@@ -54,6 +54,14 @@ def normalize_quantity_precision(value: int | None) -> int:
     return max(0, min(int(value), 3))
 
 
+def quantity_precision_from_decimal_allowed(decimal_allowed: bool) -> int:
+    return 3 if decimal_allowed else 0
+
+
+def decimal_allowed_from_quantity_precision(value: int | None) -> bool:
+    return normalize_quantity_precision(value) > 0
+
+
 def infer_quantity_precision_from_uom(uom: str | None) -> int:
     if not uom:
         return 0

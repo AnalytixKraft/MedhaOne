@@ -676,6 +676,44 @@ def _ensure_runtime_schema_compatibility(db: Session, schema_name: str) -> None:
             extra={"schema": schema_name},
         )
 
+    warehouses_table_exists = _table_exists(db, schema_name, "warehouses")
+    racks_table_exists = _table_exists(db, schema_name, "racks")
+    if warehouses_table_exists and not racks_table_exists:
+        racks_table = _build_quoted_schema_table(schema_name, "racks")
+        warehouses_table = _build_quoted_schema_table(schema_name, "warehouses")
+        db.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS {racks_table} (
+                    id SERIAL PRIMARY KEY,
+                    warehouse_id INTEGER NOT NULL REFERENCES {warehouses_table}(id) ON DELETE CASCADE,
+                    rack_number VARCHAR(120) NOT NULL,
+                    description TEXT NULL,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT uq_racks_warehouse_rack_number UNIQUE (warehouse_id, rack_number)
+                )
+                """
+            )
+        )
+        db.commit()
+        logger.warning(
+            "Auto-repaired tenant schema to add missing racks table",
+            extra={"schema": schema_name},
+        )
+
+    if warehouses_table_exists and not _index_exists(db, schema_name, "ix_racks_warehouse_id"):
+        db.execute(
+            text(
+                f"""
+                CREATE INDEX IF NOT EXISTS ix_racks_warehouse_id
+                ON {_build_quoted_schema_table(schema_name, "racks")} (warehouse_id)
+                """
+            )
+        )
+        db.commit()
+
     _auto_repair_inventory_tables(db, schema_name)
     _auto_repair_purchase_tables(db, schema_name)
     _auto_repair_purchase_bill_tables(db, schema_name)
@@ -706,6 +744,47 @@ def _ensure_runtime_schema_compatibility(db: Session, schema_name: str) -> None:
         logger.warning(
             "Auto-repaired tenant schema to add missing products.quantity_precision",
             extra={"schema": schema_name},
+        )
+
+    product_columns = {
+        row[0]
+        for row in db.execute(
+            text(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = :schema_name
+                  AND table_name = 'products'
+                """
+            ),
+            {"schema_name": schema_name},
+        ).all()
+    }
+    product_column_repairs = {
+        "display_name": "VARCHAR(255)",
+        "category": "VARCHAR(120)",
+        "decimal_allowed": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "default_warehouse_id": "INTEGER",
+        "rack_number": "VARCHAR(120)",
+        "default_purchase_rate": "NUMERIC(14, 2)",
+        "default_sale_rate": "NUMERIC(14, 2)",
+        "mrp": "NUMERIC(14, 2)",
+    }
+    for column_name, column_ddl in product_column_repairs.items():
+        if column_name in product_columns:
+            continue
+        db.execute(
+            text(
+                f"""
+                ALTER TABLE {_build_quoted_schema_table(schema_name, "products")}
+                ADD COLUMN IF NOT EXISTS {column_name} {column_ddl}
+                """
+            )
+        )
+        db.commit()
+        logger.warning(
+            "Auto-repaired tenant schema to add missing product master field",
+            extra={"schema": schema_name, "column": column_name},
         )
 
     parties_table_exists = db.execute(
@@ -862,6 +941,7 @@ def _ensure_runtime_schema_compatibility(db: Session, schema_name: str) -> None:
             )
 
         _auto_repair_party_master_columns(db, schema_name)
+        _auto_repair_drug_license_verification_tables(db, schema_name)
 
     # Compatibility repairs may commit DDL, and pooled checkouts default back to public.
     # Rebind the tenant schema before the request continues.
@@ -1854,6 +1934,14 @@ def _auto_repair_party_master_columns(db: Session, schema_name: str) -> None:
         "country": "VARCHAR(120)",
         "registration_type": "VARCHAR(30)",
         "drug_license_number": "VARCHAR(120)",
+        "drug_license_verified_status": "VARCHAR(32) NOT NULL DEFAULT 'NOT_VERIFIED'",
+        "drug_license_verified_at": "TIMESTAMPTZ",
+        "drug_license_verified_by": "INTEGER",
+        "drug_license_verification_source": "VARCHAR(255)",
+        "drug_license_holder_name": "VARCHAR(255)",
+        "drug_license_valid_upto": "DATE",
+        "drug_license_state": "VARCHAR(120)",
+        "drug_license_raw_snapshot": "JSONB",
         "fssai_number": "VARCHAR(120)",
         "udyam_number": "VARCHAR(120)",
         "credit_limit": "NUMERIC(14, 2) NOT NULL DEFAULT 0",
@@ -1985,6 +2073,71 @@ def _auto_repair_party_master_columns(db: Session, schema_name: str) -> None:
             "Auto-repaired tenant schema to support Party Master fields",
             extra={"schema": schema_name},
         )
+
+
+def _auto_repair_drug_license_verification_tables(db: Session, schema_name: str) -> None:
+    if _table_exists(db, schema_name, "drug_license_verification_logs"):
+        return
+
+    logs_table = _build_quoted_schema_table(schema_name, "drug_license_verification_logs")
+    parties_table = _build_quoted_schema_table(schema_name, "parties")
+    users_table = _build_quoted_schema_table(schema_name, "users")
+    db.execute(
+        text(
+            f"""
+            CREATE TABLE IF NOT EXISTS {logs_table} (
+                id SERIAL PRIMARY KEY,
+                party_id INTEGER NOT NULL REFERENCES {parties_table}(id) ON DELETE CASCADE,
+                drug_license_number VARCHAR(120) NOT NULL,
+                requested_by INTEGER NOT NULL REFERENCES {users_table}(id),
+                requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                status VARCHAR(32) NOT NULL,
+                source_url VARCHAR(255),
+                extracted_data_json JSONB,
+                response_snapshot TEXT,
+                remarks TEXT
+            )
+            """
+        )
+    )
+    db.execute(text(f"CREATE INDEX IF NOT EXISTS ix_drug_license_verification_logs_id ON {logs_table} (id)"))
+    db.execute(
+        text(
+            f"""
+            CREATE INDEX IF NOT EXISTS ix_drug_license_verification_logs_party_id
+            ON {logs_table} (party_id)
+            """
+        )
+    )
+    db.execute(
+        text(
+            f"""
+            CREATE INDEX IF NOT EXISTS ix_drug_license_verification_logs_requested_by
+            ON {logs_table} (requested_by)
+            """
+        )
+    )
+    db.execute(
+        text(
+            f"""
+            CREATE INDEX IF NOT EXISTS ix_drug_license_verification_logs_status
+            ON {logs_table} (status)
+            """
+        )
+    )
+    db.execute(
+        text(
+            f"""
+            CREATE INDEX IF NOT EXISTS ix_drug_license_verification_logs_license_number
+            ON {logs_table} (drug_license_number)
+            """
+        )
+    )
+    db.commit()
+    logger.warning(
+        "Auto-repaired tenant schema to add drug licence verification logs",
+        extra={"schema": schema_name},
+    )
 
 
 def _build_quoted_schema_table(schema_name: str, table_name: str) -> str:

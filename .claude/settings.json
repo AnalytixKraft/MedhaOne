@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /Users/lijolawrance/work/analytixkraft/MedhaOne/apps/api/.env*)"
+    ]
+  }
+}

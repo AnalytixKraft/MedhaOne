@@ -1,6 +1,8 @@
 from app.models.audit import AuditLog
 from app.models.batch import Batch
 from app.models.company_settings import CompanySettings
+from app.models.drug_license import DrugLicenseVerificationLog
+from app.models.gst_verification import GSTVerificationLog
 from app.models.enums import (
     DispatchNoteStatus,
     GrnStatus,
@@ -39,16 +41,19 @@ from app.models.stock_operations import StockAdjustment, StockCorrection
 from app.models.stock_provenance import StockSourceProvenance
 from app.models.tax_rate import TaxRate
 from app.models.user import User
-from app.models.warehouse import Warehouse
+from app.models.warehouse import Rack, Warehouse
 
 __all__ = [
     "User",
     "Role",
     "Party",
     "Warehouse",
+    "Rack",
     "Product",
     "Batch",
     "CompanySettings",
+    "DrugLicenseVerificationLog",
+    "GSTVerificationLog",
     "AuditLog",
     "DocumentAttachment",
     "PurchaseOrder",

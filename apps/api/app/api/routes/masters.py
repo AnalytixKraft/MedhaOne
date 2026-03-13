@@ -1,28 +1,50 @@
 import csv
 import io
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db, set_tenant_search_path
 from app.core.exceptions import AppException
 from app.core.permissions import require_permission
 from app.api.deps import get_current_user
-from app.domain.quantity import infer_quantity_precision_from_uom
+from app.domain.quantity import quantity_precision_from_decimal_allowed
 from app.domain.tax_identity import (
     derive_state_from_gstin,
     extract_pan_from_gstin,
     normalize_and_validate_gstin,
     normalize_optional_text,
 )
-from app.models.enums import OutstandingTrackingMode, PartyCategory, PartyType, RegistrationType
+from app.integrations.drug_license_verification.service import (
+    DrugLicenseWorkflowState,
+    resume_verification as resume_drug_license_verification,
+    save_verified_data as save_drug_license_verified_data,
+    start_verification as start_drug_license_verification,
+)
+from app.integrations.gst_verification.service import (
+    GSTWorkflowState,
+    resume_verification as resume_gst_verification,
+    save_verified_data as save_gst_verified_data,
+    start_verification as start_gst_verification,
+)
 from app.models.inventory import InventoryLedger, StockSummary
 from app.models.brand import Brand
 from app.models.category import Category
+from app.models.drug_license import DrugLicenseVerificationLog
+from app.models.gst_verification import GSTVerificationLog
+from app.models.enums import (
+    DrugLicenseVerificationLogStatus,
+    GSTVerificationLogStatus,
+    OutstandingTrackingMode,
+    PartyCategory,
+    PartyType,
+    RegistrationType,
+)
 from app.models.party import Party
 from app.models.product import Product
 from app.models.purchase import GRN, PurchaseCreditNote, PurchaseOrder, PurchaseReturn
@@ -30,11 +52,24 @@ from app.models.purchase_bill import PurchaseBill
 from app.models.sales import DispatchNote, SalesOrder, StockReservation
 from app.models.stock_operations import StockAdjustment, StockCorrection
 from app.models.tax_rate import TaxRate
-from app.models.warehouse import Warehouse
+from app.models.user import User
+from app.models.warehouse import Rack, Warehouse
 from app.schemas.masters import (
     BrandCreate,
     BrandRead,
     BrandUpdate,
+    DrugLicenseVerificationHistoryResponse,
+    DrugLicenseVerificationLogRead,
+    DrugLicenseVerificationResumeRequest,
+    DrugLicenseVerificationSaveRequest,
+    DrugLicenseVerificationSessionResponse,
+    DrugLicenseVerificationStartRequest,
+    GSTVerificationHistoryResponse,
+    GSTVerificationLogRead,
+    GSTVerificationResumeRequest,
+    GSTVerificationSaveRequest,
+    GSTVerificationSessionResponse,
+    GSTVerificationStartRequest,
     BulkImportError,
     BulkImportResult,
     CategoryCreate,
@@ -46,6 +81,9 @@ from app.schemas.masters import (
     ProductCreate,
     ProductRead,
     ProductUpdate,
+    RackCreate,
+    RackRead,
+    RackUpdate,
     WarehouseBulkDeleteError,
     WarehouseBulkDeleteRequest,
     WarehouseBulkDeleteResult,
@@ -93,7 +131,6 @@ DEFAULT_PARTY_CATEGORY_NAMES = [
 PARTY_WRITE_FIELDS = {
     "name",
     "display_name",
-    "party_code",
     "party_type",
     "party_category",
     "contact_person",
@@ -207,6 +244,8 @@ def _delete_or_deactivate_warehouse(
 
     if _warehouse_has_dependencies(db, warehouse.id):
         warehouse.is_active = False
+        for rack in warehouse.racks:
+            rack.is_active = False
         _commit_or_400(db, "Failed to deactivate warehouse")
         db.refresh(warehouse)
         return WarehouseDeleteResult(
@@ -251,7 +290,6 @@ def _normalize_party_payload(payload: dict) -> dict:
 
     normalized["name"] = _to_text(normalized.get("party_name") or normalized.get("name"))
     normalized["display_name"] = _to_nullable_text(normalized.get("display_name"))
-    normalized["party_code"] = _to_nullable_text(normalized.get("party_code"))
     normalized["contact_person"] = _to_nullable_text(normalized.get("contact_person"))
     normalized["designation"] = _to_nullable_text(normalized.get("designation"))
     normalized["phone"] = _to_nullable_text(normalized.get("mobile") or normalized.get("phone"))
@@ -303,7 +341,6 @@ def _ensure_unique_party_identifiers(
     db: Session,
     *,
     gstin: str | None,
-    party_code: str | None,
     exclude_party_id: int | None = None,
 ) -> None:
     if gstin:
@@ -317,17 +354,15 @@ def _ensure_unique_party_identifiers(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 details={"field": "gstin"},
             )
-    if party_code:
-        query = db.query(Party.id).filter(func.upper(Party.party_code) == party_code.upper())
-        if exclude_party_id is not None:
-            query = query.filter(Party.id != exclude_party_id)
-        if query.first() is not None:
-            raise AppException(
-                error_code="VALIDATION_ERROR",
-                message="Party Code already exists",
-                status_code=status.HTTP_400_BAD_REQUEST,
-                details={"field": "party_code"},
-            )
+
+def _assign_party_code(party: Party) -> None:
+    if party.id is None:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Party code cannot be generated before the party is created",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    party.party_code = f"PTY-{party.id:06d}"
 
 
 def _ensure_default_party_categories(db: Session) -> bool:
@@ -429,7 +464,7 @@ def _ensure_master_brands_from_products(db: Session) -> bool:
         db.rollback()
         raise AppException(
             error_code="VALIDATION_ERROR",
-            message="Failed to prepare existing brands",
+            message="Failed to prepare existing manufacturers",
             status_code=status.HTTP_400_BAD_REQUEST,
         ) from error
     return True
@@ -525,6 +560,150 @@ def _bulk_error(row: int, message: str, field: str | None = None) -> BulkImportE
     return BulkImportError(row=row, field=field, message=message)
 
 
+def _get_drug_license_log_or_404(db: Session, log_id: int) -> DrugLicenseVerificationLog:
+    log = (
+        db.query(DrugLicenseVerificationLog)
+        .options(
+            joinedload(DrugLicenseVerificationLog.party),
+        )
+        .filter(DrugLicenseVerificationLog.id == log_id)
+        .first()
+    )
+    if log is None:
+        raise AppException(
+            error_code="NOT_FOUND",
+            message="Drug licence verification session not found",
+            status_code=404,
+        )
+    return log
+
+
+def _serialize_drug_license_log(log: DrugLicenseVerificationLog) -> DrugLicenseVerificationLogRead:
+    extracted_data = log.extracted_data_json if isinstance(log.extracted_data_json, dict) else {}
+    requested_by_name = extracted_data.get("requested_by_name")
+    return DrugLicenseVerificationLogRead(
+        id=log.id,
+        party_id=log.party_id,
+        party_name=log.party.party_name if log.party is not None else None,
+        drug_license_number=log.drug_license_number,
+        requested_by=log.requested_by,
+        requested_by_name=str(requested_by_name).strip() if requested_by_name else None,
+        requested_at=log.requested_at,
+        status=DrugLicenseVerificationLogStatus(log.status),
+        source_url=log.source_url,
+        extracted_data_json=log.extracted_data_json,
+        response_snapshot=log.response_snapshot,
+        remarks=log.remarks,
+    )
+
+
+def _get_gst_log_or_404(db: Session, log_id: int) -> GSTVerificationLog:
+    log = (
+        db.query(GSTVerificationLog)
+        .options(joinedload(GSTVerificationLog.party))
+        .filter(GSTVerificationLog.id == log_id)
+        .first()
+    )
+    if log is None:
+        raise AppException(
+            error_code="NOT_FOUND",
+            message="GST verification session not found",
+            status_code=404,
+        )
+    return log
+
+
+def _serialize_gst_log(log: GSTVerificationLog) -> GSTVerificationLogRead:
+    extracted_data = log.extracted_data_json if isinstance(log.extracted_data_json, dict) else {}
+    requested_by_name = extracted_data.get("requested_by_name")
+    return GSTVerificationLogRead(
+        id=log.id,
+        party_id=log.party_id,
+        party_name=log.party.party_name if log.party is not None else None,
+        gstin=log.gstin,
+        requested_by=log.requested_by,
+        requested_by_name=str(requested_by_name).strip() if requested_by_name else None,
+        requested_at=log.requested_at,
+        status=GSTVerificationLogStatus(log.status),
+        source_url=log.source_url,
+        extracted_data_json=log.extracted_data_json,
+        response_snapshot=log.response_snapshot,
+        remarks=log.remarks,
+    )
+
+
+def _serialize_gst_workflow(
+    workflow: GSTWorkflowState,
+) -> GSTVerificationSessionResponse:
+    result = workflow.result
+    return GSTVerificationSessionResponse(
+        log=_serialize_gst_log(workflow.log),
+        verification_state=workflow.verification_state,
+        challenge_text=workflow.challenge_text,
+        result=(
+            {
+                "gstin": result.gstin,
+                "legal_name": result.legal_name,
+                "trade_name": result.trade_name,
+                "status": result.status,
+                "registration_date": result.registration_date,
+                "cancellation_date": result.cancellation_date,
+                "constitution": result.constitution,
+                "state_jurisdiction": result.state_jurisdiction,
+                "central_jurisdiction": result.central_jurisdiction,
+                "principal_address": result.principal_address,
+                "nature_of_business": result.nature_of_business,
+                "einvoice_status": result.einvoice_status,
+                "raw_snapshot": result.raw_snapshot,
+            }
+            if result is not None
+            else None
+        ),
+        can_resume=workflow.can_resume,
+        can_save=workflow.can_save,
+    )
+
+
+def _serialize_drug_license_workflow(
+    workflow: DrugLicenseWorkflowState,
+) -> DrugLicenseVerificationSessionResponse:
+    result = workflow.result
+    return DrugLicenseVerificationSessionResponse(
+        log=_serialize_drug_license_log(workflow.log),
+        verification_state=workflow.verification_state,
+        challenge_text=workflow.challenge_text,
+        result=(
+            {
+                "license_number": result.license_number,
+                "holder_name": result.holder_name,
+                "status": result.status,
+                "valid_upto": result.valid_upto,
+                "authority": result.authority,
+                "state": result.state,
+                "raw_snapshot": result.raw_snapshot,
+            }
+            if result is not None
+            else None
+        ),
+        can_resume=workflow.can_resume,
+        can_save=workflow.can_save,
+    )
+
+
+def _parse_optional_iso_date(value: str | None, *, field_name: str) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError as error:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message=f"Invalid {field_name}. Use YYYY-MM-DD.",
+            status_code=400,
+            details={"field": field_name},
+        ) from error
+
+
 def _to_text(value: object) -> str:
     if value is None:
         return ""
@@ -568,7 +747,7 @@ def _ensure_unique_brand_name(
     if query.first() is not None:
         raise AppException(
             error_code="VALIDATION_ERROR",
-            message="Brand already exists",
+            message="Manufacturer already exists",
             status_code=status.HTTP_400_BAD_REQUEST,
             details={"field": "name"},
         )
@@ -579,7 +758,7 @@ def _validate_active_brand_name(db: Session, brand_name: str | None) -> str:
     if not normalized_brand:
         raise AppException(
             error_code="VALIDATION_ERROR",
-            message="Brand is required",
+            message="Manufacturer is required",
             status_code=status.HTTP_400_BAD_REQUEST,
             details={"field": "brand"},
         )
@@ -594,11 +773,143 @@ def _validate_active_brand_name(db: Session, brand_name: str | None) -> str:
     if brand_record is None:
         raise AppException(
             error_code="VALIDATION_ERROR",
-            message="Brand must exist in Master Settings and be active",
+            message="Manufacturer must exist in Master Settings and be active",
             status_code=status.HTTP_400_BAD_REQUEST,
             details={"field": "brand"},
         )
     return brand_record.name
+
+
+def _validate_active_tax_rate(db: Session, gst_rate: Decimal | None) -> Decimal | None:
+    if gst_rate is None:
+        return None
+
+    normalized_rate = Decimal(str(gst_rate)).quantize(Decimal("0.01"))
+    rate_record = (
+        db.query(TaxRate)
+        .filter(TaxRate.rate_percent == normalized_rate)
+        .filter(TaxRate.is_active.is_(True))
+        .first()
+    )
+    if rate_record is None:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="GST rate must exist in active tenant tax rates",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"field": "gst_rate"},
+        )
+    return normalized_rate
+
+
+def _validate_default_warehouse_id(db: Session, warehouse_id: int | None) -> int | None:
+    if warehouse_id is None:
+        return None
+
+    warehouse = (
+        db.query(Warehouse)
+        .filter(Warehouse.id == warehouse_id)
+        .filter(Warehouse.is_active.is_(True))
+        .first()
+    )
+    if warehouse is None:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Default warehouse must exist and be active",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"field": "default_warehouse_id"},
+        )
+    return warehouse.id
+
+
+def _validate_rack_number(
+    db: Session,
+    *,
+    warehouse_id: int | None,
+    rack_number: str | None,
+) -> str | None:
+    normalized_rack_number = _to_nullable_text(rack_number)
+    if normalized_rack_number is None:
+        return None
+
+    if warehouse_id is None:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Default warehouse is required when rack number is provided",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"field": "rack_number"},
+        )
+
+    rack = (
+        db.query(Rack)
+        .filter(Rack.warehouse_id == warehouse_id)
+        .filter(func.lower(Rack.rack_number) == normalized_rack_number.lower())
+        .filter(Rack.is_active.is_(True))
+        .first()
+    )
+    if rack is None:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Rack number must exist in the selected warehouse and be active",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"field": "rack_number"},
+    )
+    return rack.rack_number
+
+
+def _normalize_rack_number_value(rack_number: str | None) -> str | None:
+    return _to_nullable_text(rack_number)
+
+
+def _validate_default_warehouse_for_import(
+    db: Session,
+    warehouse_id_text: str | None,
+    warehouse_code_text: str | None,
+) -> int | None:
+    normalized_code = _to_text(warehouse_code_text)
+    if normalized_code:
+        warehouse = (
+            db.query(Warehouse)
+            .filter(func.lower(Warehouse.code) == normalized_code.lower())
+            .filter(Warehouse.is_active.is_(True))
+            .first()
+        )
+        if warehouse is None:
+            raise AppException(
+                error_code="VALIDATION_ERROR",
+                message="Default warehouse code must exist and be active",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                details={"field": "default_warehouse_code"},
+            )
+        return warehouse.id
+
+    normalized_id = _to_text(warehouse_id_text)
+    if not normalized_id:
+        return None
+    try:
+        return _validate_default_warehouse_id(db, int(normalized_id))
+    except ValueError as error:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Default warehouse ID must be numeric",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"field": "default_warehouse_id"},
+        ) from error
+
+
+def _validate_rack_for_import(
+    db: Session,
+    *,
+    warehouse_id: int | None,
+    rack_number: str | None,
+) -> str | None:
+    return _validate_rack_number(db, warehouse_id=warehouse_id, rack_number=rack_number)
+
+
+def _parse_import_bool(value: object, *, default: bool = False) -> bool:
+    normalized = _to_text(value).lower()
+    if not normalized:
+        return default
+    return normalized in {"true", "yes", "1", "y", "active"}
 
 
 @router.get("/parties", response_model=list[PartyRead])
@@ -884,10 +1195,11 @@ def create_party(
     _ensure_unique_party_identifiers(
         db,
         gstin=party_payload.get("gstin"),
-        party_code=party_payload.get("party_code"),
     )
     party = Party(**party_payload)
     db.add(party)
+    db.flush()
+    _assign_party_code(party)
     _commit_or_400(db, "Failed to create party")
     write_audit_log(
         db,
@@ -945,7 +1257,6 @@ def update_party(
     existing_payload = {
         "party_name": party.party_name,
         "display_name": party.display_name,
-        "party_code": party.party_code,
         "party_type": party.party_type,
         "party_category": party.party_category,
         "contact_person": party.contact_person,
@@ -979,12 +1290,13 @@ def update_party(
     _ensure_unique_party_identifiers(
         db,
         gstin=updates.get("gstin"),
-        party_code=updates.get("party_code"),
         exclude_party_id=party.id,
     )
 
     for field, value in updates.items():
         setattr(party, field, value)
+    if not party.party_code:
+        _assign_party_code(party)
 
     _commit_or_400(db, "Failed to update party")
     write_audit_log(
@@ -1033,7 +1345,6 @@ async def bulk_create_parties(
         row_payload = {
             "party_name": _to_text(row.get("party_name") or row.get("name")),
             "display_name": _to_text(row.get("display_name")) or None,
-            "party_code": _to_text(row.get("party_code")) or None,
             "party_type": _to_text(row.get("party_type") or row.get("type")) or "CUSTOMER",
             "party_category": _to_text(row.get("party_category") or row.get("category")) or None,
             "contact_person": _to_text(row.get("contact_person")) or None,
@@ -1072,11 +1383,11 @@ async def bulk_create_parties(
                 _ensure_unique_party_identifiers(
                     db,
                     gstin=party_model_payload.get("gstin"),
-                    party_code=party_model_payload.get("party_code"),
                 )
                 party = Party(**party_model_payload)
                 db.add(party)
                 db.flush()
+                _assign_party_code(party)
                 created_party_ids.append(party.id)
             created_count += 1
         except AppException as error:
@@ -1147,6 +1458,305 @@ def delete_party(
     return party
 
 
+@router.post(
+    "/drug-license-verification/start",
+    response_model=DrugLicenseVerificationSessionResponse,
+)
+def start_drug_license_verification_session(
+    payload: DrugLicenseVerificationStartRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("drug_license:verify")),
+) -> DrugLicenseVerificationSessionResponse:
+    party: Party | None = None
+    if payload.party_id is not None:
+        party = _get_or_404(db, Party, payload.party_id, "Party")
+    drug_license_number = _to_nullable_text(payload.drug_license_number) or (party.drug_license_number if party else None)
+    if not drug_license_number:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Drug licence number is required to start verification.",
+            status_code=400,
+            details={"field": "drug_license_number"},
+        )
+
+    workflow = start_drug_license_verification(
+        db,
+        party=party,
+        drug_license_number=drug_license_number,
+        requested_by=current_user.id,
+    )
+    if isinstance(workflow.log.extracted_data_json, dict):
+        workflow.log.extracted_data_json["requested_by_name"] = current_user.full_name
+    _commit_with_tenant_context(db)
+    workflow.log = _get_drug_license_log_or_404(db, workflow.log.id)
+    return _serialize_drug_license_workflow(workflow)
+
+
+@router.post(
+    "/drug-license-verification/{log_id}/resume",
+    response_model=DrugLicenseVerificationSessionResponse,
+)
+def resume_drug_license_verification_session(
+    log_id: int,
+    payload: DrugLicenseVerificationResumeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("drug_license:verify")),
+) -> DrugLicenseVerificationSessionResponse:
+    _ = current_user
+    log = _get_drug_license_log_or_404(db, log_id)
+    workflow = resume_drug_license_verification(log=log, captcha_value=payload.captcha_value)
+    _commit_with_tenant_context(db)
+    workflow.log = _get_drug_license_log_or_404(db, workflow.log.id)
+    return _serialize_drug_license_workflow(workflow)
+
+
+@router.post(
+    "/drug-license-verification/{log_id}/save",
+    response_model=PartyRead,
+)
+def save_drug_license_verification_session(
+    log_id: int,
+    payload: DrugLicenseVerificationSaveRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("drug_license:save_verified_data")),
+) -> PartyRead:
+    log = _get_drug_license_log_or_404(db, log_id)
+    party = _get_or_404(db, Party, log.party_id, "Party")
+    before_snapshot = snapshot_model(party)
+    parsed = save_drug_license_verified_data(
+        log=log,
+        party=party,
+        saved_by=current_user.id,
+        remarks=payload.remarks,
+    )
+    _commit_or_400(db, "Failed to save verified drug licence data")
+    write_audit_log(
+        db,
+        module="PARTY_MASTER",
+        entity_type="PARTY",
+        entity_id=party.id,
+        action="VERIFY_DRUG_LICENSE",
+        performed_by=current_user.id,
+        summary=f"Saved verified drug licence data for {party.party_name}",
+        source_screen="Masters / Drug Licence Verification",
+        source_reference=str(log.id),
+        before_snapshot=before_snapshot,
+        after_snapshot=snapshot_model(party),
+        metadata={
+            "verification_log_id": log.id,
+            "license_number": parsed.license_number,
+            "verification_status": party.drug_license_verified_status,
+        },
+    )
+    _commit_with_tenant_context(db)
+    db.refresh(party)
+    return party
+
+
+@router.get(
+    "/drug-license-verification/history",
+    response_model=DrugLicenseVerificationHistoryResponse,
+)
+def list_drug_license_verification_history(
+    party_id: int | None = Query(default=None),
+    status_filter: DrugLicenseVerificationLogStatus | None = Query(default=None, alias="status"),
+    verified_by: int | None = Query(default=None),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("drug_license:history_view")),
+) -> DrugLicenseVerificationHistoryResponse:
+    _ = current_user
+    query = (
+        db.query(DrugLicenseVerificationLog)
+        .options(
+            joinedload(DrugLicenseVerificationLog.party),
+        )
+        .order_by(DrugLicenseVerificationLog.requested_at.desc(), DrugLicenseVerificationLog.id.desc())
+    )
+    if party_id is not None:
+        query = query.filter(DrugLicenseVerificationLog.party_id == party_id)
+    if status_filter is not None:
+        query = query.filter(DrugLicenseVerificationLog.status == status_filter.value)
+    if verified_by is not None:
+        query = query.filter(DrugLicenseVerificationLog.requested_by == verified_by)
+    parsed_date_from = _parse_optional_iso_date(date_from, field_name="date_from")
+    parsed_date_to = _parse_optional_iso_date(date_to, field_name="date_to")
+    if parsed_date_from:
+        query = query.filter(DrugLicenseVerificationLog.requested_at >= parsed_date_from)
+    if parsed_date_to:
+        query = query.filter(
+            DrugLicenseVerificationLog.requested_at < (parsed_date_to + timedelta(days=1))
+        )
+    return DrugLicenseVerificationHistoryResponse(
+        items=[_serialize_drug_license_log(log) for log in query.all()]
+    )
+
+
+@router.get(
+    "/drug-license-verification/history/{log_id}",
+    response_model=DrugLicenseVerificationLogRead,
+)
+def get_drug_license_verification_history_detail(
+    log_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("drug_license:history_view")),
+) -> DrugLicenseVerificationLogRead:
+    _ = current_user
+    return _serialize_drug_license_log(_get_drug_license_log_or_404(db, log_id))
+
+
+# ---------------------------------------------------------------------------
+# GST Verification endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/gst-verification/start",
+    response_model=GSTVerificationSessionResponse,
+)
+def start_gst_verification_session(
+    payload: GSTVerificationStartRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("gst:verify")),
+) -> GSTVerificationSessionResponse:
+    party: Party | None = None
+    if payload.party_id is not None:
+        party = _get_or_404(db, Party, payload.party_id, "Party")
+    gstin = _to_nullable_text(payload.gstin) or (party.gstin if party else None)
+    if not gstin:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="GSTIN is required to start verification.",
+            status_code=400,
+            details={"field": "gstin"},
+        )
+
+    workflow = start_gst_verification(
+        db,
+        party=party,
+        gstin=gstin,
+        requested_by=current_user.id,
+    )
+    if isinstance(workflow.log.extracted_data_json, dict):
+        workflow.log.extracted_data_json["requested_by_name"] = current_user.full_name
+    _commit_with_tenant_context(db)
+    workflow.log = _get_gst_log_or_404(db, workflow.log.id)
+    return _serialize_gst_workflow(workflow)
+
+
+@router.post(
+    "/gst-verification/{log_id}/resume",
+    response_model=GSTVerificationSessionResponse,
+)
+def resume_gst_verification_session(
+    log_id: int,
+    payload: GSTVerificationResumeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("gst:verify")),
+) -> GSTVerificationSessionResponse:
+    _ = current_user
+    log = _get_gst_log_or_404(db, log_id)
+    workflow = resume_gst_verification(log=log, captcha_value=payload.captcha_value)
+    _commit_with_tenant_context(db)
+    workflow.log = _get_gst_log_or_404(db, workflow.log.id)
+    return _serialize_gst_workflow(workflow)
+
+
+@router.post(
+    "/gst-verification/{log_id}/save",
+    response_model=PartyRead,
+)
+def save_gst_verification_session(
+    log_id: int,
+    payload: GSTVerificationSaveRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("gst:save_verified_data")),
+) -> PartyRead:
+    log = _get_gst_log_or_404(db, log_id)
+    party = _get_or_404(db, Party, log.party_id, "Party")
+    before_snapshot = snapshot_model(party)
+    parsed = save_gst_verified_data(
+        log=log,
+        party=party,
+        saved_by=current_user.id,
+        remarks=payload.remarks,
+    )
+    _commit_or_400(db, "Failed to save verified GST data")
+    write_audit_log(
+        db,
+        module="PARTY_MASTER",
+        entity_type="PARTY",
+        entity_id=party.id,
+        action="VERIFY_GST",
+        performed_by=current_user.id,
+        summary=f"Saved verified GST data for {party.party_name}",
+        source_screen="Masters / GST Verification",
+        source_reference=str(log.id),
+        before_snapshot=before_snapshot,
+        after_snapshot=snapshot_model(party),
+        metadata={
+            "verification_log_id": log.id,
+            "gstin": parsed.gstin,
+            "gst_status": party.gst_verified_status,
+        },
+    )
+    _commit_with_tenant_context(db)
+    db.refresh(party)
+    return party
+
+
+@router.get(
+    "/gst-verification/history",
+    response_model=GSTVerificationHistoryResponse,
+)
+def list_gst_verification_history(
+    party_id: int | None = Query(default=None),
+    status_filter: GSTVerificationLogStatus | None = Query(default=None, alias="status"),
+    verified_by: int | None = Query(default=None),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("gst:history_view")),
+) -> GSTVerificationHistoryResponse:
+    _ = current_user
+    query = (
+        db.query(GSTVerificationLog)
+        .options(joinedload(GSTVerificationLog.party))
+        .order_by(GSTVerificationLog.requested_at.desc(), GSTVerificationLog.id.desc())
+    )
+    if party_id is not None:
+        query = query.filter(GSTVerificationLog.party_id == party_id)
+    if status_filter is not None:
+        query = query.filter(GSTVerificationLog.status == status_filter.value)
+    if verified_by is not None:
+        query = query.filter(GSTVerificationLog.requested_by == verified_by)
+    parsed_date_from = _parse_optional_iso_date(date_from, field_name="date_from")
+    parsed_date_to = _parse_optional_iso_date(date_to, field_name="date_to")
+    if parsed_date_from:
+        query = query.filter(GSTVerificationLog.requested_at >= parsed_date_from)
+    if parsed_date_to:
+        query = query.filter(
+            GSTVerificationLog.requested_at < (parsed_date_to + timedelta(days=1))
+        )
+    return GSTVerificationHistoryResponse(
+        items=[_serialize_gst_log(log) for log in query.all()]
+    )
+
+
+@router.get(
+    "/gst-verification/history/{log_id}",
+    response_model=GSTVerificationLogRead,
+)
+def get_gst_verification_history_detail(
+    log_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("gst:history_view")),
+) -> GSTVerificationLogRead:
+    _ = current_user
+    return _serialize_gst_log(_get_gst_log_or_404(db, log_id))
+
+
 @router.get("/products", response_model=list[ProductRead])
 def list_products(
     include_inactive: bool = Query(default=False),
@@ -1154,7 +1764,7 @@ def list_products(
     current_user=Depends(require_permission("masters:view")),
 ) -> list[ProductRead]:
     _ = current_user
-    query = db.query(Product).order_by(Product.name.asc())
+    query = db.query(Product).options(joinedload(Product.default_warehouse)).order_by(Product.name.asc())
     if not include_inactive:
         query = query.filter(Product.is_active.is_(True))
     return query.all()
@@ -1168,6 +1778,18 @@ def create_product(
 ) -> ProductRead:
     payload_data = payload.model_dump()
     payload_data["brand"] = _validate_active_brand_name(db, payload_data.get("brand"))
+    payload_data["gst_rate"] = _validate_active_tax_rate(db, payload_data.get("gst_rate"))
+    payload_data["default_warehouse_id"] = _validate_default_warehouse_id(
+        db, payload_data.get("default_warehouse_id")
+    )
+    payload_data["rack_number"] = _validate_rack_number(
+        db,
+        warehouse_id=payload_data.get("default_warehouse_id"),
+        rack_number=payload_data.get("rack_number"),
+    )
+    payload_data["quantity_precision"] = quantity_precision_from_decimal_allowed(
+        bool(payload_data.get("decimal_allowed"))
+    )
     product = Product(**payload_data)
     db.add(product)
     _commit_or_400(
@@ -1225,7 +1847,10 @@ async def bulk_create_items(
             continue
 
         try:
-            brand_name = _validate_active_brand_name(db, _to_text(row.get("brand")))
+            brand_name = _validate_active_brand_name(
+                db,
+                _to_text(row.get("manufacturer") or row.get("brand")),
+            )
         except AppException as error:
             errors.append(_bulk_error(index, error.message, (error.details or {}).get("field")))
             continue
@@ -1246,20 +1871,41 @@ async def bulk_create_items(
                 continue
 
         try:
-            quantity_precision_text = _to_text(row.get("quantity_precision"))
+            default_warehouse_id_text = _to_text(row.get("default_warehouse_id"))
+            default_warehouse_code_text = _to_text(
+                row.get("default_warehouse_code") or row.get("warehouse_code")
+            )
             with db.begin_nested():
+                default_warehouse_id = _validate_default_warehouse_for_import(
+                    db,
+                    default_warehouse_id_text,
+                    default_warehouse_code_text,
+                )
                 product_input = ProductCreate(
                     sku=sku,
-                    name=_to_text(row.get("name")),
+                    name=_to_text(row.get("product_name") or row.get("name")),
+                    display_name=_to_text(row.get("display_name")) or None,
                     brand=brand_name,
+                    category=_to_text(row.get("category")) or None,
                     uom=_to_text(row.get("uom")),
-                    quantity_precision=(
-                        int(quantity_precision_text) if quantity_precision_text else None
-                    ),
+                    decimal_allowed=_parse_import_bool(row.get("decimal_allowed"), default=False),
                     barcode=_to_text(row.get("barcode")) or None,
                     hsn=_to_text(row.get("hsn")) or None,
                     gst_rate=gst_rate_value,
-                    is_active=True,
+                    default_warehouse_id=default_warehouse_id,
+                    rack_number=_validate_rack_for_import(
+                        db,
+                        warehouse_id=default_warehouse_id,
+                        rack_number=_to_text(row.get("rack_number")) or None,
+                    ),
+                    default_purchase_rate=Decimal(_to_text(row.get("default_purchase_rate")))
+                    if _to_text(row.get("default_purchase_rate"))
+                    else None,
+                    default_sale_rate=Decimal(_to_text(row.get("default_sale_rate")))
+                    if _to_text(row.get("default_sale_rate"))
+                    else None,
+                    mrp=Decimal(_to_text(row.get("mrp"))) if _to_text(row.get("mrp")) else None,
+                    is_active=_parse_import_bool(row.get("is_active"), default=True),
                 )
                 product = Product(**product_input.model_dump())
                 db.add(product)
@@ -1292,7 +1938,15 @@ def get_product(
     current_user=Depends(require_permission("masters:view")),
 ) -> ProductRead:
     _ = current_user
-    return _get_or_404(db, Product, product_id, "Product")
+    product = (
+        db.query(Product)
+        .options(joinedload(Product.default_warehouse))
+        .filter(Product.id == product_id)
+        .first()
+    )
+    if product is None:
+        raise AppException(error_code="NOT_FOUND", message="Product not found", status_code=404)
+    return product
 
 
 @router.put("/products/{product_id}", response_model=ProductRead)
@@ -1310,11 +1964,24 @@ def update_product(
             db,
             changed_fields.get("brand", product.brand),
         )
+    if "gst_rate" in changed_fields:
+        changed_fields["gst_rate"] = _validate_active_tax_rate(db, changed_fields.get("gst_rate"))
+    if "default_warehouse_id" in changed_fields:
+        changed_fields["default_warehouse_id"] = _validate_default_warehouse_id(
+            db, changed_fields.get("default_warehouse_id")
+        )
+    if "rack_number" in changed_fields or "default_warehouse_id" in changed_fields:
+        changed_fields["rack_number"] = _validate_rack_number(
+            db,
+            warehouse_id=changed_fields.get("default_warehouse_id", product.default_warehouse_id),
+            rack_number=changed_fields.get("rack_number", product.rack_number),
+        )
+    if "decimal_allowed" in changed_fields:
+        changed_fields["quantity_precision"] = quantity_precision_from_decimal_allowed(
+            bool(changed_fields["decimal_allowed"])
+        )
     for field, value in changed_fields.items():
         setattr(product, field, value)
-
-    if "uom" in changed_fields and "quantity_precision" not in changed_fields:
-        product.quantity_precision = infer_quantity_precision_from_uom(product.uom)
 
     _commit_or_400(db, "Failed to update product")
     write_audit_log(
@@ -1394,9 +2061,9 @@ def item_import_template(
     _ = current_user
     csv_data = "\n".join(
         [
-            "sku,name,uom,price,gst_rate,hsn,brand",
-            "SKU001,Paracetamol 500,PCS,12.50,5,3004,Medha",
-            "SKU002,Crocin Tablet,BOX,45,12,3004,Medha",
+            "sku,product_name,display_name,manufacturer,category,uom,gst_rate,hsn,default_warehouse_code,rack_number,decimal_allowed,default_purchase_rate,default_sale_rate,mrp,is_active",
+            "SKU001,Paracetamol 500,Paracetamol 500,Medha Pharma,General Medicines,PCS,5.00,3004,MAINWH,RACK-A1,no,12.50,15.00,18.00,yes",
+            "SKU002,Crocin Tablet,Crocin Tab,Medha Pharma,Fever & Pain,BOX,12.00,3004,COLDWH,RACK-B3,no,45.00,52.00,60.00,yes",
         ]
     )
     return Response(
@@ -1417,6 +2084,67 @@ def list_warehouses(
     if not include_inactive:
         query = query.filter(Warehouse.is_active.is_(True))
     return query.all()
+
+
+@router.get("/racks", response_model=list[RackRead])
+def list_racks(
+    warehouse_id: int | None = Query(default=None),
+    include_inactive: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:view")),
+) -> list[RackRead]:
+    _ = current_user
+    query = (
+        db.query(Rack)
+        .options(joinedload(Rack.warehouse))
+        .join(Warehouse, Rack.warehouse_id == Warehouse.id)
+        .order_by(Warehouse.name.asc(), Rack.rack_number.asc())
+    )
+    if warehouse_id is not None:
+        query = query.filter(Rack.warehouse_id == warehouse_id)
+    if not include_inactive:
+        query = query.filter(Rack.is_active.is_(True)).filter(Warehouse.is_active.is_(True))
+    return query.all()
+
+
+@router.post("/racks", response_model=RackRead, status_code=status.HTTP_201_CREATED)
+def create_rack(
+    payload: RackCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:manage")),
+) -> RackRead:
+    warehouse_id = _validate_default_warehouse_id(db, payload.warehouse_id)
+    rack = Rack(
+        warehouse_id=warehouse_id,
+        rack_number=_normalize_rack_number_value(payload.rack_number),
+        description=payload.description,
+        is_active=payload.is_active,
+    )
+    db.add(rack)
+    _commit_or_400(
+        db,
+        "Failed to create rack. Rack number must be unique inside the warehouse",
+        details={"field": "rack_number"},
+    )
+    write_audit_log(
+        db,
+        module="Masters",
+        entity_type="RACK",
+        entity_id=rack.id,
+        action="CREATE",
+        performed_by=current_user.id,
+        summary=f"Created rack {rack.rack_number}",
+        source_screen="Masters / Rack Numbers",
+        after_snapshot=snapshot_model(rack),
+    )
+    _commit_with_tenant_context(db)
+    rack = (
+        db.query(Rack)
+        .options(joinedload(Rack.warehouse))
+        .filter(Rack.id == rack.id)
+        .first()
+    )
+    return rack
 
 
 @router.post("/warehouses", response_model=WarehouseRead, status_code=status.HTTP_201_CREATED)
@@ -1447,6 +2175,26 @@ def get_warehouse(
     return _get_or_404(db, Warehouse, warehouse_id, "Warehouse")
 
 
+@router.get("/warehouses/{warehouse_id}/racks", response_model=list[RackRead])
+def list_warehouse_racks(
+    warehouse_id: int,
+    include_inactive: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:view")),
+) -> list[RackRead]:
+    _ = current_user
+    _get_or_404(db, Warehouse, warehouse_id, "Warehouse")
+    query = (
+        db.query(Rack)
+        .options(joinedload(Rack.warehouse))
+        .filter(Rack.warehouse_id == warehouse_id)
+        .order_by(Rack.rack_number.asc())
+    )
+    if not include_inactive:
+        query = query.filter(Rack.is_active.is_(True))
+    return query.all()
+
+
 @router.put("/warehouses/{warehouse_id}", response_model=WarehouseRead)
 def update_warehouse(
     warehouse_id: int,
@@ -1462,6 +2210,95 @@ def update_warehouse(
     _commit_or_400(db, "Failed to update warehouse")
     db.refresh(warehouse)
     return warehouse
+
+
+@router.get("/racks/{rack_id}", response_model=RackRead)
+def get_rack(
+    rack_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:view")),
+) -> RackRead:
+    _ = current_user
+    rack = db.query(Rack).options(joinedload(Rack.warehouse)).filter(Rack.id == rack_id).first()
+    if rack is None:
+        raise AppException(error_code="NOT_FOUND", message="Rack not found", status_code=404)
+    return rack
+
+
+@router.put("/racks/{rack_id}", response_model=RackRead)
+def update_rack(
+    rack_id: int,
+    payload: RackUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:manage")),
+) -> RackRead:
+    rack = _get_or_404(db, Rack, rack_id, "Rack")
+    before_snapshot = snapshot_model(rack)
+    changed_fields = payload.model_dump(exclude_unset=True)
+    if "warehouse_id" in changed_fields:
+        changed_fields["warehouse_id"] = _validate_default_warehouse_id(db, changed_fields["warehouse_id"])
+    if "rack_number" in changed_fields:
+        changed_fields["rack_number"] = _normalize_rack_number_value(changed_fields["rack_number"])
+    for field, value in changed_fields.items():
+        setattr(rack, field, value)
+
+    _commit_or_400(
+        db,
+        "Failed to update rack. Rack number must be unique inside the warehouse",
+        details={"field": "rack_number"},
+    )
+    write_audit_log(
+        db,
+        module="Masters",
+        entity_type="RACK",
+        entity_id=rack.id,
+        action="UPDATE",
+        performed_by=current_user.id,
+        summary=f"Updated rack {rack.rack_number}",
+        source_screen="Masters / Rack Numbers",
+        before_snapshot=before_snapshot,
+        after_snapshot=snapshot_model(rack),
+    )
+    _commit_with_tenant_context(db)
+    rack = (
+        db.query(Rack)
+        .options(joinedload(Rack.warehouse))
+        .filter(Rack.id == rack.id)
+        .first()
+    )
+    return rack
+
+
+@router.delete("/racks/{rack_id}", response_model=RackRead)
+def delete_rack(
+    rack_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:manage")),
+) -> RackRead:
+    rack = _get_or_404(db, Rack, rack_id, "Rack")
+    before_snapshot = snapshot_model(rack)
+    rack.is_active = False
+    _commit_or_400(db, "Failed to deactivate rack")
+    write_audit_log(
+        db,
+        module="Masters",
+        entity_type="RACK",
+        entity_id=rack.id,
+        action="DEACTIVATE",
+        performed_by=current_user.id,
+        summary=f"Deactivated rack {rack.rack_number}",
+        source_screen="Masters / Rack Numbers",
+        before_snapshot=before_snapshot,
+        after_snapshot=snapshot_model(rack),
+    )
+    _commit_with_tenant_context(db)
+    rack = (
+        db.query(Rack)
+        .options(joinedload(Rack.warehouse))
+        .filter(Rack.id == rack.id)
+        .first()
+    )
+    return rack
 
 
 @router.delete("/warehouses/{warehouse_id}", response_model=WarehouseDeleteResult)

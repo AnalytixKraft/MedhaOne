@@ -18,6 +18,7 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   JWT_SECRET: z.string().min(32, "JWT_SECRET must be at least 32 characters"),
   JWT_EXPIRES_IN: z.string().default("8h"),
+  LOGIN_MIN_DURATION_MS: z.coerce.number().int().nonnegative().default(500),
   CORS_ORIGIN: z.string().default("http://localhost:1729"),
   SUPER_ADMIN_EMAIL: z.string().email(),
   SUPER_ADMIN_PASSWORD: z.string().min(12),
@@ -55,6 +56,8 @@ export const env = envSchema.parse({
   DATABASE_URL: buildDatabaseUrl(),
   JWT_SECRET: process.env.RBAC_JWT_SECRET ?? process.env.JWT_SECRET,
   JWT_EXPIRES_IN: process.env.RBAC_JWT_EXPIRES_IN ?? process.env.JWT_EXPIRES_IN,
+  LOGIN_MIN_DURATION_MS:
+    process.env.RBAC_LOGIN_MIN_DURATION_MS ?? process.env.LOGIN_MIN_DURATION_MS,
   CORS_ORIGIN: process.env.RBAC_CORS_ORIGIN ?? process.env.CORS_ORIGIN,
   SUPER_ADMIN_EMAIL: process.env.RBAC_SUPER_ADMIN_EMAIL ?? process.env.SUPER_ADMIN_EMAIL,
   SUPER_ADMIN_PASSWORD:

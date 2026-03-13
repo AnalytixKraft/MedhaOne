@@ -22,11 +22,11 @@ const emptyResult: ResultState = {
 
 export function BulkImportPage() {
   const [partyFile, setPartyFile] = useState<File | null>(null);
-  const [itemFile, setItemFile] = useState<File | null>(null);
+  const [productFile, setProductFile] = useState<File | null>(null);
   const [importingParties, setImportingParties] = useState(false);
   const [importingItems, setImportingItems] = useState(false);
   const [partyResult, setPartyResult] = useState<ResultState>(emptyResult);
-  const [itemResult, setItemResult] = useState<ResultState>(emptyResult);
+  const [productResult, setProductResult] = useState<ResultState>(emptyResult);
 
   async function importParties() {
     if (!partyFile) {
@@ -58,11 +58,11 @@ export function BulkImportPage() {
     }
   }
 
-  async function importItems() {
-    if (!itemFile) {
-      setItemResult({
+  async function importProducts() {
+    if (!productFile) {
+      setProductResult({
         status: "error",
-        message: "Select a CSV file for item import.",
+        message: "Select a CSV file for product import.",
         summary: null,
       });
       return;
@@ -70,17 +70,17 @@ export function BulkImportPage() {
 
     setImportingItems(true);
     try {
-      const csvText = await itemFile.text();
+      const csvText = await productFile.text();
       const summary = await apiClient.bulkCreateItems({ csv_data: csvText });
-      setItemResult({
+      setProductResult({
         status: "success",
-        message: "Item import completed.",
+        message: "Product import completed.",
         summary,
       });
     } catch (caught) {
-      setItemResult({
+      setProductResult({
         status: "error",
-        message: caught instanceof Error ? caught.message : "Item import failed.",
+        message: caught instanceof Error ? caught.message : "Product import failed.",
         summary: null,
       });
     } finally {
@@ -122,8 +122,8 @@ export function BulkImportPage() {
         </AppSectionCard>
 
         <AppSectionCard
-          title="Import Items"
-          description="Upload item master data in bulk with SKU, GST, and classification details."
+          title="Import Products"
+          description="Upload product master data in bulk with manufacturer, GST, storage defaults, and commercial fields."
           actions={
             <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 dark:bg-emerald-500/12 dark:text-emerald-200">
               <FileSpreadsheet className="h-5 w-5" />
@@ -134,11 +134,11 @@ export function BulkImportPage() {
             <Input
               type="file"
               accept=".csv,text/csv"
-              onChange={(event) => setItemFile(event.target.files?.[0] ?? null)}
+              onChange={(event) => setProductFile(event.target.files?.[0] ?? null)}
             />
             <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={importItems} disabled={importingItems}>
-                {importingItems ? "Importing..." : "Import Items"}
+              <Button type="button" onClick={importProducts} disabled={importingItems}>
+                {importingItems ? "Importing..." : "Import Products"}
               </Button>
               <Button asChild type="button" variant="outline">
                 <a href="/api/masters/templates/item-import.csv" className="inline-flex items-center gap-2">
@@ -147,7 +147,7 @@ export function BulkImportPage() {
                 </a>
               </Button>
             </div>
-            <ImportResult result={itemResult} />
+            <ImportResult result={productResult} />
           </div>
         </AppSectionCard>
       </div>
