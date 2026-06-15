@@ -7,13 +7,23 @@ from fastapi.responses import JSONResponse
 from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.tenant import validate_tenant_header_or_raise
+from app.integrations.drug_license_verification.client import set_drug_license_verification_client
+from app.integrations.drug_license_verification.sfda_client import SFDADrugLicenseVerificationClient
+from app.integrations.gst_verification.client import set_gst_verification_client
+from app.integrations.gst_verification.gst_portal_client import GSTPortalVerificationClient
 from app.models import base  # noqa: F401
 from app.routers import TENANT_SCOPED_PREFIXES, public_router, tenant_router
+from app.services.rbac import bootstrap_rbac_if_ready
+
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    bootstrap_rbac_if_ready()
+    if settings.openai_api_key:
+        set_drug_license_verification_client(SFDADrugLicenseVerificationClient())
+        set_gst_verification_client(GSTPortalVerificationClient())
     yield
 
 

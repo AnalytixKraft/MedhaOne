@@ -45,7 +45,7 @@ type BrandFormState = {
 
 const tabs: Array<{ id: MasterSettingsTab; label: string }> = [
   { id: "gst", label: "GST" },
-  { id: "brands", label: "Brands" },
+  { id: "brands", label: "Manufacturers" },
   { id: "tds-tcs", label: "TDS / TCS" },
   { id: "categories", label: "Party Categories" },
 ];
@@ -475,7 +475,7 @@ export function MasterSettingsManager({
           tone="primary"
         />
         <MasterSettingsMetricTile
-          title="Brands"
+          title="Manufacturers"
           value={String(brands.length)}
           description={`${activeBrandsCount} active`}
           icon={Tags}
@@ -645,15 +645,15 @@ export function MasterSettingsManager({
       {activeTab === "brands" ? (
         <AppSectionCard
           title="Brands"
-          description="Manage approved brands. Products can only be created against active brands listed here."
+          description="Manage approved manufacturers. Products can only be created against active manufacturers listed here."
         >
           {!canViewCategories ? (
-            <p className="text-sm text-muted-foreground">You do not have permission to view brands.</p>
+            <p className="text-sm text-muted-foreground">You do not have permission to view manufacturers.</p>
           ) : (
             <div className="space-y-6">
               <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
                 <TextField
-                  label="Brand Name"
+                  label="Manufacturer Name"
                   value={brandForm.name}
                   onChange={(value) => setBrandForm((current) => ({ ...current, name: value }))}
                   disabled={!canManageCategories}
@@ -673,7 +673,7 @@ export function MasterSettingsManager({
                   </label>
                   <Button type="button" onClick={() => void handleSaveBrand()} disabled={savingBrand || !canManageCategories}>
                     {savingBrand ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    {editingBrandId ? "Update Brand" : "Add Brand"}
+                    {editingBrandId ? "Update Manufacturer" : "Add Manufacturer"}
                   </Button>
                   {editingBrandId ? (
                     <Button type="button" variant="outline" onClick={resetBrandForm}>
@@ -696,13 +696,13 @@ export function MasterSettingsManager({
                     {brandsLoading ? (
                       <TableRow>
                         <TableCell colSpan={3} className="py-10 text-center text-muted-foreground">
-                          Loading brands...
+                          Loading manufacturers...
                         </TableCell>
                       </TableRow>
                     ) : brands.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={3} className="py-10 text-center text-muted-foreground">
-                          No brands configured yet.
+                          No manufacturers configured yet.
                         </TableCell>
                       </TableRow>
                     ) : (

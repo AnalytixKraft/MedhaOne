@@ -8,6 +8,7 @@ import { signToken } from "../utils/jwt.js";
 import { writeGlobalAuditLog, writeOrgAuditLog } from "./audit.service.js";
 import type { AppRole } from "../types/auth.js";
 import { quoteIdentifier } from "../utils/schema.js";
+import { env } from "../config/env.js";
 
 export const loginInputSchema = z.object({
   email: z.string().email(),
@@ -17,7 +18,7 @@ export const loginInputSchema = z.object({
 
 const DUMMY_PASSWORD_HASH =
   "$2b$12$kTKvAnW2f0S9Vjv2nJ8QY.pvW0sQ0m7Md7r8vCjYvKJ4XrM3Y7FCG";
-const MIN_LOGIN_DURATION_MS = 250;
+const MIN_LOGIN_DURATION_MS = env.LOGIN_MIN_DURATION_MS;
 
 export async function seedSuperAdminIfMissing(email: string, passwordHash: string) {
   const existing = await prisma.superAdmin.findUnique({ where: { email } });

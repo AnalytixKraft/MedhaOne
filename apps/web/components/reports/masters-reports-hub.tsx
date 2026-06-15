@@ -91,7 +91,7 @@ const sections: ReportSection[] = [
   {
     id: "items",
     title: "Item / Product Reports",
-    subtitle: "Brand, category, distribution, and utilization visibility for the product master set.",
+    subtitle: "Manufacturer, category, distribution, and utilization visibility for the product master set.",
     icon: Package2,
     tone: {
       badgeClassName:
@@ -305,7 +305,7 @@ export function MastersReportsHub({ showMastersNav = true }: { showMastersNav?: 
     <div className="space-y-6">
       <AppPageHeader
         title="Masters Reports"
-        description="Business visibility across warehouses, items, brands, categories, and parties."
+        description="Business visibility across warehouses, items, manufacturers, categories, and parties."
       />
 
       {showMastersNav ? <MastersNav /> : null}

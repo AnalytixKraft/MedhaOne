@@ -15,7 +15,10 @@ async function isTokenValid(token: string) {
     });
     return response.ok;
   } catch {
-    // Do not turn middleware into an availability dependency for the app shell.
+    // Deliberate fail-open behavior:
+    // if the ERP API is temporarily unavailable, do not lock users out of the app shell
+    // at the middleware layer. Server routes still enforce auth by forwarding the token
+    // to backend validation. Keep this tradeoff explicit unless product decides to fail closed.
     return true;
   }
 }

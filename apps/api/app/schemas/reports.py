@@ -281,3 +281,21 @@ class GenericTabularReportResponse(BaseModel):
     page_size: int
     summary: list[ReportSummaryMetric]
     data: list[dict[str, Any]]
+
+
+class PurchaseAnalyticsFilterOptionsResponse(ReportFilterOptionsResponse):
+    years: list[int]
+
+
+class PurchaseAnalyticsReportResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    summary: list[ReportSummaryMetric]
+    charts: dict[str, list[dict[str, Any]]]
+    data: list[dict[str, Any]]
+    meta: dict[str, Any] = {}
+
+
+class PurchaseAnalyticsDashboardResponse(BaseModel):
+    summary: list[ReportSummaryMetric]

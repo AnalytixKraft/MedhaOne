@@ -42,9 +42,9 @@ test("master settings page exposes GST, brands, TDS/TCS, and party category mana
   await page.getByTestId("product-sku").fill(sku);
   await page.getByTestId("product-name").fill(productName);
   await page.getByTestId("product-brand").selectOption({ label: brandName });
-  await page.getByRole("button", { name: "Save All Rows (Ctrl+Enter)" }).click();
+  await page.getByRole("button", { name: "Add Product" }).click();
 
-  await expect(page.getByText("Created 1 items successfully.")).toBeVisible();
-  await page.getByPlaceholder("Search by SKU, name, brand, HSN, GST").fill(productName);
+  await expect(page.getByText(`Created product ${sku}.`)).toBeVisible();
+  await page.getByPlaceholder("Search by SKU, product, brand, category, rack").fill(productName);
   await expect(page.locator("tr", { hasText: productName }).first()).toBeVisible();
 });

@@ -173,7 +173,7 @@ function ProductCombobox({
             <span className="truncate">{option.label}</span>
             <span className="shrink-0 text-xs uppercase tracking-[0.14em] text-[#9ca3af]">
               {product?.uom}
-              {product ? ` · ${product.quantity_precision}dp` : ""}
+              {product ? ` · ${product.decimal_allowed ? "Decimal" : "Whole"}` : ""}
             </span>
           </span>
         );

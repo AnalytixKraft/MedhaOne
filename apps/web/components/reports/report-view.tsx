@@ -253,7 +253,7 @@ function columnsForKind(kind: ReportKind): ColumnDef[] {
     return [
       { key: "sku", label: "SKU", defaultWidth: 130, render: (row) => (row as OpeningStockReportRow).sku },
       { key: "product_name", label: "Product Name", defaultWidth: 200, render: (row) => (row as OpeningStockReportRow).product_name },
-      { key: "brand", label: "Brand", defaultWidth: 130, render: (row) => (row as OpeningStockReportRow).brand ?? "-" },
+      { key: "brand", label: "Manufacturer", defaultWidth: 130, render: (row) => (row as OpeningStockReportRow).brand ?? "-" },
       { key: "category", label: "Category", defaultWidth: 120, render: (row) => (row as OpeningStockReportRow).category ?? "-" },
       { key: "warehouse", label: "Warehouse", defaultWidth: 160, render: (row) => (row as OpeningStockReportRow).warehouse },
       { key: "batch", label: "Batch", defaultWidth: 130, render: (row) => (row as OpeningStockReportRow).batch },
@@ -268,7 +268,7 @@ function columnsForKind(kind: ReportKind): ColumnDef[] {
   return [
     { key: "sku", label: "SKU", defaultWidth: 130, render: (row) => (row as CurrentStockReportRow).sku },
     { key: "product_name", label: "Product Name", defaultWidth: 200, render: (row) => (row as CurrentStockReportRow).product_name },
-    { key: "brand", label: "Brand", defaultWidth: 130, render: (row) => (row as CurrentStockReportRow).brand ?? "-" },
+    { key: "brand", label: "Manufacturer", defaultWidth: 130, render: (row) => (row as CurrentStockReportRow).brand ?? "-" },
     { key: "category", label: "Category", defaultWidth: 120, render: (row) => (row as CurrentStockReportRow).category ?? "-" },
     { key: "warehouse", label: "Warehouse", defaultWidth: 160, render: (row) => (row as CurrentStockReportRow).warehouse },
     { key: "batch", label: "Batch", defaultWidth: 130, render: (row) => (row as CurrentStockReportRow).batch },

@@ -1,11 +1,11 @@
 "use client";
 
 import { Dialog, DialogBackdrop, DialogPanel, Transition, TransitionChild } from "@headlessui/react";
-import { Trash2 } from "lucide-react";
+import { Plus, Save, SquarePen, Trash2, X } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState } from "react";
 
 import { usePermissions } from "@/components/auth/permission-provider";
-import { AppSectionCard, AppTable } from "@/components/erp/app-primitives";
+import { AppTable } from "@/components/erp/app-primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -42,10 +42,8 @@ const initialState: FormState = {
   address: "",
   is_active: true,
 };
-const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 
-const textareaClassName =
-  "flex min-h-24 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 
 function formatBulkDeleteMessage(result: WarehouseBulkDeleteResult): string {
   const parts: string[] = [];
@@ -63,29 +61,41 @@ function formatBulkDeleteMessage(result: WarehouseBulkDeleteResult): string {
 
 export function WarehousesManager() {
   const { user, hasPermission, loading: permissionsLoading } = usePermissions();
+  const canManage = !!user && (user.is_superuser || hasPermission("masters:manage"));
+
   const [items, setItems] = useState<Warehouse[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(initialState);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [confirmation, setConfirmation] = useState<ConfirmationState | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(10);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
-  const modeLabel = useMemo(
-    () => (editingId ? "Update Warehouse" : "Add Warehouse"),
-    [editingId],
-  );
-  const canManage = !!user && (user.is_superuser || hasPermission("masters:manage"));
-  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const filteredItems = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) {
+      return items;
+    }
+    return items.filter((item) =>
+      [item.name, item.code, item.address ?? ""].some((value) =>
+        value.toLowerCase().includes(query),
+      ),
+    );
+  }, [items, searchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+
   const paginatedItems = useMemo(() => {
     const startIndex = (currentPage - 1) * pageSize;
-    return items.slice(startIndex, startIndex + pageSize);
-  }, [currentPage, items, pageSize]);
+    return filteredItems.slice(startIndex, startIndex + pageSize);
+  }, [currentPage, filteredItems, pageSize]);
+
   const allVisibleSelected =
     paginatedItems.length > 0 && paginatedItems.every((item) => selectedIds.includes(item.id));
 
@@ -95,42 +105,42 @@ export function WarehousesManager() {
     }
   }, [currentPage, totalPages]);
 
-  const load = async () => {
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [pageSize, searchQuery]);
+
+  async function load() {
     setLoading(true);
     setError(null);
-
     try {
       const data = await apiClient.listWarehouses(true);
       setItems(data);
       setSelectedIds((current) => current.filter((id) => data.some((item) => item.id === id)));
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load warehouses",
-      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to load warehouses");
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   useEffect(() => {
     void load();
   }, []);
 
-  const resetForm = () => {
-    setForm(initialState);
+  function resetForm() {
     setEditingId(null);
-  };
+    setForm(initialState);
+  }
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  async function saveWarehouse() {
     setSaving(true);
     setError(null);
     setSuccess(null);
 
     const payload: WarehousePayload = {
-      name: form.name,
-      code: form.code,
-      address: form.address || undefined,
+      name: form.name.trim(),
+      code: form.code.trim(),
+      address: form.address.trim() || undefined,
       is_active: form.is_active,
     };
 
@@ -144,14 +154,14 @@ export function WarehousesManager() {
       }
       resetForm();
       await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save warehouse");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to save warehouse");
     } finally {
       setSaving(false);
     }
-  };
+  }
 
-  const handleEdit = (item: Warehouse) => {
+  function handleEdit(item: Warehouse) {
     if (!canManage) {
       return;
     }
@@ -164,9 +174,9 @@ export function WarehousesManager() {
     });
     setError(null);
     setSuccess(null);
-  };
+  }
 
-  const openDeleteConfirmation = (ids: number[]) => {
+  function openDeleteConfirmation(ids: number[]) {
     const targetCount = ids.length;
     setConfirmation({
       ids,
@@ -176,9 +186,9 @@ export function WarehousesManager() {
           ? "If the warehouse has transactions, it will be deactivated instead of deleted."
           : "Selected warehouses with transactions will be deactivated instead of deleted.",
     });
-  };
+  }
 
-  const handleDeleteConfirmed = async () => {
+  async function handleDeleteConfirmed() {
     if (!confirmation) {
       return;
     }
@@ -206,20 +216,20 @@ export function WarehousesManager() {
       }
       setConfirmation(null);
       await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete warehouses");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to delete warehouses");
     } finally {
       setDeleting(false);
     }
-  };
+  }
 
-  const toggleSelection = (warehouseId: number, checked: boolean) => {
+  function toggleSelection(warehouseId: number, checked: boolean) {
     setSelectedIds((current) =>
       checked ? [...current, warehouseId] : current.filter((id) => id !== warehouseId),
     );
-  };
+  }
 
-  const toggleSelectAll = (checked: boolean) => {
+  function toggleSelectAll(checked: boolean) {
     setSelectedIds((current) => {
       if (checked) {
         const next = new Set(current);
@@ -230,117 +240,51 @@ export function WarehousesManager() {
       }
       return current.filter((id) => !paginatedItems.some((item) => item.id === id));
     });
-  };
+  }
 
   return (
     <>
-      <div className="grid gap-6 xl:grid-cols-[360px,1fr]">
-        <AppSectionCard
-          title={modeLabel}
-          description="Create and maintain warehouse master data in a simple operational form."
-        >
-          {!permissionsLoading && !canManage ? (
-            <p className="text-sm text-muted-foreground">
-              You have read-only access. Warehouse changes are disabled for your role.
-            </p>
-          ) : (
-            <form className="space-y-4" onSubmit={handleSubmit}>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-[hsl(var(--text-primary))]">
-                  Warehouse Name
-                </label>
-                <Input
-                  data-testid="warehouse-name"
-                  value={form.name}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, name: event.target.value }))
-                  }
-                  placeholder="Warehouse Name"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-[hsl(var(--text-primary))]">
-                  Warehouse Code
-                </label>
-                <Input
-                  data-testid="warehouse-code"
-                  value={form.code}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, code: event.target.value }))
-                  }
-                  placeholder="Warehouse Code"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-[hsl(var(--text-primary))]">
-                  Address
-                </label>
-                <textarea
-                  value={form.address}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, address: event.target.value }))
-                  }
-                  placeholder="Address"
-                  className={textareaClassName}
-                />
-              </div>
-              <label className="flex items-center gap-2 text-sm text-[hsl(var(--text-primary))]">
-                <input
-                  type="checkbox"
-                  checked={form.is_active}
-                  onChange={(event) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      is_active: event.target.checked,
-                    }))
-                  }
-                />
-                Active
-              </label>
-
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  data-testid="create-warehouse"
-                  type="submit"
-                  disabled={saving}
-                >
-                  {saving ? "Saving..." : modeLabel}
-                </Button>
+      <AppTable
+        title="Warehouses"
+        description="Maintain warehouse master data directly in the grid, then review, edit, and deactivate saved locations."
+        actions={
+          <div className="flex w-full flex-col gap-3 md:w-auto md:flex-row md:items-center">
+            <Input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search by warehouse, code, address"
+              className="w-full md:min-w-[280px]"
+            />
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span>Rows</span>
+              <select
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value));
+                  setCurrentPage(1);
+                }}
+                className="h-10 rounded-xl border border-input bg-background px-3 text-sm text-foreground"
+              >
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {canManage ? (
+              <>
                 {editingId ? (
                   <Button type="button" variant="outline" onClick={resetForm}>
-                    Cancel
+                    <X className="mr-2 h-4 w-4" />
+                    Cancel Edit
                   </Button>
-                ) : null}
-              </div>
-            </form>
-          )}
-        </AppSectionCard>
-
-        <AppTable
-          title="Warehouses"
-          description="Review warehouse records, edit existing entries, and remove or deactivate unused locations."
-          actions={
-            <div className="flex w-full flex-col gap-3 md:w-auto md:flex-row md:items-center">
-              <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                <span>Rows</span>
-                <select
-                  value={pageSize}
-                  onChange={(event) => {
-                    setPageSize(Number(event.target.value));
-                    setCurrentPage(1);
-                  }}
-                  className="h-10 rounded-xl border border-input bg-background px-3 text-sm text-foreground"
-                >
-                  {PAGE_SIZE_OPTIONS.map((size) => (
-                    <option key={size} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {canManage ? (
+                ) : (
+                  <Button type="button" variant="outline" onClick={resetForm}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    New Row
+                  </Button>
+                )}
                 <Button
                   type="button"
                   variant="destructive"
@@ -350,39 +294,163 @@ export function WarehousesManager() {
                 >
                   Delete Selected
                 </Button>
-              ) : null}
-            </div>
-          }
-        >
-          {error ? <p className="px-4 pb-3 pt-4 text-sm text-red-500">{error}</p> : null}
-          {success ? <p className="px-4 pb-3 pt-4 text-sm text-emerald-600">{success}</p> : null}
-          {loading ? (
-            <p className="p-4 text-sm text-muted-foreground">
-              Loading warehouses...
-            </p>
-          ) : (
-            <Table>
-              <TableHeader className="bg-[hsl(var(--table-header-bg))]">
-                <TableRow>
-                  <TableHead className="w-12">
-                    <input
-                      type="checkbox"
-                      aria-label="Select all warehouses"
-                      checked={allVisibleSelected}
-                      onChange={(event) => toggleSelectAll(event.target.checked)}
-                      disabled={!canManage || items.length === 0}
+              </>
+            ) : null}
+          </div>
+        }
+      >
+        {error ? <p className="px-4 pb-3 pt-4 text-sm text-red-500">{error}</p> : null}
+        {success ? <p className="px-4 pb-3 pt-4 text-sm text-emerald-600">{success}</p> : null}
+        {loading ? (
+          <p className="p-4 text-sm text-muted-foreground">Loading warehouses...</p>
+        ) : (
+          <Table>
+            <TableHeader className="bg-[hsl(var(--table-header-bg))]">
+              <TableRow>
+                <TableHead className="sticky left-0 z-10 bg-[hsl(var(--table-header-bg))]">Action</TableHead>
+                <TableHead className="w-12">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all warehouses"
+                    checked={allVisibleSelected}
+                    onChange={(event) => toggleSelectAll(event.target.checked)}
+                    disabled={!canManage || paginatedItems.length === 0}
+                  />
+                </TableHead>
+                <TableHead>Warehouse Name</TableHead>
+                <TableHead>Warehouse Code</TableHead>
+                <TableHead>Address</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {!permissionsLoading && canManage && editingId === null ? (
+                <TableRow className="align-top bg-sky-50/40 dark:bg-sky-950/10">
+                  <TableCell className="sticky left-0 z-[1] min-w-[92px] bg-sky-50/40 dark:bg-sky-950/10">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        size="icon"
+                        onClick={() => void saveWarehouse()}
+                        disabled={saving}
+                        aria-label="Add warehouse"
+                        title="Add warehouse"
+                        data-testid="create-warehouse"
+                      >
+                        <Save className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        onClick={resetForm}
+                        disabled={saving}
+                        aria-label="Clear warehouse row"
+                        title="Clear"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                  <TableCell />
+                  <TableCell className="min-w-[220px]">
+                    <Input
+                      data-testid="warehouse-name"
+                      value={form.name}
+                      onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+                      placeholder="Warehouse Name"
                     />
-                  </TableHead>
-                  <TableHead>Warehouse Name</TableHead>
-                  <TableHead>Warehouse Code</TableHead>
-                  <TableHead>Address</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
+                  </TableCell>
+                  <TableCell className="min-w-[180px]">
+                    <Input
+                      data-testid="warehouse-code"
+                      value={form.code}
+                      onChange={(event) => setForm((prev) => ({ ...prev, code: event.target.value }))}
+                      placeholder="Warehouse Code"
+                    />
+                  </TableCell>
+                  <TableCell className="min-w-[240px]">
+                    <Input
+                      value={form.address}
+                      onChange={(event) => setForm((prev) => ({ ...prev, address: event.target.value }))}
+                      placeholder="Address"
+                    />
+                  </TableCell>
+                  <TableCell className="min-w-[120px]">
+                    <select
+                      value={form.is_active ? "ACTIVE" : "INACTIVE"}
+                      onChange={(event) =>
+                        setForm((prev) => ({ ...prev, is_active: event.target.value === "ACTIVE" }))
+                      }
+                      className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground"
+                    >
+                      <option value="ACTIVE">Active</option>
+                      <option value="INACTIVE">Inactive</option>
+                    </select>
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {paginatedItems.map((item) => (
-                  <TableRow key={item.id}>
+              ) : null}
+
+              {paginatedItems.map((item) => {
+                const isEditing = editingId === item.id;
+                return (
+                  <TableRow key={item.id} className="align-top">
+                    <TableCell className="sticky left-0 z-[1] min-w-[92px] bg-white dark:bg-slate-950">
+                      {canManage ? (
+                        <div className="flex items-center gap-2">
+                          {isEditing ? (
+                            <>
+                              <Button
+                                type="button"
+                                size="icon"
+                                onClick={() => void saveWarehouse()}
+                                disabled={saving}
+                                aria-label={`Save ${item.name}`}
+                                title="Save"
+                              >
+                                <Save className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="outline"
+                                onClick={resetForm}
+                                disabled={saving}
+                                aria-label="Cancel edit"
+                                title="Cancel"
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => handleEdit(item)}
+                                aria-label={`Edit ${item.name}`}
+                                title="Edit"
+                              >
+                                <SquarePen className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-rose-600 hover:text-rose-700"
+                                onClick={() => openDeleteConfirmation([item.id])}
+                                aria-label={`Delete ${item.name}`}
+                                title="Delete"
+                                data-testid={`delete-warehouse-${item.id}`}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <input
                         type="checkbox"
@@ -392,80 +460,96 @@ export function WarehousesManager() {
                         disabled={!canManage}
                       />
                     </TableCell>
-                    <TableCell>{item.name}</TableCell>
-                    <TableCell>{item.code}</TableCell>
-                    <TableCell>{item.address ?? "-"}</TableCell>
-                    <TableCell>
-                      <span className={item.is_active ? "text-emerald-700" : "text-amber-700"}>
-                        {item.is_active ? "Active" : "Inactive"}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {canManage ? (
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleEdit(item)}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-rose-600 hover:text-rose-700"
-                            onClick={() => openDeleteConfirmation([item.id])}
-                            aria-label={`Delete ${item.name}`}
-                            data-testid={`delete-warehouse-${item.id}`}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
+                    <TableCell className="min-w-[220px]">
+                      {isEditing ? (
+                        <Input
+                          value={form.name}
+                          onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+                        />
                       ) : (
-                        <span className="text-xs text-muted-foreground">View only</span>
+                        item.name
+                      )}
+                    </TableCell>
+                    <TableCell className="min-w-[180px]">
+                      {isEditing ? (
+                        <Input
+                          value={form.code}
+                          onChange={(event) => setForm((prev) => ({ ...prev, code: event.target.value }))}
+                        />
+                      ) : (
+                        item.code
+                      )}
+                    </TableCell>
+                    <TableCell className="min-w-[240px]">
+                      {isEditing ? (
+                        <Input
+                          value={form.address}
+                          onChange={(event) => setForm((prev) => ({ ...prev, address: event.target.value }))}
+                        />
+                      ) : (
+                        item.address ?? "-"
+                      )}
+                    </TableCell>
+                    <TableCell className="min-w-[120px]">
+                      {isEditing ? (
+                        <select
+                          value={form.is_active ? "ACTIVE" : "INACTIVE"}
+                          onChange={(event) =>
+                            setForm((prev) => ({ ...prev, is_active: event.target.value === "ACTIVE" }))
+                          }
+                          className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground"
+                        >
+                          <option value="ACTIVE">Active</option>
+                          <option value="INACTIVE">Inactive</option>
+                        </select>
+                      ) : (
+                        <span className={item.is_active ? "text-emerald-700" : "text-amber-700"}>
+                          {item.is_active ? "Active" : "Inactive"}
+                        </span>
                       )}
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-          {!loading && items.length > 0 ? (
-            <div className="flex flex-col gap-3 border-t border-border px-4 py-4 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
-              <span>
-                Showing {(currentPage - 1) * pageSize + 1}
-                {" - "}
-                {Math.min(currentPage * pageSize, items.length)}
-                {" of "}
-                {items.length}
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+
+        {!loading && filteredItems.length > 0 ? (
+          <div className="flex flex-col gap-3 border-t border-border px-4 py-4 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
+            <span>
+              Showing {(currentPage - 1) * pageSize + 1}
+              {" - "}
+              {Math.min(currentPage * pageSize, filteredItems.length)}
+              {" of "}
+              {filteredItems.length}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((current) => Math.max(1, current - 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </Button>
+              <span className="min-w-24 text-center">
+                Page {currentPage} of {totalPages}
               </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage((current) => Math.max(1, current - 1))}
-                  disabled={currentPage === 1}
-                >
-                  Previous
-                </Button>
-                <span className="min-w-24 text-center">
-                  Page {currentPage} of {totalPages}
-                </span>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage((current) => Math.min(totalPages, current + 1))}
-                  disabled={currentPage >= totalPages}
-                >
-                  Next
-                </Button>
-              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((current) => Math.min(totalPages, current + 1))}
+                disabled={currentPage >= totalPages}
+              >
+                Next
+              </Button>
             </div>
-          ) : null}
-        </AppTable>
-      </div>
+          </div>
+        ) : null}
+      </AppTable>
 
       <Transition appear show={confirmation !== null} as={Fragment}>
         <Dialog as="div" className="relative z-50" onClose={() => setConfirmation(null)}>

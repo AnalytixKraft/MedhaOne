@@ -3,7 +3,11 @@ import Link from "next/link";
 import { PageTitle } from "@/components/layout/page-title";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { INVENTORY_REPORTS_TAB } from "@/lib/inventory/navigation";
-import { DATA_QUALITY_REPORTS, MASTERS_REPORTS } from "@/lib/reports/navigation";
+import {
+  DATA_QUALITY_REPORTS,
+  MASTERS_REPORTS,
+  PURCHASE_ANALYTICS_REPORTS,
+} from "@/lib/reports/navigation";
 
 const groups = [
   {
@@ -22,6 +26,24 @@ const groups = [
       title: item.label,
       description: item.description,
     })),
+  },
+  {
+    title: "Purchase Analytics",
+    cards: [
+      {
+        href: "/reports/purchase-analytics",
+        testId: "report-purchase-analytics",
+        title: "Purchase Analytics",
+        description:
+          "Procurement-focused reporting for pricing, seasonality, supplier responsiveness, and PO fulfillment quality.",
+      },
+      ...PURCHASE_ANALYTICS_REPORTS.map((item) => ({
+        href: item.href,
+        testId: item.testId,
+        title: item.title,
+        description: item.description,
+      })),
+    ],
   },
 ];
 

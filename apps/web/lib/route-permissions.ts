@@ -1,4 +1,8 @@
 const routePermissions = [
+  { prefix: "/masters/gst-verification", permission: "gst:view" },
+  { prefix: "/masters/drug-license-verification", permission: "drug_license:view" },
+  { prefix: "/reports/purchase-analytics", permission: "purchase_analytics:view" },
+  { prefix: "/purchase/reports", permission: "purchase_analytics:view" },
   { prefix: "/reports/masters", permission: "reports:view" },
   { prefix: "/reports/data-quality", permission: "reports:view" },
   { prefix: "/masters/reports", permission: "masters:view" },

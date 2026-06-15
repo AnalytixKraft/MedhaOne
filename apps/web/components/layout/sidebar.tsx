@@ -24,8 +24,12 @@ import {
   INVENTORY_REPORTS_TAB,
   INVENTORY_TABS,
 } from "@/lib/inventory/navigation";
-import { PURCHASE_NAV_ITEMS } from "@/lib/purchase/navigation";
-import { DATA_QUALITY_REPORTS, MASTERS_REPORTS } from "@/lib/reports/navigation";
+import { PURCHASE_NAV_ITEMS, PURCHASE_REPORT_ITEMS } from "@/lib/purchase/navigation";
+import {
+  DATA_QUALITY_REPORTS,
+  MASTERS_REPORTS,
+  PURCHASE_ANALYTICS_REPORTS,
+} from "@/lib/reports/navigation";
 import { SALES_NAV_ITEMS } from "@/lib/sales/navigation";
 import { cn } from "@/lib/utils";
 
@@ -75,14 +79,32 @@ const navItems: NavNode[] = [
     icon: ShoppingCart,
     testId: "nav-purchase",
     requiredPermission: "purchase:view",
-    children: PURCHASE_NAV_ITEMS.map((item) => ({
-      id: `purchase-${item.id}`,
-      label: item.label,
-      href: item.href,
-      testId: `nav-purchase-${item.id}`,
-      icon: ShoppingCart,
-      requiredPermission: item.requiredPermission,
-    })),
+    children: [
+      ...PURCHASE_NAV_ITEMS.map((item) => ({
+        id: `purchase-${item.id}`,
+        label: item.label,
+        href: item.href,
+        testId: `nav-purchase-${item.id}`,
+        icon: ShoppingCart,
+        requiredPermission: item.requiredPermission,
+      })),
+      {
+        id: "purchase-reports",
+        label: "Reports",
+        href: "/purchase/reports",
+        testId: "nav-purchase-reports",
+        icon: BarChart3,
+        requiredPermission: "purchase_analytics:view",
+        children: PURCHASE_REPORT_ITEMS.map((item) => ({
+          id: `purchase-reports-${item.id}`,
+          label: item.label,
+          href: item.href,
+          testId: `nav-purchase-reports-${item.id}`,
+          icon: BarChart3,
+          requiredPermission: item.requiredPermission,
+        })),
+      },
+    ],
   },
   {
     id: "sales",
@@ -167,6 +189,22 @@ const navItems: NavNode[] = [
           testId: `nav-reports-data-quality-${item.slug}`,
           icon: FileSearch,
           requiredPermission: "reports:view",
+        })),
+      },
+      {
+        id: "reports-purchase-analytics",
+        label: "Purchase Analytics",
+        href: "/reports/purchase-analytics",
+        testId: "nav-reports-purchase-analytics",
+        icon: BarChart3,
+        requiredPermission: "purchase_analytics:view",
+        children: PURCHASE_ANALYTICS_REPORTS.map((item) => ({
+          id: `reports-purchase-analytics-${item.slug}`,
+          label: item.title,
+          href: item.href,
+          testId: `nav-reports-purchase-analytics-${item.slug}`,
+          icon: BarChart3,
+          requiredPermission: "purchase_analytics:view",
         })),
       },
       {

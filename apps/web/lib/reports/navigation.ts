@@ -69,13 +69,13 @@ export const MASTERS_REPORTS: GenericReportConfig[] = [
   {
     slug: "warehouse-coverage",
     title: "Warehouse Coverage Report",
-    description: "Brands, categories, products, and batches present in each warehouse.",
+    description: "Manufacturers, categories, products, and batches present in each warehouse.",
     href: "/reports/masters/warehouse-coverage",
     endpoint: "/api/reports/masters/warehouse-coverage",
     testId: "report-masters-warehouse-coverage",
     columns: [
       { key: "warehouse_name", label: "Warehouse Name" },
-      { key: "brands_present", label: "Brands Present" },
+      { key: "brands_present", label: "Manufacturers Present" },
       { key: "categories_present", label: "Categories Present" },
       { key: "product_count", label: "Product Count" },
       { key: "batch_count", label: "Batch Count" },
@@ -83,13 +83,13 @@ export const MASTERS_REPORTS: GenericReportConfig[] = [
   },
   {
     slug: "brand-item-report",
-    title: "Brand-wise Item Report",
-    description: "Business item visibility and stock by brand.",
+    title: "Manufacturer-wise Item Report",
+    description: "Business item visibility and stock by manufacturer.",
     href: "/reports/masters/brand-item-report",
     endpoint: "/api/reports/masters/brand-item-report",
     testId: "report-masters-brand-item-report",
     columns: [
-      { key: "brand", label: "Brand" },
+      { key: "brand", label: "Manufacturer" },
       { key: "item_count", label: "Item Count" },
       { key: "active_item_count", label: "Active Item Count" },
       { key: "warehouses_present_in", label: "Warehouses Present In" },
@@ -122,7 +122,7 @@ export const MASTERS_REPORTS: GenericReportConfig[] = [
     columns: [
       { key: "sku", label: "SKU" },
       { key: "product_name", label: "Product Name" },
-      { key: "brand", label: "Brand" },
+      { key: "brand", label: "Manufacturer" },
       { key: "category", label: "Category" },
       { key: "warehouses_present_in", label: "Warehouses Present In" },
       { key: "last_movement_date", label: "Last Movement Date" },
@@ -139,7 +139,7 @@ export const MASTERS_REPORTS: GenericReportConfig[] = [
     columns: [
       { key: "sku", label: "SKU" },
       { key: "product_name", label: "Product Name" },
-      { key: "brand", label: "Brand" },
+      { key: "brand", label: "Manufacturer" },
       { key: "warehouse", label: "Warehouse" },
       { key: "batch_count", label: "Batch Count" },
       { key: "qty", label: "Qty" },
@@ -215,13 +215,13 @@ export const MASTERS_REPORTS: GenericReportConfig[] = [
   },
   {
     slug: "brand-summary-report",
-    title: "Brand Performance Support Report",
-    description: "Master-level visibility by brand across stock and warehouses.",
+    title: "Manufacturer Performance Support Report",
+    description: "Master-level visibility by manufacturer across stock and warehouses.",
     href: "/reports/masters/brand-summary-report",
     endpoint: "/api/reports/masters/brand-summary-report",
     testId: "report-masters-brand-summary-report",
     columns: [
-      { key: "brand", label: "Brand" },
+      { key: "brand", label: "Manufacturer" },
       { key: "item_count", label: "Item Count" },
       { key: "warehouse_count", label: "Warehouse Count" },
       { key: "total_qty", label: "Total Qty" },
@@ -272,7 +272,7 @@ export const MASTERS_REPORTS: GenericReportConfig[] = [
     columns: [
       { key: "sku", label: "SKU" },
       { key: "product_name", label: "Product Name" },
-      { key: "brand", label: "Brand" },
+      { key: "brand", label: "Manufacturer" },
       { key: "category", label: "Category" },
       { key: "gst_rate", label: "GST %" },
       { key: "updated_at", label: "Updated At" },
@@ -368,10 +368,101 @@ export const DATA_QUALITY_REPORTS: GenericReportConfig[] = [
   },
 ];
 
+export const PURCHASE_ANALYTICS_REPORTS: GenericReportConfig[] = [
+  {
+    slug: "purchase-cost-trend",
+    title: "Purchase Cost Trend",
+    description: "Track purchase rate movement over time by product and supplier.",
+    href: "/reports/purchase-analytics/purchase-cost-trend",
+    endpoint: "/api/reports/purchase-analytics/purchase-cost-trend",
+    testId: "report-pa-purchase-cost-trend",
+    columns: [
+      { key: "product", label: "Product" },
+      { key: "supplier", label: "Supplier" },
+      { key: "month", label: "Month" },
+      { key: "avg_purchase_rate", label: "Avg Purchase Rate" },
+      { key: "last_purchase_rate", label: "Last Purchase Rate" },
+      { key: "purchase_qty", label: "Purchase Qty" },
+      { key: "purchase_value", label: "Purchase Value" },
+    ],
+  },
+  {
+    slug: "seasonal-purchase-pattern",
+    title: "Seasonal Purchase Pattern",
+    description: "Identify peak buying months and seasonality by product.",
+    href: "/reports/purchase-analytics/seasonal-purchase-pattern",
+    endpoint: "/api/reports/purchase-analytics/seasonal-purchase-pattern",
+    testId: "report-pa-seasonal-purchase-pattern",
+    columns: [
+      { key: "product", label: "Product" },
+      { key: "brand", label: "Brand" },
+      { key: "month", label: "Month" },
+      { key: "purchase_qty", label: "Purchase Qty" },
+      { key: "purchase_value", label: "Purchase Value" },
+      { key: "peak_month_flag", label: "Peak Month" },
+    ],
+  },
+  {
+    slug: "supplier-lead-time",
+    title: "Supplier Lead Time",
+    description: "Measure PO-to-GRN responsiveness and receipt fragmentation.",
+    href: "/reports/purchase-analytics/supplier-lead-time",
+    endpoint: "/api/reports/purchase-analytics/supplier-lead-time",
+    testId: "report-pa-supplier-lead-time",
+    columns: [
+      { key: "supplier", label: "Supplier" },
+      { key: "avg_days_to_first_grn", label: "Avg Days to First GRN" },
+      { key: "avg_days_to_full_receipt", label: "Avg Days to Full Receipt" },
+      { key: "total_pos", label: "Total POs" },
+      { key: "partial_receipt_count", label: "Partial Receipt Count" },
+      { key: "total_received_qty", label: "Total Received Qty" },
+    ],
+  },
+  {
+    slug: "supplier-price-comparison",
+    title: "Supplier Price Comparison",
+    description: "Compare supplier pricing for the same product and surface rank gaps.",
+    href: "/reports/purchase-analytics/supplier-price-comparison",
+    endpoint: "/api/reports/purchase-analytics/supplier-price-comparison",
+    testId: "report-pa-supplier-price-comparison",
+    columns: [
+      { key: "product", label: "Product" },
+      { key: "supplier", label: "Supplier" },
+      { key: "last_purchase_rate", label: "Last Purchase Rate" },
+      { key: "avg_purchase_rate", label: "Avg Purchase Rate" },
+      { key: "lowest_rate", label: "Lowest Rate" },
+      { key: "highest_rate", label: "Highest Rate" },
+      { key: "variance_pct", label: "Variance %" },
+      { key: "rank", label: "Rank" },
+    ],
+  },
+  {
+    slug: "po-fulfillment-quality",
+    title: "PO Fulfillment Quality",
+    description: "Measure fill rate, splits, closure quality, and receipt cleanliness.",
+    href: "/reports/purchase-analytics/po-fulfillment-quality",
+    endpoint: "/api/reports/purchase-analytics/po-fulfillment-quality",
+    testId: "report-pa-po-fulfillment-quality",
+    columns: [
+      { key: "supplier", label: "Supplier" },
+      { key: "total_ordered_qty", label: "Total Ordered Qty" },
+      { key: "total_received_qty", label: "Total Received Qty" },
+      { key: "fill_rate_pct", label: "Fill Rate %" },
+      { key: "avg_grn_count_per_po", label: "Avg GRN Count per PO" },
+      { key: "partial_receipt_frequency", label: "Partial Receipt Frequency" },
+      { key: "closed_po_count", label: "Closed PO Count" },
+    ],
+  },
+];
+
 export function findMastersReport(slug: string) {
   return MASTERS_REPORTS.find((report) => report.slug === slug) ?? null;
 }
 
 export function findDataQualityReport(slug: string) {
   return DATA_QUALITY_REPORTS.find((report) => report.slug === slug) ?? null;
+}
+
+export function findPurchaseAnalyticsReport(slug: string) {
+  return PURCHASE_ANALYTICS_REPORTS.find((report) => report.slug === slug) ?? null;
 }

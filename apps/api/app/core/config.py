@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     default_admin_password: str = "ChangeMe123!"
     enable_test_endpoints: bool = False
     upload_storage_dir: str = str(REPO_ROOT / "storage")
+    drug_licence_verify_username: str | None = None
+    drug_licence_verify_password: str | None = None
+    drug_licence_verify_url: str | None = None
+    openai_api_key: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=(str(APP_DIR / ".env"), str(REPO_ROOT / ".env")),

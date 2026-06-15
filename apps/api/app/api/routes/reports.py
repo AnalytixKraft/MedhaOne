@@ -1,8 +1,9 @@
 from datetime import date
+from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -12,6 +13,8 @@ from app.models.enums import PartyCategory, PartyType
 from app.models.enums import PurchaseOrderStatus
 from app.models.party import Party
 from app.models.product import Product
+from app.models.purchase import GRN
+from app.models.purchase_bill import PurchaseBill
 from app.models.user import User
 from app.models.warehouse import Warehouse
 from app.reports.current_stock import CurrentStockFilters, get_current_stock_report
@@ -42,6 +45,27 @@ from app.reports.masters.warehouse_item_summary import get_warehouse_item_summar
 from app.reports.masters.warehouse_utilization import get_warehouse_utilization_report
 from app.reports.opening_stock import OpeningStockFilters, get_opening_stock_report
 from app.reports.purchase_register import PurchaseRegisterFilters, get_purchase_register_report
+from app.reports.purchase_analytics.common import (
+    PurchaseAnalyticsFilters,
+    build_summary_metric,
+    load_purchase_events,
+    load_purchase_order_receipt_records,
+)
+from app.reports.purchase_analytics.po_fulfillment_quality import (
+    get_po_fulfillment_quality_report,
+)
+from app.reports.purchase_analytics.purchase_cost_trend import (
+    get_purchase_cost_trend_report,
+)
+from app.reports.purchase_analytics.seasonal_purchase_pattern import (
+    get_seasonal_purchase_pattern_report,
+)
+from app.reports.purchase_analytics.supplier_lead_time import (
+    get_supplier_lead_time_report,
+)
+from app.reports.purchase_analytics.supplier_price_comparison import (
+    get_supplier_price_comparison_report,
+)
 from app.reports.stock_ageing import StockAgeingFilters, get_stock_ageing_report
 from app.reports.stock_inward import StockInwardFilters, get_stock_inward_report
 from app.reports.stock_movement import StockMovementFilters, get_stock_movement_report
@@ -60,9 +84,12 @@ from app.schemas.reports import (
     MasterReportFilterOptionsResponse,
     OpeningStockReportResponse,
     PurchaseRegisterReportResponse,
+    PurchaseAnalyticsDashboardResponse,
+    PurchaseAnalyticsFilterOptionsResponse,
+    PurchaseAnalyticsReportResponse,
     ReportEntityOption,
-    ReportSummaryMetric,
     ReportFilterOptionsResponse,
+    ReportSummaryMetric,
     StockAgeingReportResponse,
     StockInwardReportResponse,
     StockMovementReportResponse,
@@ -185,6 +212,59 @@ def _generic_response(
     )
 
 
+def _purchase_analytics_filters(
+    *,
+    product_id: int | None = None,
+    product_ids: str | None = None,
+    brand_values: str | None = None,
+    category_values: str | None = None,
+    supplier_id: int | None = None,
+    supplier_ids: str | None = None,
+    warehouse_id: int | None = None,
+    warehouse_ids: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    year: int | None = None,
+    month: int | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> PurchaseAnalyticsFilters:
+    return PurchaseAnalyticsFilters(
+        product_ids=_merge_single_int(product_id, _parse_csv_ints(product_ids)),
+        brand_values=_parse_csv_strings(brand_values),
+        category_values=_parse_csv_strings(category_values),
+        supplier_ids=_merge_single_int(supplier_id, _parse_csv_ints(supplier_ids)),
+        warehouse_ids=_merge_single_int(warehouse_id, _parse_csv_ints(warehouse_ids)),
+        date_from=date_from,
+        date_to=date_to,
+        year=year,
+        month=month,
+        page=page,
+        page_size=page_size,
+    )
+
+
+def _purchase_analytics_response(
+    *,
+    total: int,
+    page: int,
+    page_size: int,
+    summary: list[dict[str, object]],
+    charts: dict[str, list[dict[str, object]]],
+    data: list[dict[str, object]],
+    meta: dict[str, object] | None = None,
+) -> PurchaseAnalyticsReportResponse:
+    return PurchaseAnalyticsReportResponse(
+        total=total,
+        page=page,
+        page_size=page_size,
+        summary=[ReportSummaryMetric(**item) for item in summary],
+        charts=charts,
+        data=data,
+        meta=meta or {},
+    )
+
+
 @router.get("/filter-options", response_model=ReportFilterOptionsResponse)
 def report_filter_options(
     db: Session = Depends(get_db),
@@ -260,6 +340,372 @@ def data_quality_filter_options(
         missing_field_types=["gstin", "state", "contact_person", "brand", "category", "gst_rate", "address"],
         duplicate_types=["party_gstin", "product_name", "warehouse_name"],
         compliance_types=["missing_gstin", "missing_pan", "missing_drug_license", "missing_fssai"],
+    )
+
+
+@router.get(
+    "/purchase-analytics/filter-options",
+    response_model=PurchaseAnalyticsFilterOptionsResponse,
+)
+def purchase_analytics_filter_options(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("purchase_analytics:view")),
+) -> PurchaseAnalyticsFilterOptionsResponse:
+    _ = current_user
+
+    products = db.execute(
+        select(Product.id, Product.name, Product.sku).order_by(Product.name.asc())
+    ).all()
+    suppliers = db.execute(select(Party.id, Party.name).order_by(Party.name.asc())).all()
+    warehouses = db.execute(
+        select(Warehouse.id, Warehouse.name).order_by(Warehouse.name.asc())
+    ).all()
+    brands = db.execute(
+        select(Product.brand)
+        .where(Product.brand.isnot(None))
+        .distinct()
+        .order_by(Product.brand.asc())
+    ).scalars()
+    categories_raw = db.execute(
+        select(Product.category, Product.hsn).distinct().order_by(Product.category.asc(), Product.hsn.asc())
+    ).all()
+    bill_years = db.execute(
+        select(func.extract("year", PurchaseBill.bill_date))
+        .where(PurchaseBill.bill_date.isnot(None))
+        .distinct()
+    ).scalars()
+    grn_years = db.execute(
+        select(func.extract("year", GRN.received_date))
+        .where(GRN.received_date.isnot(None))
+        .distinct()
+    ).scalars()
+    years = sorted(
+        {
+            int(value)
+            for value in [*bill_years, *grn_years]
+            if value is not None
+        }
+    )
+
+    return PurchaseAnalyticsFilterOptionsResponse(
+        brands=[value for value in brands if value],
+        categories=sorted(
+            {
+                category or hsn
+                for category, hsn in categories_raw
+                if category or hsn
+            }
+        ),
+        batches=[],
+        products=[
+            ReportEntityOption(id=row.id, label=f"{row.name} ({row.sku})")
+            for row in products
+        ],
+        suppliers=[ReportEntityOption(id=row.id, label=row.name) for row in suppliers],
+        warehouses=[ReportEntityOption(id=row.id, label=row.name) for row in warehouses],
+        years=years,
+    )
+
+
+@router.get(
+    "/purchase-analytics/dashboard",
+    response_model=PurchaseAnalyticsDashboardResponse,
+)
+def purchase_analytics_dashboard(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("purchase_analytics:view")),
+) -> PurchaseAnalyticsDashboardResponse:
+    _ = current_user
+    filters = _purchase_analytics_filters(date_from=date_from, date_to=date_to, page_size=500)
+    events = load_purchase_events(db, filters)
+    receipt_records = load_purchase_order_receipt_records(db, filters)
+
+    total_purchase_value = sum((event.value for event in events), start=Decimal("0"))
+    lead_time_days = [
+        (record.first_grn_date - record.order_date).days
+        for record in receipt_records
+        if record.first_grn_date is not None
+    ]
+    avg_purchase_lead_time = round(sum(lead_time_days) / len(lead_time_days), 2) if lead_time_days else 0
+
+    product_peaks: dict[str, dict[int, object]] = {}
+    for event in events:
+        months = product_peaks.setdefault(event.product_name, {})
+        months[event.source_date.month] = months.get(event.source_date.month, 0) + float(event.qty)
+    strong_seasonality_count = sum(
+        1
+        for month_map in product_peaks.values()
+        if month_map and (max(month_map.values()) / (sum(month_map.values()) / len(month_map))) >= 1.5
+    )
+
+    supplier_rates: dict[str, list[Decimal]] = {}
+    for event in events:
+        supplier_rates.setdefault(event.supplier_name, []).append(event.unit_rate)
+    best_price_supplier = None
+    if supplier_rates:
+        best_price_supplier = min(
+            supplier_rates.items(),
+            key=lambda item: sum(item[1], start=0) / len(item[1]),
+        )[0]
+
+    fill_rates: dict[str, tuple[object, object]] = {}
+    for record in receipt_records:
+        ordered, received = fill_rates.get(record.supplier_name, (0, 0))
+        fill_rates[record.supplier_name] = (ordered + record.ordered_qty, received + record.received_qty)
+    best_fill_supplier = None
+    if fill_rates:
+        best_fill_supplier = max(
+            fill_rates.items(),
+            key=lambda item: (item[1][1] / item[1][0]) if item[1][0] else 0,
+        )[0]
+
+    return PurchaseAnalyticsDashboardResponse(
+        summary=[
+            ReportSummaryMetric(**build_summary_metric("total_purchase_value", "Total Purchase Value", total_purchase_value)),
+            ReportSummaryMetric(**build_summary_metric("avg_purchase_lead_time", "Avg Purchase Lead Time", avg_purchase_lead_time)),
+            ReportSummaryMetric(**build_summary_metric("products_with_strong_seasonality", "Products with Strong Seasonality", strong_seasonality_count)),
+            ReportSummaryMetric(**build_summary_metric("suppliers_with_best_price", "Suppliers with Best Price", best_price_supplier or "-")),
+            ReportSummaryMetric(**build_summary_metric("suppliers_with_best_fill_rate", "Suppliers with Best Fill Rate", best_fill_supplier or "-")),
+        ]
+    )
+
+
+@router.get(
+    "/purchase-analytics/purchase-cost-trend",
+    response_model=PurchaseAnalyticsReportResponse,
+)
+def purchase_cost_trend_report(
+    product_id: int | None = None,
+    product_ids: str | None = None,
+    brand_values: str | None = None,
+    category_values: str | None = None,
+    supplier_id: int | None = None,
+    supplier_ids: str | None = None,
+    warehouse_id: int | None = None,
+    warehouse_ids: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("purchase_analytics:view")),
+) -> PurchaseAnalyticsReportResponse:
+    _ = current_user
+    filters = _purchase_analytics_filters(
+        product_id=product_id,
+        product_ids=product_ids,
+        brand_values=brand_values,
+        category_values=category_values,
+        supplier_id=supplier_id,
+        supplier_ids=supplier_ids,
+        warehouse_id=warehouse_id,
+        warehouse_ids=warehouse_ids,
+        date_from=date_from,
+        date_to=date_to,
+        page=page,
+        page_size=page_size,
+    )
+    total, data, summary, charts, meta = get_purchase_cost_trend_report(db, filters)
+    return _purchase_analytics_response(
+        total=total,
+        page=page,
+        page_size=page_size,
+        summary=summary,
+        charts=charts,
+        data=data,
+        meta=meta,
+    )
+
+
+@router.get(
+    "/purchase-analytics/seasonal-purchase-pattern",
+    response_model=PurchaseAnalyticsReportResponse,
+)
+def seasonal_purchase_pattern_report(
+    product_id: int | None = None,
+    product_ids: str | None = None,
+    brand_values: str | None = None,
+    category_values: str | None = None,
+    supplier_id: int | None = None,
+    supplier_ids: str | None = None,
+    warehouse_id: int | None = None,
+    warehouse_ids: str | None = None,
+    year: int | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("purchase_analytics:view")),
+) -> PurchaseAnalyticsReportResponse:
+    _ = current_user
+    filters = _purchase_analytics_filters(
+        product_id=product_id,
+        product_ids=product_ids,
+        brand_values=brand_values,
+        category_values=category_values,
+        supplier_id=supplier_id,
+        supplier_ids=supplier_ids,
+        warehouse_id=warehouse_id,
+        warehouse_ids=warehouse_ids,
+        date_from=date_from,
+        date_to=date_to,
+        year=year,
+        page=page,
+        page_size=page_size,
+    )
+    total, data, summary, charts, meta = get_seasonal_purchase_pattern_report(db, filters)
+    return _purchase_analytics_response(
+        total=total,
+        page=page,
+        page_size=page_size,
+        summary=summary,
+        charts=charts,
+        data=data,
+        meta=meta,
+    )
+
+
+@router.get(
+    "/purchase-analytics/supplier-lead-time",
+    response_model=PurchaseAnalyticsReportResponse,
+)
+def supplier_lead_time_report(
+    product_id: int | None = None,
+    product_ids: str | None = None,
+    brand_values: str | None = None,
+    category_values: str | None = None,
+    supplier_id: int | None = None,
+    supplier_ids: str | None = None,
+    warehouse_id: int | None = None,
+    warehouse_ids: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("purchase_analytics:view")),
+) -> PurchaseAnalyticsReportResponse:
+    _ = current_user
+    filters = _purchase_analytics_filters(
+        product_id=product_id,
+        product_ids=product_ids,
+        brand_values=brand_values,
+        category_values=category_values,
+        supplier_id=supplier_id,
+        supplier_ids=supplier_ids,
+        warehouse_id=warehouse_id,
+        warehouse_ids=warehouse_ids,
+        date_from=date_from,
+        date_to=date_to,
+        page=page,
+        page_size=page_size,
+    )
+    total, data, summary, charts, meta = get_supplier_lead_time_report(db, filters)
+    return _purchase_analytics_response(
+        total=total,
+        page=page,
+        page_size=page_size,
+        summary=summary,
+        charts=charts,
+        data=data,
+        meta=meta,
+    )
+
+
+@router.get(
+    "/purchase-analytics/supplier-price-comparison",
+    response_model=PurchaseAnalyticsReportResponse,
+)
+def supplier_price_comparison_report(
+    product_id: int | None = None,
+    product_ids: str | None = None,
+    brand_values: str | None = None,
+    category_values: str | None = None,
+    supplier_id: int | None = None,
+    supplier_ids: str | None = None,
+    warehouse_id: int | None = None,
+    warehouse_ids: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("purchase_analytics:view")),
+) -> PurchaseAnalyticsReportResponse:
+    _ = current_user
+    filters = _purchase_analytics_filters(
+        product_id=product_id,
+        product_ids=product_ids,
+        brand_values=brand_values,
+        category_values=category_values,
+        supplier_id=supplier_id,
+        supplier_ids=supplier_ids,
+        warehouse_id=warehouse_id,
+        warehouse_ids=warehouse_ids,
+        date_from=date_from,
+        date_to=date_to,
+        page=page,
+        page_size=page_size,
+    )
+    total, data, summary, charts, meta = get_supplier_price_comparison_report(db, filters)
+    return _purchase_analytics_response(
+        total=total,
+        page=page,
+        page_size=page_size,
+        summary=summary,
+        charts=charts,
+        data=data,
+        meta=meta,
+    )
+
+
+@router.get(
+    "/purchase-analytics/po-fulfillment-quality",
+    response_model=PurchaseAnalyticsReportResponse,
+)
+def po_fulfillment_quality_report(
+    product_id: int | None = None,
+    product_ids: str | None = None,
+    brand_values: str | None = None,
+    category_values: str | None = None,
+    supplier_id: int | None = None,
+    supplier_ids: str | None = None,
+    warehouse_id: int | None = None,
+    warehouse_ids: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("purchase_analytics:view")),
+) -> PurchaseAnalyticsReportResponse:
+    _ = current_user
+    filters = _purchase_analytics_filters(
+        product_id=product_id,
+        product_ids=product_ids,
+        brand_values=brand_values,
+        category_values=category_values,
+        supplier_id=supplier_id,
+        supplier_ids=supplier_ids,
+        warehouse_id=warehouse_id,
+        warehouse_ids=warehouse_ids,
+        date_from=date_from,
+        date_to=date_to,
+        page=page,
+        page_size=page_size,
+    )
+    total, data, summary, charts, meta = get_po_fulfillment_quality_report(db, filters)
+    return _purchase_analytics_response(
+        total=total,
+        page=page,
+        page_size=page_size,
+        summary=summary,
+        charts=charts,
+        data=data,
+        meta=meta,
     )
 
 

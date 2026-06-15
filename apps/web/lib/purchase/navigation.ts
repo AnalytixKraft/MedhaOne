@@ -29,3 +29,13 @@ export const PURCHASE_NAV_ITEMS: PurchaseModuleItem[] = [
     requiredPermission: "purchase:view",
   },
 ];
+
+export const PURCHASE_REPORT_ITEMS: PurchaseModuleItem[] = [
+  {
+    id: "purchase-analytics",
+    href: "/reports/purchase-analytics",
+    label: "Purchase Analytics",
+    description: "Pricing, supplier performance, seasonality, and PO fulfillment intelligence.",
+    requiredPermission: "purchase_analytics:view",
+  },
+];

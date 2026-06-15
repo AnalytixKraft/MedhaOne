@@ -197,7 +197,7 @@ export function MasterReportFilterBar({
     >
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <MultiSelectFilter label="Warehouse" options={options.warehouses.map((entry) => ({ label: entry.label, value: String(entry.id) }))} values={value.warehouseIds} onChange={(warehouseIds) => onChange({ ...value, warehouseIds })} />
-        <MultiSelectFilter label="Brand" options={makeOptions(options.brands)} values={value.brandValues} onChange={(brandValues) => onChange({ ...value, brandValues })} />
+        <MultiSelectFilter label="Manufacturer" options={makeOptions(options.brands)} values={value.brandValues} onChange={(brandValues) => onChange({ ...value, brandValues })} />
         <MultiSelectFilter label="Category" options={makeOptions(options.categories)} values={value.categoryValues} onChange={(categoryValues) => onChange({ ...value, categoryValues })} />
         <MultiSelectFilter label="Product" options={options.products.map((entry) => ({ label: entry.label, value: String(entry.id) }))} values={value.productIds} onChange={(productIds) => onChange({ ...value, productIds })} />
         <MultiSelectFilter label="Party Type" options={makeOptions(options.party_types)} values={value.partyTypes} onChange={(partyTypes) => onChange({ ...value, partyTypes })} />

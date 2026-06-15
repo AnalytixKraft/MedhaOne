@@ -15,13 +15,25 @@ const masterCards = [
     href: "/masters/products",
     testId: "masters-products-card",
     title: "Products",
-    description: "SKU catalog with brand, UOM, tax and barcode metadata.",
+    description: "SKU catalog with manufacturer, UOM, tax and barcode metadata.",
   },
   {
     href: "/masters/warehouses",
     testId: "masters-warehouses-card",
     title: "Warehouses",
     description: "Storage locations used by stock ledger and summary.",
+  },
+  {
+    href: "/masters/racks",
+    testId: "masters-racks-card",
+    title: "Rack Details",
+    description: "Define warehouse-wise rack details for receiving, put-away, and product defaults.",
+  },
+  {
+    href: "/masters/drug-license-verification",
+    testId: "masters-drug-license-verification-card",
+    title: "Drug Licence Verification",
+    description: "Run manual-assisted government verification, capture results, and keep party-level history.",
   },
   {
     href: "/masters/settings",
@@ -33,13 +45,13 @@ const masterCards = [
     href: "/masters/reports",
     testId: "masters-reports-card",
     title: "Reports",
-    description: "Business-facing master reports for warehouses, items, parties, brands, and categories.",
+    description: "Business-facing master reports for warehouses, items, parties, manufacturers, and categories.",
   },
   {
     href: "/masters/bulk-import",
     testId: "masters-bulk-import-card",
     title: "Bulk Import",
-    description: "Import parties and products from CSV templates under master data.",
+    description: "Import parties and products from current CSV templates, including manufacturer and storage defaults.",
   },
 ];
 

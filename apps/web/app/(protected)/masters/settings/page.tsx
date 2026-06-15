@@ -22,7 +22,7 @@ export default async function MasterSettingsPage({
     <div>
       <PageTitle
         title="Master Settings"
-        description="Manage GST slabs, brands, categories, and future tax controls from one place."
+        description="Manage GST slabs, manufacturers, categories, and future tax controls from one place."
       />
       <MastersNav />
       <MasterSettingsManager initialTab={initialTab} />
