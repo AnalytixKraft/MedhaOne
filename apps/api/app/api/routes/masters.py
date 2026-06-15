@@ -646,6 +646,7 @@ def _serialize_gst_workflow(
                 "legal_name": result.legal_name,
                 "trade_name": result.trade_name,
                 "status": result.status,
+                "taxpayer_type": result.taxpayer_type,
                 "registration_date": result.registration_date,
                 "cancellation_date": result.cancellation_date,
                 "constitution": result.constitution,

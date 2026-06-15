@@ -530,6 +530,7 @@ class GSTVerificationNormalizedResult(BaseModel):
     legal_name: str | None = None
     trade_name: str | None = None
     status: str | None = None
+    taxpayer_type: str | None = None
     registration_date: date | None = None
     cancellation_date: date | None = None
     constitution: str | None = None

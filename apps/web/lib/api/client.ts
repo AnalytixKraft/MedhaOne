@@ -75,17 +75,11 @@ export type ManagedUserCreatePayload = {
   role_ids: number[];
 };
 
-export type PartyType =
-  | "CUSTOMER"
-  | "SUPPLIER"
-  | "BOTH"
-  | "MANUFACTURER"
-  | "SUPER_STOCKIST"
-  | "DISTRIBUTOR"
-  | "HOSPITAL"
-  | "PHARMACY"
-  | "RETAILER"
-  | "CONSUMER";
+// Only these four wire values are reachable. The backend PartyType enum aliases
+// granular roles (MANUFACTURER/SUPER_STOCKIST/DISTRIBUTOR → SUPPLIER and
+// HOSPITAL/PHARMACY/RETAILER/CONSUMER → CUSTOMER), so the API can never emit or
+// store the granular names. Granular classification lives in party_category.
+export type PartyType = "CUSTOMER" | "SUPPLIER" | "BOTH" | "OTHER";
 
 export type PartyCategory = string;
 
@@ -417,6 +411,7 @@ export type GSTVerificationNormalizedResult = {
   legal_name: string | null;
   trade_name: string | null;
   status: string | null;
+  taxpayer_type: string | null;
   registration_date: string | null;
   cancellation_date: string | null;
   constitution: string | null;

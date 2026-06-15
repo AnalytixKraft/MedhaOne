@@ -12,6 +12,7 @@ class PartyType(str, Enum):
     PHARMACY = "CUSTOMER"
     RETAILER = "CUSTOMER"
     CONSUMER = "CUSTOMER"
+    OTHER = "OTHER"
 
 
 class PartyCategory(str, Enum):

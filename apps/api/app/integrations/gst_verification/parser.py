@@ -14,6 +14,7 @@ class ParsedGSTResult:
     legal_name: str | None
     trade_name: str | None
     status: str | None
+    taxpayer_type: str | None
     registration_date: date | None
     cancellation_date: date | None
     constitution: str | None
@@ -43,6 +44,7 @@ def parse_result_snapshot(
         payload.get("tradeNam") or payload.get("trade_name")
     )
     status = _as_optional_text(payload.get("sts") or payload.get("status"))
+    taxpayer_type = _as_optional_text(payload.get("dty") or payload.get("taxpayer_type"))
     reg_date = _parse_date(payload.get("rgdt") or payload.get("registration_date"))
     cancellation_date = _parse_date(payload.get("cxdt") or payload.get("cancellation_date"))
     constitution = _as_optional_text(payload.get("ctb") or payload.get("constitution"))
@@ -74,6 +76,7 @@ def parse_result_snapshot(
         legal_name=legal_name,
         trade_name=trade_name,
         status=status,
+        taxpayer_type=taxpayer_type,
         registration_date=reg_date,
         cancellation_date=cancellation_date,
         constitution=constitution,

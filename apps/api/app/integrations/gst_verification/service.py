@@ -143,6 +143,7 @@ def _apply_step_to_log(
                 "legal_name": result.legal_name,
                 "trade_name": result.trade_name,
                 "status": result.status,
+                "taxpayer_type": result.taxpayer_type,
                 "registration_date": result.registration_date.isoformat() if result.registration_date else None,
                 "cancellation_date": result.cancellation_date.isoformat() if result.cancellation_date else None,
                 "constitution": result.constitution,

@@ -44,7 +44,8 @@ import { cn } from "@/lib/utils";
 
 type ViewMode = "form" | "grid";
 
-const partyTypeOptions: PartyType[] = ["CUSTOMER", "SUPPLIER", "BOTH"];
+const partyTypeOptions: PartyType[] = ["CUSTOMER", "SUPPLIER", "BOTH", "OTHER"];
+
 const registrationTypeOptions: RegistrationType[] = [
   "REGISTERED",
   "UNREGISTERED",
@@ -52,6 +53,7 @@ const registrationTypeOptions: RegistrationType[] = [
   "SEZ",
   "OTHER",
 ];
+
 const outstandingTrackingOptions: OutstandingTrackingMode[] = [
   "BILL_WISE",
   "FIFO",
@@ -288,6 +290,26 @@ function applyGstinIntelligence<T extends { gstin: string; pan_number: string; s
   } as T;
 }
 
+function parseGstAddress(adr: string): { address_line_1: string; city: string; pincode: string } {
+  const parts = adr.split(",").map((s) => s.trim()).filter(Boolean);
+  const pincode = /^\d{6}$/.test(parts[parts.length - 1] ?? "") ? (parts.pop() ?? "") : "";
+  // The portal orders trailing segments as ..., city, state[, pincode]. State is
+  // already derived from the GSTIN, so drop it — but only when another segment
+  // remains, so a 1-segment address isn't swallowed and left empty.
+  if (parts.length >= 2) parts.pop(); // state
+  const city = parts.pop() ?? "";
+  const address_line_1 = parts.join(", ");
+  return { address_line_1, city, pincode };
+}
+
+function mapGstTaxpayerType(dty: string): RegistrationType {
+  const lower = dty.toLowerCase();
+  if (lower.startsWith("composition")) return "COMPOSITION";
+  if (lower.startsWith("sez")) return "SEZ";
+  if (lower === "unregistered") return "UNREGISTERED";
+  return "REGISTERED";
+}
+
 function toPartyPayload(form: PartyFormState): PartyPayload {
   return {
     party_name: form.party_name.trim(),
@@ -329,9 +351,13 @@ function validateForm(form: PartyFormState): ValidationErrors {
   if (!form.party_type) {
     errors.party_type = "Party Type is required";
   }
-  if (!form.gstin.trim()) {
-    errors.gstin = "GSTIN is required";
-  } else if (!GSTIN_PATTERN.test(form.gstin.trim())) {
+  if (form.party_type !== "OTHER") {
+    if (!form.gstin.trim()) {
+      errors.gstin = "GSTIN is required";
+    } else if (!GSTIN_PATTERN.test(form.gstin.trim())) {
+      errors.gstin = "Invalid GSTIN format";
+    }
+  } else if (form.gstin.trim() && !GSTIN_PATTERN.test(form.gstin.trim())) {
     errors.gstin = "Invalid GSTIN format";
   }
   if (form.pincode.trim() && !/^\d{6}$/.test(form.pincode.trim())) {
@@ -351,9 +377,13 @@ function validateGridRow(row: GridRow): ValidationErrors {
   if (!row.party_name.trim()) {
     errors.party_name = "Required";
   }
-  if (!row.gstin.trim()) {
-    errors.gstin = "Required";
-  } else if (!GSTIN_PATTERN.test(row.gstin.trim())) {
+  if (row.party_type !== "OTHER") {
+    if (!row.gstin.trim()) {
+      errors.gstin = "Required";
+    } else if (!GSTIN_PATTERN.test(row.gstin.trim())) {
+      errors.gstin = "Invalid GSTIN";
+    }
+  } else if (row.gstin.trim() && !GSTIN_PATTERN.test(row.gstin.trim())) {
     errors.gstin = "Invalid GSTIN";
   }
   if (row.mobile.trim() && !/^\d{10}$/.test(row.mobile.trim())) {
@@ -497,6 +527,7 @@ export function PartiesManager() {
 
   const canDeactivate = !!user && (user.is_superuser || hasPermission("party:deactivate"));
   const canVerifyDrugLicense = !!user && (user.is_superuser || hasPermission("drug_license:view"));
+  const canVerifyGstin = !!user && (user.is_superuser || hasPermission("gst:verify"));
 
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [items, setItems] = useState<Party[]>([]);
@@ -519,6 +550,11 @@ export function PartiesManager() {
   const [error, setError] = useState<string | null>(null);
   const [verifyingDrugLicense, setVerifyingDrugLicense] = useState(false);
   const [drugLicenseVerifyError, setDrugLicenseVerifyError] = useState<string | null>(null);
+  const [verifyingGstin, setVerifyingGstin] = useState(false);
+  const [gstinVerifyError, setGstinVerifyError] = useState<string | null>(null);
+  // True only when address fields hold data auto-filled from a successful GST
+  // portal verify — used to lock those fields without trapping manual entry.
+  const [gstAutofilled, setGstAutofilled] = useState(false);
   const nextGridId = useRef(2);
   const gridCellRefs = useRef<Record<string, HTMLElement | null>>({});
 
@@ -601,6 +637,7 @@ export function PartiesManager() {
     setEditingParty(null);
     setForm(createEmptyForm());
     setFormErrors({});
+    setGstAutofilled(false);
     setSummary(null);
   }
 
@@ -609,6 +646,9 @@ export function PartiesManager() {
     setEditingParty(party);
     setForm(fromParty(party));
     setFormErrors({});
+    // Only treat the loaded address as portal-derived (locked) if this party was
+    // actually GST-verified; otherwise leave the fields editable.
+    setGstAutofilled(party.gst_verified_status === "VERIFIED");
     setSummary(null);
     setViewMode("form");
   }
@@ -632,8 +672,20 @@ export function PartiesManager() {
       if (field === "state" && !current.gstin) {
         next.state = String(value);
       }
+      if (field === "party_type" && value === "OTHER") {
+        // OTHER parties carry no GSTIN — drop it and the GSTIN-derived fields so
+        // none stay locked and no stale GSTIN is submitted to the backend.
+        next.gstin = "";
+        next.pan_number = "";
+        next.registration_type = "";
+      }
       return next;
     });
+    if (field === "gstin" || (field === "party_type" && value === "OTHER")) {
+      // Editing the GSTIN (or dropping it for OTHER) invalidates any prior portal
+      // auto-fill, so re-enable the address fields until the next successful Verify.
+      setGstAutofilled(false);
+    }
     setFormErrors((current) => ({ ...current, [field]: undefined }));
   }
 
@@ -952,6 +1004,69 @@ export function PartiesManager() {
     }
   }
 
+  async function verifyGstin() {
+    if (!canVerifyGstin || !form.gstin.trim()) return;
+
+    setVerifyingGstin(true);
+    setGstinVerifyError(null);
+
+    try {
+      // Verify first (party_id is optional — no need to save before verifying)
+      const session = await apiClient.startGSTVerification({
+        party_id: editingPartyId ?? undefined,
+        gstin: form.gstin.trim(),
+      });
+      if (session.log.status === "CAPTCHA_REQUIRED") {
+        setGstinVerifyError("Captcha required — could not auto-verify. Use the GST Verification screen to complete manually.");
+        return;
+      }
+      if (!session.result) {
+        setGstinVerifyError(session.log.remarks ?? "GSTIN verification failed.");
+        return;
+      }
+      const result = session.result;
+      // Auto-populate form fields from GST data
+      setForm((current) => {
+        const updates: Partial<PartyFormState> = {};
+        if (result.legal_name && !current.party_name.trim()) {
+          updates.party_name = result.legal_name;
+        }
+        if (result.taxpayer_type) {
+          updates.registration_type = mapGstTaxpayerType(result.taxpayer_type);
+        }
+        if (result.principal_address) {
+          const parsed = parseGstAddress(result.principal_address);
+          if (parsed.address_line_1) updates.address_line_1 = parsed.address_line_1;
+          if (parsed.city) updates.city = parsed.city;
+          if (parsed.pincode) updates.pincode = parsed.pincode;
+        }
+        return { ...current, ...updates };
+      });
+      // Portal data is now in the address fields — lock them against edits.
+      setGstAutofilled(true);
+      // If there's an existing party, save the verified data to it. Keep this in
+      // its own try/catch: verification already succeeded, so a save failure
+      // (e.g. missing gst:save_verified_data permission) must not be reported as
+      // a verification failure.
+      if (editingPartyId && session.can_save) {
+        try {
+          const updatedParty = await apiClient.saveGSTVerification(session.log.id, {});
+          setEditingParty(updatedParty);
+          setItems((current) => current.map((p) => (p.id === updatedParty.id ? updatedParty : p)));
+          setSummary("GSTIN verified successfully.");
+        } catch {
+          setSummary("GSTIN verified — details auto-filled, but couldn't be saved to the party automatically. Review and Save to persist.");
+        }
+      } else {
+        setSummary("GSTIN verified — details auto-filled. Save the party to complete.");
+      }
+    } catch (verifyError) {
+      setGstinVerifyError(verifyError instanceof Error ? verifyError.message : "GSTIN verification failed");
+    } finally {
+      setVerifyingGstin(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <AppTabs
@@ -970,18 +1085,7 @@ export function PartiesManager() {
             description="Maintain customers, suppliers, and dual-role business accounts with GST intelligence and compliance details."
           >
             <AppFormGrid className="xl:grid-cols-3">
-              <FieldShell label="Party Name" error={formErrors.party_name}>
-                <Input value={form.party_name} onChange={(event) => updateFormField("party_name", event.target.value)} />
-              </FieldShell>
-              <FieldShell label="Display Name">
-                <Input value={form.display_name} onChange={(event) => updateFormField("display_name", event.target.value)} />
-              </FieldShell>
-              <FieldShell
-                label="Party Code"
-                hint={editingPartyId ? "Generated by the system" : "Auto-generated when the party is created"}
-              >
-                <Input value={form.party_code || "Auto-generated on save"} disabled readOnly />
-              </FieldShell>
+              {/* Party Type is always first */}
               <FieldShell label="Party Type" error={formErrors.party_type}>
                 <NativeSelect value={form.party_type} onChange={(value) => updateFormField("party_type", value as PartyType)}>
                   {partyTypeOptions.map((option) => (
@@ -991,6 +1095,51 @@ export function PartiesManager() {
                   ))}
                 </NativeSelect>
               </FieldShell>
+
+              {/* GSTIN with Verify — shown and required for all types except OTHER */}
+              {form.party_type !== "OTHER" ? (
+                <FieldShell
+                  label="GSTIN"
+                  error={formErrors.gstin ?? gstinVerifyError ?? undefined}
+                >
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={form.gstin}
+                      className="uppercase"
+                      maxLength={15}
+                      onChange={(event) => {
+                        updateFormField("gstin", normalizeGstin(event.target.value));
+                        setGstinVerifyError(null);
+                      }}
+                    />
+                    {canVerifyGstin && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={verifyingGstin || !GSTIN_PATTERN.test(form.gstin)}
+                        onClick={() => void verifyGstin()}
+                        className="shrink-0"
+                        aria-label={verifyingGstin ? "Verifying GSTIN" : "Verify GSTIN"}
+                      >
+                        {verifyingGstin ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : "Verify"}
+                      </Button>
+                    )}
+                    {editingParty?.gst_verified_status === "VERIFIED" && !verifyingGstin && (
+                      <CheckCircle2 role="img" aria-label="GSTIN verified" className="h-5 w-5 shrink-0 text-emerald-500" />
+                    )}
+                    {editingParty?.gst_verified_status === "FAILED" && !verifyingGstin && (
+                      <XCircle role="img" aria-label="GSTIN verification failed" className="h-5 w-5 shrink-0 text-rose-500" />
+                    )}
+                  </div>
+                </FieldShell>
+              ) : (
+                /* Party Name for OTHER type where GSTIN is absent */
+                <FieldShell label="Party Name" error={formErrors.party_name}>
+                  <Input value={form.party_name} onChange={(event) => updateFormField("party_name", event.target.value)} />
+                </FieldShell>
+              )}
+
               <FieldShell label="Party Category">
                 <NativeSelect value={form.party_category} onChange={(value) => updateFormField("party_category", value as PartyCategory | "")}>
                   <option value="">Select category</option>
@@ -1000,6 +1149,17 @@ export function PartiesManager() {
                     </option>
                   ))}
                 </NativeSelect>
+              </FieldShell>
+
+              {/* Party Name — shown after GSTIN for non-OTHER (auto-filled from verify) */}
+              {form.party_type !== "OTHER" && (
+                <FieldShell label="Party Name" error={formErrors.party_name}>
+                  <Input value={form.party_name} onChange={(event) => updateFormField("party_name", event.target.value)} />
+                </FieldShell>
+              )}
+
+              <FieldShell label="Display Name">
+                <Input value={form.display_name} onChange={(event) => updateFormField("display_name", event.target.value)} />
               </FieldShell>
               <FieldShell label="Contact Person">
                 <Input value={form.contact_person} onChange={(event) => updateFormField("contact_person", event.target.value)} />
@@ -1016,8 +1176,45 @@ export function PartiesManager() {
             </AppFormGrid>
           </AppSectionCard>
 
-          <AppSectionCard title="Contact & Address">
+          <AppSectionCard
+            title="Contact & Address"
+            description={form.gstin && GSTIN_PATTERN.test(form.gstin) ? "Address fields are auto-populated from GSTIN on Verify." : undefined}
+          >
             <AppFormGrid className="xl:grid-cols-3">
+              <FieldShell label="Address Line 1">
+                <Input
+                  value={form.address_line_1}
+                  disabled={gstAutofilled}
+                  onChange={(event) => updateFormField("address_line_1", event.target.value)}
+                />
+              </FieldShell>
+              <FieldShell label="Address Line 2">
+                <Input value={form.address_line_2} onChange={(event) => updateFormField("address_line_2", event.target.value)} />
+              </FieldShell>
+              <FieldShell label="City">
+                <Input
+                  value={form.city}
+                  disabled={gstAutofilled}
+                  onChange={(event) => updateFormField("city", event.target.value)}
+                />
+              </FieldShell>
+              <FieldShell label="State">
+                <Input
+                  value={form.state}
+                  disabled={GSTIN_PATTERN.test(form.gstin)}
+                  onChange={(event) => updateFormField("state", event.target.value)}
+                />
+              </FieldShell>
+              <FieldShell label="PIN Code" error={formErrors.pincode}>
+                <Input
+                  value={form.pincode}
+                  disabled={gstAutofilled}
+                  onChange={(event) => updateFormField("pincode", event.target.value)}
+                />
+              </FieldShell>
+              <FieldShell label="Country">
+                <Input value={form.country} onChange={(event) => updateFormField("country", event.target.value)} />
+              </FieldShell>
               <FieldShell label="Office Phone">
                 <Input value={form.office_phone} onChange={(event) => updateFormField("office_phone", event.target.value)} />
               </FieldShell>
@@ -1026,28 +1223,6 @@ export function PartiesManager() {
               </FieldShell>
               <FieldShell label="Website">
                 <Input value={form.website} onChange={(event) => updateFormField("website", event.target.value)} />
-              </FieldShell>
-              <FieldShell label="Address Line 1">
-                <Input value={form.address_line_1} onChange={(event) => updateFormField("address_line_1", event.target.value)} />
-              </FieldShell>
-              <FieldShell label="Address Line 2">
-                <Input value={form.address_line_2} onChange={(event) => updateFormField("address_line_2", event.target.value)} />
-              </FieldShell>
-              <FieldShell label="City">
-                <Input value={form.city} onChange={(event) => updateFormField("city", event.target.value)} />
-              </FieldShell>
-              <FieldShell label="State">
-                <Input
-                  value={form.state}
-                  disabled={Boolean(form.gstin)}
-                  onChange={(event) => updateFormField("state", event.target.value)}
-                />
-              </FieldShell>
-              <FieldShell label="PIN Code" error={formErrors.pincode}>
-                <Input value={form.pincode} onChange={(event) => updateFormField("pincode", event.target.value)} />
-              </FieldShell>
-              <FieldShell label="Country">
-                <Input value={form.country} onChange={(event) => updateFormField("country", event.target.value)} />
               </FieldShell>
             </AppFormGrid>
           </AppSectionCard>
@@ -1059,27 +1234,17 @@ export function PartiesManager() {
             <div className="mt-5 space-y-6">
               <AppSectionCard title="Tax & Compliance">
                 <AppFormGrid className="xl:grid-cols-3">
-                  <FieldShell
-                    label="GSTIN"
-                    error={formErrors.gstin}
-                    hint="GSTIN is mandatory. Entering GSTIN auto-fills PAN and State."
-                  >
-                    <Input
-                      value={form.gstin}
-                      className="uppercase"
-                      onChange={(event) => updateFormField("gstin", normalizeGstin(event.target.value))}
-                    />
-                  </FieldShell>
                   <FieldShell label="PAN">
                     <Input
                       value={form.pan_number}
-                      disabled={Boolean(form.gstin)}
+                      disabled={GSTIN_PATTERN.test(form.gstin)}
                       onChange={(event) => updateFormField("pan_number", event.target.value.toUpperCase())}
                     />
                   </FieldShell>
                   <FieldShell label="Registration Type">
                     <NativeSelect
                       value={form.registration_type}
+                      disabled={GSTIN_PATTERN.test(form.gstin)}
                       onChange={(value) => updateFormField("registration_type", value as RegistrationType | "")}
                     >
                       <option value="">Select registration</option>
@@ -1130,11 +1295,9 @@ export function PartiesManager() {
                     <Input value={form.udyam_number} onChange={(event) => updateFormField("udyam_number", event.target.value)} />
                   </FieldShell>
                 </AppFormGrid>
-                <div className="mt-4 space-y-2">
+                <div className="mt-5 space-y-3">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-[hsl(var(--text-primary))]">
-                      Portal Verification Data
-                    </p>
+                    <p className="text-sm font-medium text-[hsl(var(--text-primary))]">Drug Licence · Portal Data</p>
                     <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
                       Read-only · Auto-populated from SFDA portal
                     </span>
@@ -1143,15 +1306,31 @@ export function PartiesManager() {
                     <textarea
                       readOnly
                       value={JSON.stringify(editingParty.drug_license_raw_snapshot, null, 2)}
-                      rows={10}
+                      rows={8}
                       className="w-full cursor-not-allowed rounded-xl border border-input bg-[hsl(var(--muted-bg))] px-3 py-2 font-mono text-xs text-[hsl(var(--text-secondary))] shadow-inner outline-none"
                     />
                   ) : (
                     <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-xs text-slate-400 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-500">
-                      No portal data yet — click Verify next to the Drug License Number to auto-populate this field.
+                      No portal data yet — click Verify next to Drug License Number to auto-populate.
                     </p>
                   )}
                 </div>
+                {canVerifyGstin && editingParty?.gst_raw_snapshot && (
+                  <div className="mt-5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-[hsl(var(--text-primary))]">GST · Portal Data</p>
+                      <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                        Read-only · Auto-populated from GST portal
+                      </span>
+                    </div>
+                    <textarea
+                      readOnly
+                      value={JSON.stringify(editingParty.gst_raw_snapshot, null, 2)}
+                      rows={8}
+                      className="w-full cursor-not-allowed rounded-xl border border-input bg-[hsl(var(--muted-bg))] px-3 py-2 font-mono text-xs text-[hsl(var(--text-secondary))] shadow-inner outline-none"
+                    />
+                  </div>
+                )}
               </AppSectionCard>
 
               <AppSectionCard title="Commercial Details">
