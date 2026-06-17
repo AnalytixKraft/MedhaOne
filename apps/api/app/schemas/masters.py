@@ -492,7 +492,7 @@ class DrugLicenseVerificationSaveRequest(BaseModel):
 
 class DrugLicenseVerificationLogRead(BaseModel):
     id: int
-    party_id: int
+    party_id: int | None = None
     party_name: str | None = None
     drug_license_number: str
     requested_by: int

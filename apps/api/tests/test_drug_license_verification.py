@@ -152,6 +152,37 @@ def test_drug_license_verification_prefills_party_licence_and_enters_captcha_req
     assert body["challenge_text"] == "Captcha shown on the government portal."
 
 
+def test_drug_license_verification_without_party_returns_session(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    """A licence number can be verified without linking a party (party_id is optional)."""
+    client, db = client_with_test_db
+    headers = _create_access_user(
+        db,
+        email="drug-license-standalone@medhaone.app",
+        permission_codes={"drug_license:verify"},
+    )
+    original_client = get_drug_license_verification_client()
+    set_drug_license_verification_client(_CaptchaThenSuccessClient())
+
+    try:
+        response = client.post(
+            "/masters/drug-license-verification/start",
+            headers=headers,
+            json={"drug_license_number": "WLF20B2023KL002201"},
+        )
+    finally:
+        set_drug_license_verification_client(original_client)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["log"]["party_id"] is None
+    assert body["log"]["party_name"] is None
+    assert body["log"]["drug_license_number"] == "WLF20B2023KL002201"
+    assert body["log"]["status"] == "CAPTCHA_REQUIRED"
+    assert body["can_resume"] is True
+
+
 def test_successful_verification_resume_and_save_updates_party(
     client_with_test_db: tuple[TestClient, Session],
 ) -> None:

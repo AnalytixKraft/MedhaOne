@@ -1,15 +1,23 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { BadgeCheck, CheckCircle2, Download, FileText, Loader2, Save, SquarePen, Trash2, X, XCircle } from "lucide-react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  BadgeCheck,
+  CheckCircle2,
+  ChevronDown,
+  Download,
+  Loader2,
+  Save,
+  SquarePen,
+  Trash2,
+  XCircle,
+} from "lucide-react";
 
 import { usePermissions } from "@/components/auth/permission-provider";
 import {
   AppActionBar,
   AppFormGrid,
-  AppSectionCard,
-  AppSummaryPanel,
   AppTable,
 } from "@/components/erp/app-primitives";
 import { Button } from "@/components/ui/button";
@@ -25,6 +33,7 @@ import {
 import {
   apiClient,
   type Category,
+  type GSTVerificationSession,
   type Party,
   type PartyCategory,
   type PartyPayload,
@@ -91,23 +100,6 @@ type PartyFormState = {
 
 type ValidationErrors = Partial<Record<string, string>>;
 
-type InlineEditPartyRow = {
-  party_name: string;
-  party_type: PartyType;
-  party_category: PartyCategory | "";
-  contact_person: string;
-  mobile: string;
-  gstin: string;
-  pan_number: string;
-  state: string;
-  city: string;
-  pincode: string;
-  drug_license_number: string;
-  fssai_number: string;
-  udyam_number: string;
-  is_active: boolean;
-};
-
 function createEmptyForm(): PartyFormState {
   return {
     party_name: "",
@@ -150,7 +142,9 @@ function formatCategoryLabel(value: string) {
     .join(" ");
 }
 
-function formatVerificationStatusLabel(value: Party["drug_license_verified_status"]) {
+function formatVerificationStatusLabel(
+  value: Party["drug_license_verified_status"],
+) {
   return value.replaceAll("_", " ");
 }
 
@@ -179,11 +173,9 @@ function formatDateTime(value: string | null) {
   }).format(new Date(value));
 }
 
-function applyGstinIntelligence<T extends { gstin: string; pan_number: string; state: string }>(
-  record: T,
-  rawValue: string,
-  stateOverridden = false,
-): T {
+function applyGstinIntelligence<
+  T extends { gstin: string; pan_number: string; state: string },
+>(record: T, rawValue: string, stateOverridden = false): T {
   const gstin = normalizeGstin(rawValue);
   if (!gstin) {
     return { ...record, gstin: "", pan_number: "" } as T;
@@ -199,9 +191,18 @@ function applyGstinIntelligence<T extends { gstin: string; pan_number: string; s
   } as T;
 }
 
-function parseGstAddress(adr: string): { address_line_1: string; city: string; pincode: string } {
-  const parts = adr.split(",").map((s) => s.trim()).filter(Boolean);
-  const pincode = /^\d{6}$/.test(parts[parts.length - 1] ?? "") ? (parts.pop() ?? "") : "";
+function parseGstAddress(adr: string): {
+  address_line_1: string;
+  city: string;
+  pincode: string;
+} {
+  const parts = adr
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const pincode = /^\d{6}$/.test(parts[parts.length - 1] ?? "")
+    ? (parts.pop() ?? "")
+    : "";
   // The portal orders trailing segments as ..., city, state[, pincode]. State is
   // already derived from the GSTIN, so drop it — but only when another segment
   // remains, so a 1-segment address isn't swallowed and left empty.
@@ -239,7 +240,9 @@ function toPartyPayload(form: PartyFormState): PartyPayload {
     pincode: form.pincode.trim() || undefined,
     country: form.country.trim() || undefined,
     gstin: form.gstin.trim() || undefined,
-    pan_number: form.gstin.trim() ? undefined : form.pan_number.trim() || undefined,
+    pan_number: form.gstin.trim()
+      ? undefined
+      : form.pan_number.trim() || undefined,
     registration_type: form.registration_type || undefined,
     drug_license_number: form.drug_license_number.trim() || undefined,
     fssai_number: form.fssai_number.trim() || undefined,
@@ -272,7 +275,10 @@ function validateForm(form: PartyFormState): ValidationErrors {
   if (form.pincode.trim() && !/^\d{6}$/.test(form.pincode.trim())) {
     errors.pincode = "PIN Code must be 6 digits";
   }
-  if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+  if (
+    form.email.trim() &&
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())
+  ) {
     errors.email = "Invalid email address";
   }
   if (form.credit_limit.trim() && Number(form.credit_limit) < 0) {
@@ -315,39 +321,6 @@ function fromParty(party: Party): PartyFormState {
   };
 }
 
-function toInlineEditPartyRow(party: Party): InlineEditPartyRow {
-  return {
-    party_name: party.party_name ?? party.name ?? "",
-    party_type: (party.party_type as PartyType) ?? "CUSTOMER",
-    party_category: party.party_category ?? "",
-    contact_person: party.contact_person ?? "",
-    mobile: party.mobile ?? party.phone ?? "",
-    gstin: party.gstin ?? "",
-    pan_number: party.pan_number ?? "",
-    state: party.state ?? "",
-    city: party.city ?? "",
-    pincode: party.pincode ?? "",
-    drug_license_number: party.drug_license_number ?? "",
-    fssai_number: party.fssai_number ?? "",
-    udyam_number: party.udyam_number ?? "",
-    is_active: party.is_active,
-  };
-}
-
-function validateInlineEditPartyRow(row: InlineEditPartyRow): ValidationErrors {
-  const errors: ValidationErrors = {};
-  if (!row.party_name.trim()) errors.party_name = "Required";
-  if (row.party_type !== "OTHER") {
-    if (!row.gstin.trim()) errors.gstin = "Required";
-    else if (!GSTIN_PATTERN.test(row.gstin.trim())) errors.gstin = "Invalid GSTIN";
-  } else if (row.gstin.trim() && !GSTIN_PATTERN.test(row.gstin.trim())) {
-    errors.gstin = "Invalid GSTIN";
-  }
-  if (row.mobile.trim() && !/^\d{10}$/.test(row.mobile.trim())) errors.mobile = "10 digits required";
-  if (row.pincode.trim() && !/^\d{6}$/.test(row.pincode.trim())) errors.pincode = "6 digits required";
-  return errors;
-}
-
 function FieldShell({
   label,
   error,
@@ -362,8 +335,12 @@ function FieldShell({
   return (
     <label className="space-y-2">
       <div className="space-y-1">
-        <p className="text-sm font-medium text-[hsl(var(--text-primary))]">{label}</p>
-        {hint ? <p className="text-xs text-[hsl(var(--text-secondary))]">{hint}</p> : null}
+        <p className="text-sm font-medium text-[hsl(var(--text-primary))]">
+          {label}
+        </p>
+        {hint ? (
+          <p className="text-xs text-[hsl(var(--text-secondary))]">{hint}</p>
+        ) : null}
       </div>
       {children}
       {error ? <p className="text-xs text-rose-600">{error}</p> : null}
@@ -394,6 +371,143 @@ function NativeSelect({
   );
 }
 
+function FormSection({
+  title,
+  description,
+  collapsible = true,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  description?: string;
+  collapsible?: boolean;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const cardClass =
+    "overflow-hidden rounded-2xl border border-[hsl(var(--card-border))] bg-[hsl(var(--card-bg))] text-card-foreground shadow-sm";
+  const heading = (
+    <div className="space-y-0.5">
+      <h3 className="text-base font-semibold text-[hsl(var(--text-primary))]">
+        {title}
+      </h3>
+      {description ? (
+        <p className="text-xs text-muted-foreground">{description}</p>
+      ) : null}
+    </div>
+  );
+  const body = (
+    <div className="space-y-4 p-5 pt-4 md:p-6 md:pt-4">{children}</div>
+  );
+
+  if (!collapsible) {
+    return (
+      <div className={cardClass}>
+        <div className="border-b border-border/70 bg-[hsl(var(--muted-bg))] px-5 py-3 md:px-6">
+          {heading}
+        </div>
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <details open={defaultOpen} className={cn("group", cardClass)}>
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 border-b border-transparent bg-[hsl(var(--muted-bg))] px-5 py-3 group-open:border-border/70 md:px-6 [&::-webkit-details-marker]:hidden">
+        {heading}
+        <ChevronDown
+          className="h-4 w-4 shrink-0 text-[hsl(var(--text-secondary))] transition-transform duration-200 group-open:rotate-180"
+          aria-hidden="true"
+        />
+      </summary>
+      {body}
+    </details>
+  );
+}
+
+// Inline GST portal captcha — shown when the automatic solver couldn't read it.
+// The image and session cookies come back from the backend in the verification
+// session; submitting the value resumes (and usually completes) verification.
+function GstCaptchaPrompt({
+  session,
+  value,
+  submitting,
+  onChange,
+  onSubmit,
+}: {
+  session: GSTVerificationSession;
+  value: string;
+  submitting: boolean;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+}) {
+  const ctx = session.log.extracted_data_json as Record<string, unknown> | null;
+  const sessionContext =
+    ctx &&
+    typeof ctx.session_context === "object" &&
+    ctx.session_context !== null
+      ? (ctx.session_context as Record<string, unknown>)
+      : null;
+  const captchaImageB64 =
+    typeof sessionContext?.captcha_image_b64 === "string"
+      ? sessionContext.captcha_image_b64
+      : undefined;
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/30 dark:bg-amber-500/10">
+      <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+        Enter the GST portal captcha
+      </p>
+      <p className="mb-3 mt-0.5 text-xs text-amber-700 dark:text-amber-400">
+        {session.challenge_text ??
+          "Auto-solving couldn't read the captcha. Type the characters shown below to finish verifying."}
+      </p>
+      {captchaImageB64 ? (
+        // eslint-disable-next-line @next/next/no-img-element -- transient base64 captcha data-URI; next/image adds no value here
+        <img
+          src={`data:image/png;base64,${captchaImageB64}`}
+          alt="GST portal captcha"
+          className="mb-3 rounded border border-amber-300 bg-white p-1 dark:border-amber-500/50"
+        />
+      ) : session.log.source_url ? (
+        <a
+          href={session.log.source_url}
+          target="_blank"
+          rel="noreferrer"
+          className="mb-3 inline-block text-xs font-medium text-amber-800 underline underline-offset-4 dark:text-amber-300"
+        >
+          Open the GST portal to read the captcha
+        </a>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && value.trim() && !submitting) {
+              event.preventDefault();
+              onSubmit();
+            }
+          }}
+          placeholder="Enter captcha"
+          className="max-w-[200px] uppercase"
+        />
+        <Button
+          type="button"
+          onClick={onSubmit}
+          disabled={!value.trim() || submitting}
+        >
+          {submitting ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          ) : (
+            "Submit captcha"
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function PartiesManager() {
   const router = useRouter();
   const { user, hasPermission } = usePermissions();
@@ -404,9 +518,12 @@ export function PartiesManager() {
       hasPermission("party:update") ||
       hasPermission("party:bulk_create"));
 
-  const canDeactivate = !!user && (user.is_superuser || hasPermission("party:deactivate"));
-  const canVerifyDrugLicense = !!user && (user.is_superuser || hasPermission("drug_license:view"));
-  const canVerifyGstin = !!user && (user.is_superuser || hasPermission("gst:verify"));
+  const canDeactivate =
+    !!user && (user.is_superuser || hasPermission("party:deactivate"));
+  const canVerifyDrugLicense =
+    !!user && (user.is_superuser || hasPermission("drug_license:view"));
+  const canVerifyGstin =
+    !!user && (user.is_superuser || hasPermission("gst:verify"));
 
   const [items, setItems] = useState<Party[]>([]);
   const [partyCategories, setPartyCategories] = useState<Category[]>([]);
@@ -414,9 +531,7 @@ export function PartiesManager() {
   const [formErrors, setFormErrors] = useState<ValidationErrors>({});
   const [editingPartyId, setEditingPartyId] = useState<number | null>(null);
   const [editingParty, setEditingParty] = useState<Party | null>(null);
-  const [inlineEditPartyId, setInlineEditPartyId] = useState<number | null>(null);
-  const [inlineEditRow, setInlineEditRow] = useState<InlineEditPartyRow | null>(null);
-  const [inlineEditErrors, setInlineEditErrors] = useState<ValidationErrors>({});
+  const formCardRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedPartiesPage, setSavedPartiesPage] = useState(1);
@@ -425,12 +540,20 @@ export function PartiesManager() {
   const [summary, setSummary] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [verifyingDrugLicense, setVerifyingDrugLicense] = useState(false);
-  const [drugLicenseVerifyError, setDrugLicenseVerifyError] = useState<string | null>(null);
+  const [drugLicenseVerifyError, setDrugLicenseVerifyError] = useState<
+    string | null
+  >(null);
   const [verifyingGstin, setVerifyingGstin] = useState(false);
   const [gstinVerifyError, setGstinVerifyError] = useState<string | null>(null);
   // True only when address fields hold data auto-filled from a successful GST
   // portal verify — used to lock those fields without trapping manual entry.
   const [gstAutofilled, setGstAutofilled] = useState(false);
+  // Holds a pending verification session when the portal's auto captcha-solve
+  // failed and we need the user to read the captcha image inline.
+  const [gstSession, setGstSession] = useState<GSTVerificationSession | null>(
+    null,
+  );
+  const [gstCaptchaValue, setGstCaptchaValue] = useState("");
 
   async function loadParties(): Promise<Party[]> {
     setLoading(true);
@@ -444,7 +567,11 @@ export function PartiesManager() {
       setPartyCategories(categories);
       return parties;
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Failed to load Party Master");
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Failed to load Party Master",
+      );
       return [];
     } finally {
       setLoading(false);
@@ -456,7 +583,12 @@ export function PartiesManager() {
   }, []);
 
   const savedParties = useMemo(
-    () => [...items].sort((left, right) => (left.party_name ?? left.name).localeCompare(right.party_name ?? right.name)),
+    () =>
+      [...items].sort((left, right) =>
+        (left.party_name ?? left.name).localeCompare(
+          right.party_name ?? right.name,
+        ),
+      ),
     [items],
   );
 
@@ -482,9 +614,35 @@ export function PartiesManager() {
   }, [savedParties, searchQuery]);
 
   const partyCategoryOptions = useMemo(
-    () => partyCategories.map((category) => category.name).sort((left, right) => left.localeCompare(right)),
+    () =>
+      partyCategories
+        .map((category) => category.name)
+        .sort((left, right) => left.localeCompare(right)),
     [partyCategories],
   );
+
+  // The actual "Retailer" category name as stored (case-insensitive lookup,
+  // falling back to the canonical "RETAILER").
+  const retailerCategory =
+    partyCategoryOptions.find(
+      (option) => option.toUpperCase() === "RETAILER",
+    ) ?? "RETAILER";
+  const isRetailerCategory =
+    form.party_category.trim().toUpperCase() === "RETAILER";
+  // GST-verified parties have their name/address pulled from the portal and
+  // locked — except Retailers, who may correct their own shop details.
+  const gstFieldsLocked = gstAutofilled && !isRetailerCategory;
+
+  // Party type OTHER is always Retailer — enforce it for manual switches and
+  // for any legacy record loaded into the form with a different category.
+  useEffect(() => {
+    if (
+      form.party_type === "OTHER" &&
+      form.party_category !== retailerCategory
+    ) {
+      setForm((current) => ({ ...current, party_category: retailerCategory }));
+    }
+  }, [form.party_type, form.party_category, retailerCategory]);
 
   const totalSavedPartyPages = Math.max(
     1,
@@ -493,7 +651,10 @@ export function PartiesManager() {
 
   const paginatedSavedParties = useMemo(() => {
     const startIndex = (savedPartiesPage - 1) * savedPartiesPageSize;
-    return filteredSavedParties.slice(startIndex, startIndex + savedPartiesPageSize);
+    return filteredSavedParties.slice(
+      startIndex,
+      startIndex + savedPartiesPageSize,
+    );
   }, [filteredSavedParties, savedPartiesPage, savedPartiesPageSize]);
 
   useEffect(() => {
@@ -512,6 +673,9 @@ export function PartiesManager() {
     setForm(createEmptyForm());
     setFormErrors({});
     setGstAutofilled(false);
+    setGstSession(null);
+    setGstCaptchaValue("");
+    setGstinVerifyError(null);
     setSummary(null);
   }
 
@@ -523,15 +687,27 @@ export function PartiesManager() {
     // Only treat the loaded address as portal-derived (locked) if this party was
     // actually GST-verified; otherwise leave the fields editable.
     setGstAutofilled(party.gst_verified_status === "VERIFIED");
+    setGstSession(null);
+    setGstCaptchaValue("");
+    setGstinVerifyError(null);
     setSummary(null);
+    // Bring the auto-filled form into view — the table can be far below it.
+    formCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  function updateFormField<K extends keyof PartyFormState>(field: K, value: PartyFormState[K]) {
+  function updateFormField<K extends keyof PartyFormState>(
+    field: K,
+    value: PartyFormState[K],
+  ) {
     setForm((current) => {
       let next = { ...current, [field]: value };
       if (field === "gstin") {
         next = applyGstinIntelligence(next, String(value));
-        if (next.gstin && !next.registration_type && GSTIN_PATTERN.test(next.gstin)) {
+        if (
+          next.gstin &&
+          !next.registration_type &&
+          GSTIN_PATTERN.test(next.gstin)
+        ) {
           next.registration_type = "REGISTERED";
         }
       }
@@ -540,10 +716,12 @@ export function PartiesManager() {
       }
       if (field === "party_type" && value === "OTHER") {
         // OTHER parties carry no GSTIN — drop it and the GSTIN-derived fields so
-        // none stay locked and no stale GSTIN is submitted to the backend.
+        // none stay locked and no stale GSTIN is submitted to the backend. Their
+        // only valid category is Retailer.
         next.gstin = "";
         next.pan_number = "";
         next.registration_type = "";
+        next.party_category = retailerCategory;
       }
       return next;
     });
@@ -551,85 +729,11 @@ export function PartiesManager() {
       // Editing the GSTIN (or dropping it for OTHER) invalidates any prior portal
       // auto-fill, so re-enable the address fields until the next successful Verify.
       setGstAutofilled(false);
+      // Any pending captcha challenge is tied to the old GSTIN — discard it.
+      setGstSession(null);
+      setGstCaptchaValue("");
     }
     setFormErrors((current) => ({ ...current, [field]: undefined }));
-  }
-
-  function beginInlineEdit(party: Party) {
-    setInlineEditPartyId(party.id);
-    setInlineEditRow(toInlineEditPartyRow(party));
-    setInlineEditErrors({});
-    setError(null);
-    setSummary(null);
-  }
-
-  function cancelInlineEdit() {
-    setInlineEditPartyId(null);
-    setInlineEditRow(null);
-    setInlineEditErrors({});
-  }
-
-  function updateInlineEditField<K extends keyof InlineEditPartyRow>(
-    field: K,
-    value: InlineEditPartyRow[K],
-  ) {
-    setInlineEditRow((current) => {
-      if (!current) {
-        return current;
-      }
-
-      let next = { ...current, [field]: value };
-      if (field === "gstin") {
-        next = applyGstinIntelligence(next, String(value));
-      }
-      if (field === "state" && !current.gstin) {
-        next.state = String(value);
-      }
-      return next;
-    });
-    setInlineEditErrors((current) => ({ ...current, [field]: undefined }));
-  }
-
-  async function saveInlineEdit() {
-    if (!canEdit || inlineEditPartyId === null || !inlineEditRow) {
-      return;
-    }
-
-    const nextErrors = validateInlineEditPartyRow(inlineEditRow);
-    setInlineEditErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) {
-      setError("Resolve inline validation errors before saving.");
-      return;
-    }
-
-    setSaving(true);
-    setError(null);
-    setSummary(null);
-    try {
-      await apiClient.updateParty(inlineEditPartyId, {
-        party_name: inlineEditRow.party_name.trim(),
-        party_type: inlineEditRow.party_type,
-        party_category: inlineEditRow.party_category || undefined,
-        contact_person: inlineEditRow.contact_person.trim() || undefined,
-        mobile: inlineEditRow.mobile.trim() || undefined,
-        gstin: inlineEditRow.gstin.trim() || undefined,
-        pan_number: inlineEditRow.gstin.trim() ? undefined : inlineEditRow.pan_number.trim() || undefined,
-        state: inlineEditRow.state.trim() || undefined,
-        city: inlineEditRow.city.trim() || undefined,
-        pincode: inlineEditRow.pincode.trim() || undefined,
-        drug_license_number: inlineEditRow.drug_license_number.trim() || undefined,
-        fssai_number: inlineEditRow.fssai_number.trim() || undefined,
-        udyam_number: inlineEditRow.udyam_number.trim() || undefined,
-        is_active: inlineEditRow.is_active,
-      });
-      cancelInlineEdit();
-      setSummary("Party updated.");
-      await loadParties();
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Failed to update party");
-    } finally {
-      setSaving(false);
-    }
   }
 
   async function saveForm() {
@@ -660,7 +764,11 @@ export function PartiesManager() {
         if (updated) setEditingParty(updated);
       }
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Failed to save Party Master");
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Failed to save Party Master",
+      );
     } finally {
       setSaving(false);
     }
@@ -680,7 +788,11 @@ export function PartiesManager() {
         resetForm();
       }
     } catch (deactivateError) {
-      setError(deactivateError instanceof Error ? deactivateError.message : "Failed to deactivate party");
+      setError(
+        deactivateError instanceof Error
+          ? deactivateError.message
+          : "Failed to deactivate party",
+      );
     } finally {
       setSaving(false);
     }
@@ -701,7 +813,9 @@ export function PartiesManager() {
       const nextErrors = validateForm(form);
       setFormErrors(nextErrors);
       if (Object.keys(nextErrors).length > 0) {
-        setDrugLicenseVerifyError("Fix the form errors above before verifying.");
+        setDrugLicenseVerifyError(
+          "Fix the form errors above before verifying.",
+        );
         setVerifyingDrugLicense(false);
         return;
       }
@@ -713,7 +827,11 @@ export function PartiesManager() {
         setItems((current) => [...current, created]);
         setSummary(`Created ${form.party_name}. Now verifying drug licence...`);
       } catch (saveError) {
-        setDrugLicenseVerifyError(saveError instanceof Error ? saveError.message : "Failed to save party before verification");
+        setDrugLicenseVerifyError(
+          saveError instanceof Error
+            ? saveError.message
+            : "Failed to save party before verification",
+        );
         setVerifyingDrugLicense(false);
         return;
       }
@@ -725,20 +843,90 @@ export function PartiesManager() {
         drug_license_number: form.drug_license_number.trim() || undefined,
       });
       if (session.log.status === "CAPTCHA_REQUIRED") {
-        setDrugLicenseVerifyError("Captcha required — could not auto-verify. Use the Drug Licence Verification screen to complete verification manually.");
+        setDrugLicenseVerifyError(
+          "Captcha required — could not auto-verify. Use the Drug Licence Verification screen to complete verification manually.",
+        );
         return;
       }
       if (!session.can_save) {
-        setDrugLicenseVerifyError(session.log.remarks ?? "Verification failed. Check the Drug Licence Verification screen for details.");
+        setDrugLicenseVerifyError(
+          session.log.remarks ??
+            "Verification failed. Check the Drug Licence Verification screen for details.",
+        );
         return;
       }
-      const updatedParty = await apiClient.saveDrugLicenseVerification(session.log.id, {});
+      const updatedParty = await apiClient.saveDrugLicenseVerification(
+        session.log.id,
+        {},
+      );
       setEditingParty(updatedParty);
-      setItems((current) => current.map((p) => (p.id === updatedParty.id ? updatedParty : p)));
+      setItems((current) =>
+        current.map((p) => (p.id === updatedParty.id ? updatedParty : p)),
+      );
     } catch (verifyError) {
-      setDrugLicenseVerifyError(verifyError instanceof Error ? verifyError.message : "Verification failed");
+      setDrugLicenseVerifyError(
+        verifyError instanceof Error
+          ? verifyError.message
+          : "Verification failed",
+      );
     } finally {
       setVerifyingDrugLicense(false);
+    }
+  }
+
+  // Shared success path for both auto-solve and manual-captcha verification:
+  // populate the form from verified GST data, lock name/address, and persist to
+  // an existing party when possible.
+  async function applyGstSuccess(session: GSTVerificationSession) {
+    const result = session.result;
+    if (!result) return;
+
+    setForm((current) => {
+      const updates: Partial<PartyFormState> = {};
+      // Verification is authoritative — populate the legal name even if the user
+      // had typed something different.
+      const name = result.legal_name || result.trade_name;
+      if (name) updates.party_name = name;
+      if (result.taxpayer_type) {
+        updates.registration_type = mapGstTaxpayerType(result.taxpayer_type);
+      }
+      if (result.principal_address) {
+        const parsed = parseGstAddress(result.principal_address);
+        if (parsed.address_line_1)
+          updates.address_line_1 = parsed.address_line_1;
+        if (parsed.city) updates.city = parsed.city;
+        if (parsed.pincode) updates.pincode = parsed.pincode;
+      }
+      return { ...current, ...updates };
+    });
+    // Portal data is now in the name/address fields — lock them against edits.
+    setGstAutofilled(true);
+    setGstSession(null);
+    setGstCaptchaValue("");
+    // If there's an existing party, save the verified data to it. Keep this in
+    // its own try/catch: verification already succeeded, so a save failure
+    // (e.g. missing gst:save_verified_data permission) must not be reported as
+    // a verification failure.
+    if (editingPartyId && session.can_save) {
+      try {
+        const updatedParty = await apiClient.saveGSTVerification(
+          session.log.id,
+          {},
+        );
+        setEditingParty(updatedParty);
+        setItems((current) =>
+          current.map((p) => (p.id === updatedParty.id ? updatedParty : p)),
+        );
+        setSummary("GSTIN verified successfully.");
+      } catch {
+        setSummary(
+          "GSTIN verified — details auto-filled, but couldn't be saved to the party automatically. Review and Save to persist.",
+        );
+      }
+    } else {
+      setSummary(
+        "GSTIN verified — details auto-filled. Save the party to complete.",
+      );
     }
   }
 
@@ -747,6 +935,8 @@ export function PartiesManager() {
 
     setVerifyingGstin(true);
     setGstinVerifyError(null);
+    setGstSession(null);
+    setGstCaptchaValue("");
 
     try {
       // Verify first (party_id is optional — no need to save before verifying)
@@ -754,52 +944,58 @@ export function PartiesManager() {
         party_id: editingPartyId ?? undefined,
         gstin: form.gstin.trim(),
       });
-      if (session.log.status === "CAPTCHA_REQUIRED") {
-        setGstinVerifyError("Captcha required — could not auto-verify. Use the GST Verification screen to complete manually.");
-        return;
-      }
-      if (!session.result) {
-        setGstinVerifyError(session.log.remarks ?? "GSTIN verification failed.");
-        return;
-      }
-      const result = session.result;
-      // Auto-populate form fields from GST data
-      setForm((current) => {
-        const updates: Partial<PartyFormState> = {};
-        if (result.legal_name && !current.party_name.trim()) {
-          updates.party_name = result.legal_name;
-        }
-        if (result.taxpayer_type) {
-          updates.registration_type = mapGstTaxpayerType(result.taxpayer_type);
-        }
-        if (result.principal_address) {
-          const parsed = parseGstAddress(result.principal_address);
-          if (parsed.address_line_1) updates.address_line_1 = parsed.address_line_1;
-          if (parsed.city) updates.city = parsed.city;
-          if (parsed.pincode) updates.pincode = parsed.pincode;
-        }
-        return { ...current, ...updates };
-      });
-      // Portal data is now in the address fields — lock them against edits.
-      setGstAutofilled(true);
-      // If there's an existing party, save the verified data to it. Keep this in
-      // its own try/catch: verification already succeeded, so a save failure
-      // (e.g. missing gst:save_verified_data permission) must not be reported as
-      // a verification failure.
-      if (editingPartyId && session.can_save) {
-        try {
-          const updatedParty = await apiClient.saveGSTVerification(session.log.id, {});
-          setEditingParty(updatedParty);
-          setItems((current) => current.map((p) => (p.id === updatedParty.id ? updatedParty : p)));
-          setSummary("GSTIN verified successfully.");
-        } catch {
-          setSummary("GSTIN verified — details auto-filled, but couldn't be saved to the party automatically. Review and Save to persist.");
-        }
+      if (session.result) {
+        await applyGstSuccess(session);
+      } else if (session.log.status === "CAPTCHA_REQUIRED") {
+        // Auto-solve failed — surface the portal captcha inline so the user can
+        // read it and finish verifying without leaving the screen.
+        setGstSession(session);
       } else {
-        setSummary("GSTIN verified — details auto-filled. Save the party to complete.");
+        setGstinVerifyError(
+          session.log.remarks ?? "GSTIN verification failed.",
+        );
       }
     } catch (verifyError) {
-      setGstinVerifyError(verifyError instanceof Error ? verifyError.message : "GSTIN verification failed");
+      setGstinVerifyError(
+        verifyError instanceof Error
+          ? verifyError.message
+          : "GSTIN verification failed",
+      );
+    } finally {
+      setVerifyingGstin(false);
+    }
+  }
+
+  // Submit the manually-read captcha for the pending verification session.
+  async function submitGstCaptcha() {
+    if (!gstSession || !gstCaptchaValue.trim()) return;
+
+    setVerifyingGstin(true);
+    setGstinVerifyError(null);
+
+    try {
+      const session = await apiClient.resumeGSTVerification(gstSession.log.id, {
+        captcha_value: gstCaptchaValue.trim(),
+      });
+      if (session.result) {
+        await applyGstSuccess(session);
+      } else if (session.log.status === "CAPTCHA_REQUIRED") {
+        // Wrong captcha (or a freshly issued one) — show the new image to retry.
+        setGstSession(session);
+        setGstCaptchaValue("");
+        setGstinVerifyError("Captcha didn't match — try the new image below.");
+      } else {
+        setGstSession(null);
+        setGstinVerifyError(
+          session.log.remarks ?? "GSTIN verification failed.",
+        );
+      }
+    } catch (resumeError) {
+      setGstinVerifyError(
+        resumeError instanceof Error
+          ? resumeError.message
+          : "GSTIN verification failed",
+      );
     } finally {
       setVerifyingGstin(false);
     }
@@ -807,318 +1003,515 @@ export function PartiesManager() {
 
   return (
     <div className="space-y-6">
-      <div className="space-y-6">
-          <AppSectionCard
-            title={editingPartyId ? "Edit Party Master" : "Create Party Master"}
-            description="Maintain customers, suppliers, and dual-role business accounts with GST intelligence and compliance details."
-          >
-            <AppFormGrid className="xl:grid-cols-3">
-              {/* Party Type is always first */}
-              <FieldShell label="Party Type" error={formErrors.party_type}>
-                <NativeSelect value={form.party_type} onChange={(value) => updateFormField("party_type", value as PartyType)}>
-                  {partyTypeOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </NativeSelect>
-              </FieldShell>
+      <div ref={formCardRef} className="space-y-6 scroll-mt-6">
+        <FormSection
+          title={editingPartyId ? "Edit Party" : "Create Party"}
+          collapsible={false}
+        >
+          <AppFormGrid className="xl:grid-cols-3">
+            {/* Party Type is always first */}
+            <FieldShell label="Party Type" error={formErrors.party_type}>
+              <NativeSelect
+                value={form.party_type}
+                onChange={(value) =>
+                  updateFormField("party_type", value as PartyType)
+                }
+              >
+                {partyTypeOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </NativeSelect>
+            </FieldShell>
 
-              {/* GSTIN with Verify — shown and required for all types except OTHER */}
-              {form.party_type !== "OTHER" ? (
-                <FieldShell
-                  label="GSTIN"
-                  error={formErrors.gstin ?? gstinVerifyError ?? undefined}
-                >
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={form.gstin}
-                      className="uppercase"
-                      maxLength={15}
-                      onChange={(event) => {
-                        updateFormField("gstin", normalizeGstin(event.target.value));
-                        setGstinVerifyError(null);
-                      }}
-                    />
-                    {canVerifyGstin && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={verifyingGstin || !GSTIN_PATTERN.test(form.gstin)}
-                        onClick={() => void verifyGstin()}
-                        className="shrink-0"
-                        aria-label={verifyingGstin ? "Verifying GSTIN" : "Verify GSTIN"}
-                      >
-                        {verifyingGstin ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : "Verify"}
-                      </Button>
-                    )}
-                    {editingParty?.gst_verified_status === "VERIFIED" && !verifyingGstin && (
-                      <CheckCircle2 role="img" aria-label="GSTIN verified" className="h-5 w-5 shrink-0 text-emerald-500" />
-                    )}
-                    {editingParty?.gst_verified_status === "FAILED" && !verifyingGstin && (
-                      <XCircle role="img" aria-label="GSTIN verification failed" className="h-5 w-5 shrink-0 text-rose-500" />
-                    )}
-                  </div>
-                </FieldShell>
-              ) : (
-                /* Party Name for OTHER type where GSTIN is absent */
-                <FieldShell label="Party Name" error={formErrors.party_name}>
-                  <Input value={form.party_name} onChange={(event) => updateFormField("party_name", event.target.value)} />
-                </FieldShell>
-              )}
-
-              <FieldShell label="Party Category">
-                <NativeSelect value={form.party_category} onChange={(value) => updateFormField("party_category", value as PartyCategory | "")}>
-                  <option value="">Select category</option>
-                  {partyCategoryOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {formatCategoryLabel(option)}
-                    </option>
-                  ))}
-                </NativeSelect>
-              </FieldShell>
-
-              {/* Party Name — shown after GSTIN for non-OTHER (auto-filled from verify) */}
-              {form.party_type !== "OTHER" && (
-                <FieldShell label="Party Name" error={formErrors.party_name}>
-                  <Input value={form.party_name} onChange={(event) => updateFormField("party_name", event.target.value)} />
-                </FieldShell>
-              )}
-
-              <FieldShell label="Display Name">
-                <Input value={form.display_name} onChange={(event) => updateFormField("display_name", event.target.value)} />
-              </FieldShell>
-              <FieldShell label="Contact Person">
-                <Input value={form.contact_person} onChange={(event) => updateFormField("contact_person", event.target.value)} />
-              </FieldShell>
-              <FieldShell label="Designation">
-                <Input value={form.designation} onChange={(event) => updateFormField("designation", event.target.value)} />
-              </FieldShell>
-              <FieldShell label="Mobile">
-                <Input value={form.mobile} onChange={(event) => updateFormField("mobile", event.target.value)} />
-              </FieldShell>
-              <FieldShell label="WhatsApp No">
-                <Input value={form.whatsapp_no} onChange={(event) => updateFormField("whatsapp_no", event.target.value)} />
-              </FieldShell>
-            </AppFormGrid>
-          </AppSectionCard>
-
-          <AppSectionCard
-            title="Contact & Address"
-            description={form.gstin && GSTIN_PATTERN.test(form.gstin) ? "Address fields are auto-populated from GSTIN on Verify." : undefined}
-          >
-            <AppFormGrid className="xl:grid-cols-3">
-              <FieldShell label="Address Line 1">
-                <Input
-                  value={form.address_line_1}
-                  disabled={gstAutofilled}
-                  onChange={(event) => updateFormField("address_line_1", event.target.value)}
-                />
-              </FieldShell>
-              <FieldShell label="Address Line 2">
-                <Input value={form.address_line_2} onChange={(event) => updateFormField("address_line_2", event.target.value)} />
-              </FieldShell>
-              <FieldShell label="City">
-                <Input
-                  value={form.city}
-                  disabled={gstAutofilled}
-                  onChange={(event) => updateFormField("city", event.target.value)}
-                />
-              </FieldShell>
-              <FieldShell label="State">
-                <Input
-                  value={form.state}
-                  disabled={GSTIN_PATTERN.test(form.gstin)}
-                  onChange={(event) => updateFormField("state", event.target.value)}
-                />
-              </FieldShell>
-              <FieldShell label="PIN Code" error={formErrors.pincode}>
-                <Input
-                  value={form.pincode}
-                  disabled={gstAutofilled}
-                  onChange={(event) => updateFormField("pincode", event.target.value)}
-                />
-              </FieldShell>
-              <FieldShell label="Country">
-                <Input value={form.country} onChange={(event) => updateFormField("country", event.target.value)} />
-              </FieldShell>
-              <FieldShell label="Office Phone">
-                <Input value={form.office_phone} onChange={(event) => updateFormField("office_phone", event.target.value)} />
-              </FieldShell>
-              <FieldShell label="Email" error={formErrors.email}>
-                <Input value={form.email} onChange={(event) => updateFormField("email", event.target.value)} />
-              </FieldShell>
-              <FieldShell label="Website">
-                <Input value={form.website} onChange={(event) => updateFormField("website", event.target.value)} />
-              </FieldShell>
-            </AppFormGrid>
-          </AppSectionCard>
-
-          <details className="rounded-2xl border border-[hsl(var(--card-border))] bg-[hsl(var(--card-bg))] p-5 shadow-sm" open>
-            <summary className="cursor-pointer text-sm font-semibold text-[hsl(var(--text-primary))]">
-              More Details
-            </summary>
-            <div className="mt-5 space-y-6">
-              <AppSectionCard title="Tax & Compliance">
-                <AppFormGrid className="xl:grid-cols-3">
-                  <FieldShell label="PAN">
-                    <Input
-                      value={form.pan_number}
-                      disabled={GSTIN_PATTERN.test(form.gstin)}
-                      onChange={(event) => updateFormField("pan_number", event.target.value.toUpperCase())}
-                    />
-                  </FieldShell>
-                  <FieldShell label="Registration Type">
-                    <NativeSelect
-                      value={form.registration_type}
-                      disabled={GSTIN_PATTERN.test(form.gstin)}
-                      onChange={(value) => updateFormField("registration_type", value as RegistrationType | "")}
+            {/* GSTIN with Verify — shown and required for all types except OTHER */}
+            {form.party_type !== "OTHER" ? (
+              <FieldShell
+                label="GSTIN"
+                error={formErrors.gstin ?? gstinVerifyError ?? undefined}
+              >
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={form.gstin}
+                    className="uppercase"
+                    maxLength={15}
+                    onChange={(event) => {
+                      updateFormField(
+                        "gstin",
+                        normalizeGstin(event.target.value),
+                      );
+                      setGstinVerifyError(null);
+                    }}
+                  />
+                  {canVerifyGstin && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={
+                        verifyingGstin || !GSTIN_PATTERN.test(form.gstin)
+                      }
+                      onClick={() => void verifyGstin()}
+                      className="shrink-0"
+                      aria-label={
+                        verifyingGstin ? "Verifying GSTIN" : "Verify GSTIN"
+                      }
                     >
-                      <option value="">Select registration</option>
-                      {registrationTypeOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </NativeSelect>
-                  </FieldShell>
-                  <FieldShell label="Drug License Number" error={drugLicenseVerifyError ?? undefined}>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        value={form.drug_license_number}
-                        onChange={(event) => {
-                          updateFormField("drug_license_number", event.target.value);
-                          setDrugLicenseVerifyError(null);
-                        }}
-                      />
-                      {canVerifyDrugLicense && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={verifyingDrugLicense || !form.drug_license_number.trim()}
-                          onClick={() => void verifyDrugLicense()}
-                          className="shrink-0"
-                        >
-                          {verifyingDrugLicense ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            "Verify"
-                          )}
-                        </Button>
+                      {verifyingGstin ? (
+                        <Loader2
+                          className="h-4 w-4 animate-spin"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        "Verify"
                       )}
-                      {editingParty?.drug_license_verified_status === "VERIFIED" && !verifyingDrugLicense && (
-                        <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" />
-                      )}
-                      {(editingParty?.drug_license_verified_status === "FAILED" || editingParty?.drug_license_verified_status === "EXPIRED") && !verifyingDrugLicense && (
-                        <XCircle className="h-5 w-5 shrink-0 text-rose-500" />
-                      )}
-                    </div>
-                  </FieldShell>
-                  <FieldShell label="FSSAI Number">
-                    <Input value={form.fssai_number} onChange={(event) => updateFormField("fssai_number", event.target.value)} />
-                  </FieldShell>
-                  <FieldShell label="Udyam Number">
-                    <Input value={form.udyam_number} onChange={(event) => updateFormField("udyam_number", event.target.value)} />
-                  </FieldShell>
-                </AppFormGrid>
-                <div className="mt-5 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-[hsl(var(--text-primary))]">Drug Licence · Portal Data</p>
-                    <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                      Read-only · Auto-populated from SFDA portal
-                    </span>
-                  </div>
-                  {editingParty?.drug_license_raw_snapshot ? (
-                    <textarea
-                      readOnly
-                      value={JSON.stringify(editingParty.drug_license_raw_snapshot, null, 2)}
-                      rows={8}
-                      className="w-full cursor-not-allowed rounded-xl border border-input bg-[hsl(var(--muted-bg))] px-3 py-2 font-mono text-xs text-[hsl(var(--text-secondary))] shadow-inner outline-none"
-                    />
-                  ) : (
-                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-xs text-slate-400 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-500">
-                      No portal data yet — click Verify next to Drug License Number to auto-populate.
-                    </p>
+                    </Button>
                   )}
+                  {editingParty?.gst_verified_status === "VERIFIED" &&
+                    !verifyingGstin && (
+                      <CheckCircle2
+                        role="img"
+                        aria-label="GSTIN verified"
+                        className="h-5 w-5 shrink-0 text-emerald-500"
+                      />
+                    )}
+                  {editingParty?.gst_verified_status === "FAILED" &&
+                    !verifyingGstin && (
+                      <XCircle
+                        role="img"
+                        aria-label="GSTIN verification failed"
+                        className="h-5 w-5 shrink-0 text-rose-500"
+                      />
+                    )}
                 </div>
-                {canVerifyGstin && editingParty?.gst_raw_snapshot && (
-                  <div className="mt-5 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-[hsl(var(--text-primary))]">GST · Portal Data</p>
-                      <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                        Read-only · Auto-populated from GST portal
-                      </span>
-                    </div>
-                    <textarea
-                      readOnly
-                      value={JSON.stringify(editingParty.gst_raw_snapshot, null, 2)}
-                      rows={8}
-                      className="w-full cursor-not-allowed rounded-xl border border-input bg-[hsl(var(--muted-bg))] px-3 py-2 font-mono text-xs text-[hsl(var(--text-secondary))] shadow-inner outline-none"
-                    />
-                  </div>
+              </FieldShell>
+            ) : (
+              /* Party Name for OTHER type where GSTIN is absent */
+              <FieldShell label="Party Name" error={formErrors.party_name}>
+                <Input
+                  value={form.party_name}
+                  onChange={(event) =>
+                    updateFormField("party_name", event.target.value)
+                  }
+                />
+              </FieldShell>
+            )}
+
+            <FieldShell
+              label="Party Category"
+              hint={
+                form.party_type === "OTHER"
+                  ? "Party type OTHER is always Retailer."
+                  : undefined
+              }
+            >
+              <NativeSelect
+                value={form.party_category}
+                disabled={form.party_type === "OTHER"}
+                onChange={(value) =>
+                  updateFormField("party_category", value as PartyCategory | "")
+                }
+              >
+                {form.party_type === "OTHER" ? (
+                  <option value={retailerCategory}>
+                    {formatCategoryLabel(retailerCategory)}
+                  </option>
+                ) : (
+                  <>
+                    <option value="">Select category</option>
+                    {partyCategoryOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {formatCategoryLabel(option)}
+                      </option>
+                    ))}
+                  </>
                 )}
-              </AppSectionCard>
+              </NativeSelect>
+            </FieldShell>
 
-              <AppSectionCard title="Commercial Details">
-                <AppFormGrid className="xl:grid-cols-3">
-                  <FieldShell label="Credit Limit" error={formErrors.credit_limit}>
-                    <Input value={form.credit_limit} onChange={(event) => updateFormField("credit_limit", event.target.value)} />
-                  </FieldShell>
-                  <FieldShell label="Payment Terms">
-                    <Input value={form.payment_terms} onChange={(event) => updateFormField("payment_terms", event.target.value)} />
-                  </FieldShell>
-                  <FieldShell label="Opening Balance">
-                    <Input value={form.opening_balance} onChange={(event) => updateFormField("opening_balance", event.target.value)} />
-                  </FieldShell>
-                  <FieldShell label="Outstanding Tracking Mode">
-                    <NativeSelect
-                      value={form.outstanding_tracking_mode}
-                      onChange={(value) => updateFormField("outstanding_tracking_mode", value as OutstandingTrackingMode)}
-                    >
-                      {outstandingTrackingOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </NativeSelect>
-                  </FieldShell>
-                  <FieldShell label="Status">
-                    <NativeSelect
-                      value={form.is_active ? "ACTIVE" : "INACTIVE"}
-                      onChange={(value) => updateFormField("is_active", value === "ACTIVE")}
-                    >
-                      <option value="ACTIVE">Active</option>
-                      <option value="INACTIVE">Inactive</option>
-                    </NativeSelect>
-                  </FieldShell>
-                </AppFormGrid>
-              </AppSectionCard>
+            {/* Party Name — shown after GSTIN for non-OTHER (auto-filled from verify) */}
+            {form.party_type !== "OTHER" && (
+              <FieldShell label="Party Name" error={formErrors.party_name}>
+                <Input
+                  value={form.party_name}
+                  disabled={gstFieldsLocked}
+                  onChange={(event) =>
+                    updateFormField("party_name", event.target.value)
+                  }
+                />
+              </FieldShell>
+            )}
+
+            <FieldShell label="Display Name">
+              <Input
+                value={form.display_name}
+                onChange={(event) =>
+                  updateFormField("display_name", event.target.value)
+                }
+              />
+            </FieldShell>
+            <FieldShell label="Contact Person">
+              <Input
+                value={form.contact_person}
+                onChange={(event) =>
+                  updateFormField("contact_person", event.target.value)
+                }
+              />
+            </FieldShell>
+            <FieldShell label="Designation">
+              <Input
+                value={form.designation}
+                onChange={(event) =>
+                  updateFormField("designation", event.target.value)
+                }
+              />
+            </FieldShell>
+            <FieldShell label="Mobile">
+              <Input
+                value={form.mobile}
+                onChange={(event) =>
+                  updateFormField("mobile", event.target.value)
+                }
+              />
+            </FieldShell>
+            <FieldShell label="WhatsApp No">
+              <Input
+                value={form.whatsapp_no}
+                onChange={(event) =>
+                  updateFormField("whatsapp_no", event.target.value)
+                }
+              />
+            </FieldShell>
+          </AppFormGrid>
+          {gstSession ? (
+            <GstCaptchaPrompt
+              session={gstSession}
+              value={gstCaptchaValue}
+              submitting={verifyingGstin}
+              onChange={setGstCaptchaValue}
+              onSubmit={() => void submitGstCaptcha()}
+            />
+          ) : null}
+        </FormSection>
+
+        <FormSection
+          title="Contact & Address"
+          description={
+            form.gstin && GSTIN_PATTERN.test(form.gstin)
+              ? "Address fields are auto-populated from GSTIN on Verify."
+              : undefined
+          }
+        >
+          <AppFormGrid className="xl:grid-cols-3">
+            <FieldShell label="Address Line 1">
+              <Input
+                value={form.address_line_1}
+                disabled={gstFieldsLocked}
+                onChange={(event) =>
+                  updateFormField("address_line_1", event.target.value)
+                }
+              />
+            </FieldShell>
+            <FieldShell label="Address Line 2">
+              <Input
+                value={form.address_line_2}
+                onChange={(event) =>
+                  updateFormField("address_line_2", event.target.value)
+                }
+              />
+            </FieldShell>
+            <FieldShell label="City">
+              <Input
+                value={form.city}
+                disabled={gstFieldsLocked}
+                onChange={(event) =>
+                  updateFormField("city", event.target.value)
+                }
+              />
+            </FieldShell>
+            <FieldShell label="State">
+              <Input
+                value={form.state}
+                disabled={gstFieldsLocked}
+                onChange={(event) =>
+                  updateFormField("state", event.target.value)
+                }
+              />
+            </FieldShell>
+            <FieldShell label="PIN Code" error={formErrors.pincode}>
+              <Input
+                value={form.pincode}
+                disabled={gstFieldsLocked}
+                onChange={(event) =>
+                  updateFormField("pincode", event.target.value)
+                }
+              />
+            </FieldShell>
+            <FieldShell label="Country">
+              <Input
+                value={form.country}
+                onChange={(event) =>
+                  updateFormField("country", event.target.value)
+                }
+              />
+            </FieldShell>
+            <FieldShell label="Office Phone">
+              <Input
+                value={form.office_phone}
+                onChange={(event) =>
+                  updateFormField("office_phone", event.target.value)
+                }
+              />
+            </FieldShell>
+            <FieldShell label="Email" error={formErrors.email}>
+              <Input
+                value={form.email}
+                onChange={(event) =>
+                  updateFormField("email", event.target.value)
+                }
+              />
+            </FieldShell>
+            <FieldShell label="Website">
+              <Input
+                value={form.website}
+                onChange={(event) =>
+                  updateFormField("website", event.target.value)
+                }
+              />
+            </FieldShell>
+          </AppFormGrid>
+        </FormSection>
+
+        <FormSection title="Tax & Compliance">
+          <AppFormGrid className="xl:grid-cols-3">
+            <FieldShell label="PAN">
+              <Input
+                value={form.pan_number}
+                disabled={GSTIN_PATTERN.test(form.gstin)}
+                onChange={(event) =>
+                  updateFormField(
+                    "pan_number",
+                    event.target.value.toUpperCase(),
+                  )
+                }
+              />
+            </FieldShell>
+            <FieldShell label="Registration Type">
+              <NativeSelect
+                value={form.registration_type}
+                disabled={GSTIN_PATTERN.test(form.gstin)}
+                onChange={(value) =>
+                  updateFormField(
+                    "registration_type",
+                    value as RegistrationType | "",
+                  )
+                }
+              >
+                <option value="">Select registration</option>
+                {registrationTypeOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </NativeSelect>
+            </FieldShell>
+            <FieldShell
+              label="Drug License Number"
+              error={drugLicenseVerifyError ?? undefined}
+            >
+              <div className="flex items-center gap-2">
+                <Input
+                  value={form.drug_license_number}
+                  onChange={(event) => {
+                    updateFormField("drug_license_number", event.target.value);
+                    setDrugLicenseVerifyError(null);
+                  }}
+                />
+                {canVerifyDrugLicense && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={
+                      verifyingDrugLicense || !form.drug_license_number.trim()
+                    }
+                    onClick={() => void verifyDrugLicense()}
+                    className="shrink-0"
+                  >
+                    {verifyingDrugLicense ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      "Verify"
+                    )}
+                  </Button>
+                )}
+                {editingParty?.drug_license_verified_status === "VERIFIED" &&
+                  !verifyingDrugLicense && (
+                    <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" />
+                  )}
+                {(editingParty?.drug_license_verified_status === "FAILED" ||
+                  editingParty?.drug_license_verified_status === "EXPIRED") &&
+                  !verifyingDrugLicense && (
+                    <XCircle className="h-5 w-5 shrink-0 text-rose-500" />
+                  )}
+              </div>
+            </FieldShell>
+            <FieldShell label="FSSAI Number">
+              <Input
+                value={form.fssai_number}
+                onChange={(event) =>
+                  updateFormField("fssai_number", event.target.value)
+                }
+              />
+            </FieldShell>
+            <FieldShell label="Udyam Number">
+              <Input
+                value={form.udyam_number}
+                onChange={(event) =>
+                  updateFormField("udyam_number", event.target.value)
+                }
+              />
+            </FieldShell>
+          </AppFormGrid>
+          <div className="mt-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium text-[hsl(var(--text-primary))]">
+                Drug Licence · Portal Data
+              </p>
+              <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                Read-only · Auto-populated from SFDA portal
+              </span>
             </div>
-          </details>
+            {editingParty?.drug_license_raw_snapshot ? (
+              <textarea
+                readOnly
+                value={JSON.stringify(
+                  editingParty.drug_license_raw_snapshot,
+                  null,
+                  2,
+                )}
+                rows={8}
+                className="w-full cursor-not-allowed rounded-xl border border-input bg-[hsl(var(--muted-bg))] px-3 py-2 font-mono text-xs text-[hsl(var(--text-secondary))] shadow-inner outline-none"
+              />
+            ) : (
+              <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-xs text-slate-400 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-500">
+                No portal data yet — click Verify next to Drug License Number to
+                auto-populate.
+              </p>
+            )}
+          </div>
+          {canVerifyGstin && editingParty?.gst_raw_snapshot && (
+            <div className="mt-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-[hsl(var(--text-primary))]">
+                  GST · Portal Data
+                </p>
+                <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                  Read-only · Auto-populated from GST portal
+                </span>
+              </div>
+              <textarea
+                readOnly
+                value={JSON.stringify(editingParty.gst_raw_snapshot, null, 2)}
+                rows={8}
+                className="w-full cursor-not-allowed rounded-xl border border-input bg-[hsl(var(--muted-bg))] px-3 py-2 font-mono text-xs text-[hsl(var(--text-secondary))] shadow-inner outline-none"
+              />
+            </div>
+          )}
+        </FormSection>
 
-          <AppActionBar>
-            <Button type="button" variant="outline" onClick={resetForm}>
-              Clear
-            </Button>
-            <Button type="button" onClick={() => window.open("/api/masters/parties/template.csv", "_blank")}>
-              <Download className="mr-2 h-4 w-4" />
-              CSV Template
-            </Button>
-            <Button type="button" onClick={() => void saveForm()} disabled={!canEdit || saving}>
-              <Save className="mr-2 h-4 w-4" />
-              {editingPartyId ? "Save Changes" : "Create Party"}
-            </Button>
-          </AppActionBar>
-        </div>
+        <FormSection title="Commercial Details" defaultOpen={false}>
+          <AppFormGrid className="xl:grid-cols-3">
+            <FieldShell label="Credit Limit" error={formErrors.credit_limit}>
+              <Input
+                value={form.credit_limit}
+                onChange={(event) =>
+                  updateFormField("credit_limit", event.target.value)
+                }
+              />
+            </FieldShell>
+            <FieldShell label="Payment Terms">
+              <Input
+                value={form.payment_terms}
+                onChange={(event) =>
+                  updateFormField("payment_terms", event.target.value)
+                }
+              />
+            </FieldShell>
+            <FieldShell label="Opening Balance">
+              <Input
+                value={form.opening_balance}
+                onChange={(event) =>
+                  updateFormField("opening_balance", event.target.value)
+                }
+              />
+            </FieldShell>
+            <FieldShell label="Outstanding Tracking Mode">
+              <NativeSelect
+                value={form.outstanding_tracking_mode}
+                onChange={(value) =>
+                  updateFormField(
+                    "outstanding_tracking_mode",
+                    value as OutstandingTrackingMode,
+                  )
+                }
+              >
+                {outstandingTrackingOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </NativeSelect>
+            </FieldShell>
+            <FieldShell label="Status">
+              <NativeSelect
+                value={form.is_active ? "ACTIVE" : "INACTIVE"}
+                onChange={(value) =>
+                  updateFormField("is_active", value === "ACTIVE")
+                }
+              >
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+              </NativeSelect>
+            </FieldShell>
+          </AppFormGrid>
+        </FormSection>
 
-      {summary ? <p className="text-sm text-emerald-700 dark:text-emerald-300">{summary}</p> : null}
+        <AppActionBar>
+          <Button type="button" variant="outline" onClick={resetForm}>
+            Clear
+          </Button>
+          <Button
+            type="button"
+            onClick={() =>
+              window.open("/api/masters/parties/template.csv", "_blank")
+            }
+          >
+            <Download className="mr-2 h-4 w-4" />
+            CSV Template
+          </Button>
+          <Button
+            type="button"
+            onClick={() => void saveForm()}
+            disabled={!canEdit || saving}
+          >
+            <Save className="mr-2 h-4 w-4" />
+            {editingPartyId ? "Save Changes" : "Create Party"}
+          </Button>
+        </AppActionBar>
+      </div>
+
+      {summary ? (
+        <p className="text-sm text-emerald-700 dark:text-emerald-300">
+          {summary}
+        </p>
+      ) : null}
       {error ? <p className="text-sm text-rose-600">{error}</p> : null}
 
       <AppTable
         title="Saved Party Master Records"
-        description="Search parties and edit them inline."
+        description="Search parties and click Edit to load them into the form above."
         actions={
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <Input
@@ -1150,7 +1543,9 @@ export function PartiesManager() {
         <Table>
           <TableHeader className="sticky top-0 bg-slate-100 dark:bg-slate-900">
             <TableRow>
-              <TableHead className="sticky left-0 z-10 bg-slate-100 dark:bg-slate-900">Action</TableHead>
+              <TableHead className="sticky left-0 z-10 bg-slate-100 dark:bg-slate-900">
+                Action
+              </TableHead>
               <TableHead>Party</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Category</TableHead>
@@ -1166,270 +1561,126 @@ export function PartiesManager() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={11} className="py-10 text-center text-sm text-[hsl(var(--text-secondary))]">
+                <TableCell
+                  colSpan={11}
+                  className="py-10 text-center text-sm text-[hsl(var(--text-secondary))]"
+                >
                   Loading Party Master records...
                 </TableCell>
               </TableRow>
             ) : filteredSavedParties.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={11} className="py-10 text-center text-sm text-[hsl(var(--text-secondary))]">
+                <TableCell
+                  colSpan={11}
+                  className="py-10 text-center text-sm text-[hsl(var(--text-secondary))]"
+                >
                   No parties match your search.
                 </TableCell>
               </TableRow>
             ) : (
-              paginatedSavedParties.map((party) => {
-                const isEditing = inlineEditPartyId === party.id && inlineEditRow !== null;
-                return (
-                  <TableRow key={party.id} className="align-top">
-                    <TableCell className="sticky left-0 z-[1] min-w-[92px] bg-white dark:bg-slate-950">
-                      <div className="flex items-center gap-2">
-                        {isEditing ? (
-                          <>
-                            <Button
-                              type="button"
-                              size="icon"
-                              onClick={() => void saveInlineEdit()}
-                              disabled={!canEdit || saving}
-                              aria-label="Save party"
-                              title="Save"
-                            >
-                              <Save className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="outline"
-                              onClick={cancelInlineEdit}
-                              aria-label="Cancel edit"
-                              title="Cancel"
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </>
-                        ) : (
-                          <>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="outline"
-                              onClick={() => beginInlineEdit(party)}
-                              aria-label="Edit party"
-                              title="Quick Edit"
-                            >
-                              <SquarePen className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="outline"
-                              onClick={() => beginFormEdit(party)}
-                              aria-label="Open full details"
-                              title="Full Details"
-                            >
-                              <FileText className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="outline"
-                              disabled={!canVerifyDrugLicense}
-                              onClick={() =>
-                                router.push(`/masters/drug-license-verification?partyId=${party.id}`)
-                              }
-                              aria-label="Verify drug licence"
-                              title="Verify Drug Licence"
-                            >
-                              <BadgeCheck className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              disabled={!canDeactivate || !party.is_active}
-                              onClick={() => void deactivateParty(party.id)}
-                              aria-label="Deactivate party"
-                              title="Deactivate"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </>
-                        )}
+              paginatedSavedParties.map((party) => (
+                <TableRow key={party.id} className="align-top">
+                  <TableCell className="sticky left-0 z-[1] min-w-[92px] bg-white dark:bg-slate-950">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        onClick={() => beginFormEdit(party)}
+                        aria-label="Edit party"
+                        title="Edit"
+                      >
+                        <SquarePen className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        disabled={!canVerifyDrugLicense}
+                        onClick={() =>
+                          router.push(
+                            `/masters/drug-license-verification?partyId=${party.id}`,
+                          )
+                        }
+                        aria-label="Verify drug licence"
+                        title="Verify Drug Licence"
+                      >
+                        <BadgeCheck className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        disabled={!canDeactivate || !party.is_active}
+                        onClick={() => void deactivateParty(party.id)}
+                        aria-label="Deactivate party"
+                        title="Deactivate"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                  <TableCell className="min-w-[220px]">
+                    <div>
+                      <p className="font-medium text-[hsl(var(--text-primary))]">
+                        {party.party_name ?? party.name}
+                      </p>
+                      <p className="text-xs text-[hsl(var(--text-secondary))]">
+                        {party.party_code ?? party.display_name ?? "-"}
+                      </p>
+                    </div>
+                  </TableCell>
+                  <TableCell className="min-w-[150px]">
+                    {party.party_type}
+                  </TableCell>
+                  <TableCell className="min-w-[180px]">
+                    {party.party_category
+                      ? formatCategoryLabel(party.party_category)
+                      : "-"}
+                  </TableCell>
+                  <TableCell className="min-w-[180px]">
+                    {party.contact_person ?? party.mobile ?? party.phone ?? "-"}
+                  </TableCell>
+                  <TableCell className="min-w-[180px]">
+                    {party.gstin ?? "-"}
+                  </TableCell>
+                  <TableCell className="min-w-[180px]">
+                    {party.state ?? "-"}
+                  </TableCell>
+                  <TableCell className="min-w-[170px]">
+                    <div className="space-y-2">
+                      <p>{party.drug_license_number ?? "-"}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={cn(
+                            "inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+                            verificationStatusClass(
+                              party.drug_license_verified_status,
+                            ),
+                          )}
+                        >
+                          {formatVerificationStatusLabel(
+                            party.drug_license_verified_status,
+                          )}
+                        </span>
+                        <span className="text-xs text-[hsl(var(--text-secondary))]">
+                          Last verified{" "}
+                          {formatDateTime(party.drug_license_verified_at)}
+                        </span>
                       </div>
-                    </TableCell>
-                    <TableCell className="min-w-[220px]">
-                      {isEditing ? (
-                        <div>
-                          <Input
-                            value={inlineEditRow.party_name}
-                            onChange={(event) => updateInlineEditField("party_name", event.target.value)}
-                            className={cn("h-9", inlineEditErrors.party_name && "border-rose-500")}
-                          />
-                          {inlineEditErrors.party_name ? (
-                            <p className="mt-1 text-xs text-rose-600">{inlineEditErrors.party_name}</p>
-                          ) : null}
-                          <p className="mt-2 text-xs text-[hsl(var(--text-secondary))]">{party.party_code ?? "-"}</p>
-                        </div>
-                      ) : (
-                        <div>
-                          <p className="font-medium text-[hsl(var(--text-primary))]">{party.party_name ?? party.name}</p>
-                          <p className="text-xs text-[hsl(var(--text-secondary))]">{party.party_code ?? party.display_name ?? "-"}</p>
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell className="min-w-[150px]">
-                      {isEditing ? (
-                        <NativeSelect value={inlineEditRow.party_type} onChange={(value) => updateInlineEditField("party_type", value as PartyType)}>
-                          {partyTypeOptions.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </NativeSelect>
-                      ) : (
-                        party.party_type
-                      )}
-                    </TableCell>
-                    <TableCell className="min-w-[180px]">
-                      {isEditing ? (
-                        <NativeSelect
-                          value={inlineEditRow.party_category}
-                          onChange={(value) => updateInlineEditField("party_category", value as PartyCategory | "")}
-                        >
-                          <option value="">Select category</option>
-                          {partyCategoryOptions.map((option) => (
-                            <option key={option} value={option}>
-                              {formatCategoryLabel(option)}
-                            </option>
-                          ))}
-                        </NativeSelect>
-                      ) : (
-                        party.party_category ? formatCategoryLabel(party.party_category) : "-"
-                      )}
-                    </TableCell>
-                    <TableCell className="min-w-[180px]">
-                      {isEditing ? (
-                        <div className="space-y-2">
-                          <Input
-                            value={inlineEditRow.contact_person}
-                            onChange={(event) => updateInlineEditField("contact_person", event.target.value)}
-                            placeholder="Contact person"
-                            className="h-9"
-                          />
-                          <Input
-                            value={inlineEditRow.mobile}
-                            onChange={(event) => updateInlineEditField("mobile", event.target.value)}
-                            placeholder="Mobile"
-                            className={cn("h-9", inlineEditErrors.mobile && "border-rose-500")}
-                          />
-                          {inlineEditErrors.mobile ? (
-                            <p className="text-xs text-rose-600">{inlineEditErrors.mobile}</p>
-                          ) : null}
-                        </div>
-                      ) : (
-                        party.contact_person ?? party.mobile ?? party.phone ?? "-"
-                      )}
-                    </TableCell>
-                    <TableCell className="min-w-[180px]">
-                      {isEditing ? (
-                        <div>
-                          <Input
-                            value={inlineEditRow.gstin}
-                            onChange={(event) => updateInlineEditField("gstin", normalizeGstin(event.target.value))}
-                            className={cn("h-9 uppercase", inlineEditErrors.gstin && "border-rose-500")}
-                          />
-                          {inlineEditErrors.gstin ? (
-                            <p className="mt-1 text-xs text-rose-600">{inlineEditErrors.gstin}</p>
-                          ) : null}
-                        </div>
-                      ) : (
-                        party.gstin ?? "-"
-                      )}
-                    </TableCell>
-                    <TableCell className="min-w-[180px]">
-                      {isEditing ? (
-                        <div className="space-y-2">
-                          <Input value={inlineEditRow.state} onChange={(event) => updateInlineEditField("state", event.target.value)} className="h-9" />
-                          <Input value={inlineEditRow.city} onChange={(event) => updateInlineEditField("city", event.target.value)} placeholder="City" className="h-9" />
-                          <Input
-                            value={inlineEditRow.pincode}
-                            onChange={(event) => updateInlineEditField("pincode", event.target.value)}
-                            placeholder="PIN Code"
-                            className={cn("h-9", inlineEditErrors.pincode && "border-rose-500")}
-                          />
-                          {inlineEditErrors.pincode ? (
-                            <p className="text-xs text-rose-600">{inlineEditErrors.pincode}</p>
-                          ) : null}
-                        </div>
-                      ) : (
-                        party.state ?? "-"
-                      )}
-                    </TableCell>
-                    <TableCell className="min-w-[170px]">
-                      {isEditing ? (
-                        <Input
-                          value={inlineEditRow.drug_license_number}
-                          onChange={(event) => updateInlineEditField("drug_license_number", event.target.value)}
-                          className="h-9"
-                        />
-                      ) : (
-                        <div className="space-y-2">
-                          <p>{party.drug_license_number ?? "-"}</p>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span
-                              className={cn(
-                                "inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold",
-                                verificationStatusClass(party.drug_license_verified_status),
-                              )}
-                            >
-                              {formatVerificationStatusLabel(party.drug_license_verified_status)}
-                            </span>
-                            <span className="text-xs text-[hsl(var(--text-secondary))]">
-                              Last verified {formatDateTime(party.drug_license_verified_at)}
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell className="min-w-[170px]">
-                      {isEditing ? (
-                        <Input
-                          value={inlineEditRow.fssai_number}
-                          onChange={(event) => updateInlineEditField("fssai_number", event.target.value)}
-                          className="h-9"
-                        />
-                      ) : (
-                        party.fssai_number ?? "-"
-                      )}
-                    </TableCell>
-                    <TableCell className="min-w-[170px]">
-                      {isEditing ? (
-                        <Input
-                          value={inlineEditRow.udyam_number}
-                          onChange={(event) => updateInlineEditField("udyam_number", event.target.value)}
-                          className="h-9"
-                        />
-                      ) : (
-                        party.udyam_number ?? "-"
-                      )}
-                    </TableCell>
-                    <TableCell className="min-w-[120px]">
-                      {isEditing ? (
-                        <NativeSelect
-                          value={inlineEditRow.is_active ? "ACTIVE" : "INACTIVE"}
-                          onChange={(value) => updateInlineEditField("is_active", value === "ACTIVE")}
-                        >
-                          <option value="ACTIVE">Active</option>
-                          <option value="INACTIVE">Inactive</option>
-                        </NativeSelect>
-                      ) : party.is_active ? (
-                        "Active"
-                      ) : (
-                        "Inactive"
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })
+                    </div>
+                  </TableCell>
+                  <TableCell className="min-w-[170px]">
+                    {party.fssai_number ?? "-"}
+                  </TableCell>
+                  <TableCell className="min-w-[170px]">
+                    {party.udyam_number ?? "-"}
+                  </TableCell>
+                  <TableCell className="min-w-[120px]">
+                    {party.is_active ? "Active" : "Inactive"}
+                  </TableCell>
+                </TableRow>
+              ))
             )}
           </TableBody>
         </Table>
@@ -1438,7 +1689,10 @@ export function PartiesManager() {
             <span>
               Showing {(savedPartiesPage - 1) * savedPartiesPageSize + 1}
               {" - "}
-              {Math.min(savedPartiesPage * savedPartiesPageSize, filteredSavedParties.length)}
+              {Math.min(
+                savedPartiesPage * savedPartiesPageSize,
+                filteredSavedParties.length,
+              )}
               {" of "}
               {filteredSavedParties.length}
             </span>
@@ -1447,7 +1701,9 @@ export function PartiesManager() {
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setSavedPartiesPage((current) => Math.max(1, current - 1))}
+                onClick={() =>
+                  setSavedPartiesPage((current) => Math.max(1, current - 1))
+                }
                 disabled={savedPartiesPage === 1}
               >
                 Previous
@@ -1460,7 +1716,9 @@ export function PartiesManager() {
                 variant="outline"
                 size="sm"
                 onClick={() =>
-                  setSavedPartiesPage((current) => Math.min(totalSavedPartyPages, current + 1))
+                  setSavedPartiesPage((current) =>
+                    Math.min(totalSavedPartyPages, current + 1),
+                  )
                 }
                 disabled={savedPartiesPage >= totalSavedPartyPages}
               >

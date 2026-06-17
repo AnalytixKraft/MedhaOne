@@ -11,6 +11,7 @@ from app.integrations.drug_license_verification.client import set_drug_license_v
 from app.integrations.drug_license_verification.sfda_client import SFDADrugLicenseVerificationClient
 from app.integrations.gst_verification.client import set_gst_verification_client
 from app.integrations.gst_verification.gst_portal_client import GSTPortalVerificationClient
+from app.integrations.gst_verification.setu_client import SetuGSTVerificationClient
 from app.models import base  # noqa: F401
 from app.routers import TENANT_SCOPED_PREFIXES, public_router, tenant_router
 from app.services.rbac import bootstrap_rbac_if_ready
@@ -23,6 +24,12 @@ async def lifespan(_app: FastAPI):
     bootstrap_rbac_if_ready()
     if settings.openai_api_key:
         set_drug_license_verification_client(SFDADrugLicenseVerificationClient())
+
+    # Prefer Setu's official GST API when its credentials are configured;
+    # otherwise fall back to the (WAF-blocked) portal scraper.
+    if settings.setu_client_id and settings.setu_gst_key:
+        set_gst_verification_client(SetuGSTVerificationClient())
+    elif settings.openai_api_key:
         set_gst_verification_client(GSTPortalVerificationClient())
     yield
 
