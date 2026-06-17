@@ -89,6 +89,35 @@ kill "$(cat .run/pids/cloudflared.pid)" && rm -f .run/pids/cloudflared.pid
 
 ---
 
+## Always-on (launchd) — survive logout/reboot
+
+Two LaunchAgents supervise the stack: auto-start at login, auto-restart on crash.
+
+```bash
+scripts/install-persistence.sh     # generate + load both agents
+scripts/uninstall-persistence.sh   # unload + remove them, then stop the app stack
+```
+
+- **`com.medhaone.cloudflared`** — runs the Cloudflare tunnel under `launchd` with `KeepAlive` (auto-restarts if the process dies). Replaces the in-stack `nohup` tunnel.
+- **`com.medhaone.stack`** — runs `scripts/medhaone-supervise.sh`, which brings the app up via `dev-up.sh` and re-asserts health every 60s (restarting any dead web/api/rbac).
+
+When the tunnel is launchd-managed, `pnpm stack:up` skips its own cloudflared (it honors `MEDHAONE_TUNNEL_MANAGED=1`, which the supervisor sets).
+
+```bash
+launchctl list | grep com.medhaone              # status (pid / last-exit)
+tail -f ~/.cloudflared/medhaone-erp.err.log     # tunnel log
+tail -f .run/logs/launchd-stack.out.log         # app supervisor log
+```
+
+**To stop the stack** while the agents are loaded, run `scripts/uninstall-persistence.sh` (or `launchctl unload ~/Library/LaunchAgents/com.medhaone.stack.plist`) — otherwise the supervisor brings services back within ~60s.
+
+**Caveats:**
+- The public URL only works when the web app (`:1729`) is up. After a reboot the supervisor runs `dev-up.sh` (Docker → Postgres → migrations → servers, ~1–2 min), so expect a brief 502 on the tunnel until the app is ready.
+- `dev-up.sh` cold-starts Docker Desktop; its one-time "privileged access" admin prompt must already be approved. Enable Docker Desktop → Settings → **Start Docker Desktop when you sign in** for clean reboots.
+- LaunchAgents start at **login**, not at boot-before-login — fine for a workstation you log into.
+
+---
+
 ## Logs & status
 
 ```bash

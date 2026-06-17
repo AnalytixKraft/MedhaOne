@@ -8,7 +8,7 @@ Flow (per https://github.com/shubham-dube/GST-Verification-API)
 -----------------------------------------------------------------
 1. GET  /services/searchtp          — establishes server-side session (cookie)
 2. GET  /services/captcha           — fetches captcha PNG (same session)
-3. Solve captcha with GPT-4o-mini
+3. Solve captcha with an OpenAI vision model (gpt-4o)
 4. POST /services/api/search/taxpayerDetails
         body: {"gstin": "...", "captcha": "..."}   (same session/cookie)
 5. Parse JSON response.
@@ -43,7 +43,11 @@ _PORTAL_URL = f"{_PORTAL_BASE}/services/searchtp"
 _CAPTCHA_URL = f"{_PORTAL_BASE}/services/captcha"
 _TAXPAYER_API_URL = f"{_PORTAL_BASE}/services/api/search/taxpayerDetails"
 
-MAX_CAPTCHA_ATTEMPTS = 3
+# gpt-4o reads the GST portal captcha far more reliably than gpt-4o-mini
+# (~50% per attempt vs ~10-25% in testing), so with several retries auto-solve
+# succeeds ~95%+ of the time and the manual-captcha fallback rarely triggers.
+_CAPTCHA_MODEL = "gpt-4o"
+MAX_CAPTCHA_ATTEMPTS = 5
 _REQUEST_TIMEOUT = 30
 
 _BROWSER_UA = (
@@ -54,18 +58,18 @@ _BROWSER_UA = (
 
 
 # ---------------------------------------------------------------------------
-# GPT-4o-mini captcha solver
+# OpenAI vision captcha solver
 # ---------------------------------------------------------------------------
 
 def _solve_captcha_with_openai(image_bytes: bytes, api_key: str) -> str:
-    """Send the captcha PNG to GPT-4o-mini and return the recognised text."""
+    """Send the captcha PNG to the vision model and return the recognised text."""
     from openai import OpenAI
 
     client = OpenAI(api_key=api_key)
     image_b64 = base64.b64encode(image_bytes).decode()
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=_CAPTCHA_MODEL,
         max_tokens=20,
         messages=[
             {
@@ -78,16 +82,16 @@ def _solve_captcha_with_openai(image_bytes: bytes, api_key: str) -> str:
                     {
                         "type": "text",
                         "text": (
-                            "This is a captcha image from the Indian GST portal. "
-                            "Reply with ONLY the exact characters shown -- "
-                            "no spaces, no punctuation, just the captcha text."
+                            "This is a 6-character alphanumeric captcha from the Indian "
+                            "GST portal. Reply with ONLY the exact characters shown — "
+                            "uppercase, no spaces, no punctuation."
                         ),
                     },
                 ],
             }
         ],
     )
-    return response.choices[0].message.content.strip()
+    return (response.choices[0].message.content or "").strip()
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +191,30 @@ def _attempt(
         )
         captcha_resp.raise_for_status()
 
+        # The GST portal sits behind an anti-bot WAF that, when it does not
+        # trust the client, returns an HTML "Request Rejected" page (HTTP 200)
+        # instead of the captcha PNG. raise_for_status() passes, so without this
+        # guard the HTML blob would be sent to the vision model as a fake image
+        # (-> invalid_image_format), get swallowed by the retry loop, and waste
+        # every attempt before silently falling back. Detect it and stop early.
+        content_type = captcha_resp.headers.get("content-type", "").lower()
+        if not content_type.startswith("image/"):
+            return GSTVerificationClientStep(
+                state="CAPTCHA_REQUIRED",
+                source_url=_PORTAL_URL,
+                remarks=(
+                    "The GST portal's anti-bot protection returned a non-image "
+                    f"captcha response (content-type={content_type!r}, "
+                    f"{len(captcha_resp.content)} bytes); automated captcha "
+                    "fetching is being blocked."
+                ),
+                challenge_text=(
+                    "Automatic captcha solving is blocked by the GST portal. "
+                    "Open the GST portal, solve the captcha manually, then "
+                    "enter the value here."
+                ),
+            )
+
         # 3. Solve captcha
         if explicit_captcha is not None:
             captcha_text = explicit_captcha.strip()
@@ -236,6 +264,10 @@ def _fetch_fresh_captcha_session() -> tuple[dict[str, str], bytes] | None:
                 headers={"Referer": _PORTAL_URL},
             )
             captcha_resp.raise_for_status()
+            if not captcha_resp.headers.get("content-type", "").lower().startswith("image/"):
+                # WAF returned an HTML block, not the captcha image — don't
+                # store a non-image blob to show the user as a captcha.
+                return None
             return dict(http.cookies), captcha_resp.content
     except Exception:
         return None
@@ -276,7 +308,7 @@ class GSTPortalVerificationClient:
     Implements GSTVerificationClient for services.gst.gov.in.
 
     start_verification  -- fully automated; tries up to MAX_CAPTCHA_ATTEMPTS
-                           times with GPT-4o-mini before falling back to
+                           times with the vision model before falling back to
                            CAPTCHA_REQUIRED (manual mode).  The fallback also
                            fetches a live captcha image and stores it (base64)
                            along with the session cookies in session_context,

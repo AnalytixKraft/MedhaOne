@@ -281,22 +281,26 @@ start_bg \
 
 wait_for_url "RBAC API" "$RBAC_URL/health" "200"
 
-start_bg \
-  "cloudflared" \
-  "$PID_DIR/cloudflared.pid" \
-  "$LOG_DIR/cloudflared.log" \
-  env \
-  GODEBUG=netdns=go \
-  cloudflared \
-  tunnel \
-  --config \
-  "$CLOUDFLARE_TUNNEL_CONFIG" \
-  --protocol \
-  http2 \
-  run \
-  "$CLOUDFLARE_TUNNEL_NAME"
+if [[ "${MEDHAONE_TUNNEL_MANAGED:-0}" == "1" ]]; then
+  log "Cloudflare tunnel managed externally (launchd) — skipping in-stack cloudflared start"
+else
+  start_bg \
+    "cloudflared" \
+    "$PID_DIR/cloudflared.pid" \
+    "$LOG_DIR/cloudflared.log" \
+    env \
+    GODEBUG=netdns=go \
+    cloudflared \
+    tunnel \
+    --config \
+    "$CLOUDFLARE_TUNNEL_CONFIG" \
+    --protocol \
+    http2 \
+    run \
+    "$CLOUDFLARE_TUNNEL_NAME"
 
-wait_for_tunnel "$CLOUDFLARE_TUNNEL_NAME"
+  wait_for_tunnel "$CLOUDFLARE_TUNNEL_NAME"
+fi
 
 log "Stack is running"
 log "Web: $WEB_URL"

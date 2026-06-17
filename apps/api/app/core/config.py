@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     drug_licence_verify_password: str | None = None
     drug_licence_verify_url: str | None = None
     openai_api_key: str | None = None
+    setu_gst_base_url: str = "https://apisetu.gov.in"
+    setu_client_id: str | None = None  # API Setu client id (X-APISETU-CLIENTID)
+    setu_gst_key: str | None = None  # API Setu API key (X-APISETU-APIKEY)
 
     model_config = SettingsConfigDict(
         env_file=(str(APP_DIR / ".env"), str(REPO_ROOT / ".env")),

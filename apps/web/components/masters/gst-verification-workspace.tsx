@@ -8,9 +8,17 @@ import {
   SearchCheck,
   ShieldCheck,
   ShieldX,
+  X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import {
+  Dialog,
+  DialogBackdrop,
+  DialogPanel,
+  Transition,
+  TransitionChild,
+} from "@headlessui/react";
 
 import { usePermissions } from "@/components/auth/permission-provider";
 import { AppSectionCard, AppTable } from "@/components/erp/app-primitives";
@@ -746,13 +754,57 @@ export function GSTVerificationWorkspace() {
         </AppTable>
       )}
 
-      {/* ── History detail ───────────────────────────────────────── */}
+      {/* ── History detail (modal) ───────────────────────────────── */}
       {selectedHistoryDetail && (
-        <AppSectionCard
-          title={`Verification Detail #${selectedHistoryDetail.id}`}
-          description="Stored payload for this verification attempt."
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
+        <Transition appear show as={Fragment}>
+          <Dialog
+            as="div"
+            className="relative z-50"
+            onClose={() => setSelectedHistoryDetail(null)}
+          >
+            <TransitionChild
+              as={Fragment}
+              enter="ease-out duration-200"
+              enterFrom="opacity-0"
+              enterTo="opacity-100"
+              leave="ease-in duration-150"
+              leaveFrom="opacity-100"
+              leaveTo="opacity-0"
+            >
+              <DialogBackdrop className="fixed inset-0 bg-slate-950/35 backdrop-blur-sm" />
+            </TransitionChild>
+
+            <div className="fixed inset-0 flex items-center justify-center p-4">
+              <TransitionChild
+                as={Fragment}
+                enter="ease-out duration-200"
+                enterFrom="translate-y-2 opacity-0"
+                enterTo="translate-y-0 opacity-100"
+                leave="ease-in duration-150"
+                leaveFrom="translate-y-0 opacity-100"
+                leaveTo="translate-y-2 opacity-0"
+              >
+                <DialogPanel className="relative max-h-[85vh] w-full max-w-2xl space-y-4 overflow-y-auto rounded-[28px] border border-border bg-card p-6 shadow-2xl">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="space-y-0.5">
+                      <p className="text-base font-semibold text-[hsl(var(--text-primary))]">
+                        Verification Detail #{selectedHistoryDetail.id}
+                      </p>
+                      <p className="text-sm text-[hsl(var(--text-secondary))]">
+                        Stored payload for this verification attempt.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedHistoryDetail(null)}
+                      aria-label="Close"
+                      className="rounded-full p-1 text-[hsl(var(--text-secondary))] transition hover:bg-[hsl(var(--muted-bg))] hover:text-[hsl(var(--text-primary))]"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2 rounded-2xl border border-border bg-[hsl(var(--muted-bg))] p-4 text-sm">
               <p>
                 <span className="font-medium">Party:</span>{" "}
@@ -813,7 +865,11 @@ export function GSTVerificationWorkspace() {
               </pre>
             </details>
           )}
-        </AppSectionCard>
+                </DialogPanel>
+              </TransitionChild>
+            </div>
+          </Dialog>
+        </Transition>
       )}
     </div>
   );
