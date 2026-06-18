@@ -263,9 +263,10 @@ function validateForm(form: PartyFormState): ValidationErrors {
   if (!form.party_type) {
     errors.party_type = "Party Type is required";
   }
-  if (form.party_type !== "OTHER") {
+  const isRetailer = form.party_category.trim().toUpperCase() === "RETAILER";
+  if (!isRetailer) {
     if (!form.gstin.trim()) {
-      errors.gstin = "GSTIN is required";
+      errors.gstin = "GSTIN is required for non-retailer parties";
     } else if (!GSTIN_PATTERN.test(form.gstin.trim())) {
       errors.gstin = "Invalid GSTIN format";
     }
@@ -548,6 +549,9 @@ export function PartiesManager() {
   // True only when address fields hold data auto-filled from a successful GST
   // portal verify — used to lock those fields without trapping manual entry.
   const [gstAutofilled, setGstAutofilled] = useState(false);
+  // Log id of a GST verification completed this session — used to persist the
+  // VERIFIED status when saving, and to gate Save for non-retailers.
+  const [verifiedLogId, setVerifiedLogId] = useState<number | null>(null);
   // Holds a pending verification session when the portal's auto captcha-solve
   // failed and we need the user to read the captcha image inline.
   const [gstSession, setGstSession] = useState<GSTVerificationSession | null>(
@@ -632,6 +636,15 @@ export function PartiesManager() {
   // GST-verified parties have their name/address pulled from the portal and
   // locked — except Retailers, who may correct their own shop details.
   const gstFieldsLocked = gstAutofilled && !isRetailerCategory;
+  // Non-retailers must be GST-verified before Save: either verified this session,
+  // or the loaded party is VERIFIED and its GSTIN hasn't been edited since.
+  const gstVerified =
+    verifiedLogId != null ||
+    (editingParty != null &&
+      editingParty.gst_verified_status === "VERIFIED" &&
+      form.gstin.trim().toUpperCase() ===
+        (editingParty.gstin ?? "").toUpperCase());
+  const requiresGstVerification = !isRetailerCategory && !gstVerified;
 
   // Party type OTHER is always Retailer — enforce it for manual switches and
   // for any legacy record loaded into the form with a different category.
@@ -673,6 +686,7 @@ export function PartiesManager() {
     setForm(createEmptyForm());
     setFormErrors({});
     setGstAutofilled(false);
+    setVerifiedLogId(null);
     setGstSession(null);
     setGstCaptchaValue("");
     setGstinVerifyError(null);
@@ -687,6 +701,7 @@ export function PartiesManager() {
     // Only treat the loaded address as portal-derived (locked) if this party was
     // actually GST-verified; otherwise leave the fields editable.
     setGstAutofilled(party.gst_verified_status === "VERIFIED");
+    setVerifiedLogId(null);
     setGstSession(null);
     setGstCaptchaValue("");
     setGstinVerifyError(null);
@@ -743,12 +758,23 @@ export function PartiesManager() {
       setSummary("Fix the highlighted Party Master fields before saving.");
       return;
     }
+    if (requiresGstVerification) {
+      setFormErrors((current) => ({
+        ...current,
+        gstin: "GST verification is mandatory for non-retailer parties.",
+      }));
+      setSummary("Verify the GSTIN before saving — mandatory for non-retailers.");
+      return;
+    }
 
     setSaving(true);
     setError(null);
     setSummary(null);
     try {
-      const payload = toPartyPayload(form);
+      const payload = {
+        ...toPartyPayload(form),
+        gst_verification_log_id: verifiedLogId ?? undefined,
+      };
       if (editingPartyId) {
         await apiClient.updateParty(editingPartyId, payload);
         setSummary(`Updated ${form.party_name}.`);
@@ -820,7 +846,10 @@ export function PartiesManager() {
         return;
       }
       try {
-        const created = await apiClient.createParty(toPartyPayload(form));
+        const created = await apiClient.createParty({
+          ...toPartyPayload(form),
+          gst_verification_log_id: verifiedLogId ?? undefined,
+        });
         partyId = created.id;
         setEditingPartyId(created.id);
         setEditingParty(created);
@@ -901,6 +930,7 @@ export function PartiesManager() {
     });
     // Portal data is now in the name/address fields — lock them against edits.
     setGstAutofilled(true);
+    setVerifiedLogId(session.log.id);
     setGstSession(null);
     setGstCaptchaValue("");
     // If there's an existing party, save the verified data to it. Keep this in
@@ -1300,7 +1330,7 @@ export function PartiesManager() {
             <FieldShell label="Registration Type">
               <NativeSelect
                 value={form.registration_type}
-                disabled={GSTIN_PATTERN.test(form.gstin)}
+                disabled={gstFieldsLocked}
                 onChange={(value) =>
                   updateFormField(
                     "registration_type",

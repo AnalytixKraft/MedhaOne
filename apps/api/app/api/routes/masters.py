@@ -40,6 +40,7 @@ from app.models.gst_verification import GSTVerificationLog
 from app.models.enums import (
     DrugLicenseVerificationLogStatus,
     GSTVerificationLogStatus,
+    GSTVerifiedStatus,
     OutstandingTrackingMode,
     PartyCategory,
     PartyType,
@@ -310,21 +311,25 @@ def _normalize_party_payload(payload: dict) -> dict:
     normalized["credit_limit"] = normalized.get("credit_limit") or Decimal("0.00")
     normalized["opening_balance"] = normalized.get("opening_balance") or Decimal("0.00")
 
+    is_retailer = (normalized.get("party_category") or "").strip().upper() == "RETAILER"
     gstin = normalize_and_validate_gstin(normalized.get("gstin"))
-    if not gstin:
+    if gstin:
+        normalized["gstin"] = gstin
+        normalized["pan_number"] = extract_pan_from_gstin(gstin)
+        if not normalized.get("state"):
+            normalized["state"] = derive_state_from_gstin(gstin)
+        if not normalized.get("registration_type"):
+            normalized["registration_type"] = RegistrationType.REGISTERED.value
+    elif is_retailer:
+        # Retailers may be saved without a GSTIN; their details are entered manually.
+        normalized["gstin"] = None
+    else:
         raise AppException(
             error_code="VALIDATION_ERROR",
-            message="GSTIN is required for Party Master",
+            message="GSTIN is required for non-retailer parties",
             status_code=status.HTTP_400_BAD_REQUEST,
             details={"field": "gstin"},
         )
-
-    normalized["gstin"] = gstin
-    normalized["pan_number"] = extract_pan_from_gstin(gstin)
-    if not normalized.get("state"):
-        normalized["state"] = derive_state_from_gstin(gstin)
-    if not normalized.get("registration_type"):
-        normalized["registration_type"] = RegistrationType.REGISTERED.value
 
     outstanding_tracking_mode = _to_text(normalized.get("outstanding_tracking_mode")).upper()
     if outstanding_tracking_mode:
@@ -1183,6 +1188,33 @@ def delete_category(
     return category_snapshot
 
 
+def _apply_and_require_gst_verification(
+    db: Session,
+    party: Party,
+    *,
+    verification_log_id: int | None,
+    saved_by: int,
+) -> None:
+    """Apply a successful GST verification log to the party (persisting VERIFIED
+    status + portal-derived fields) and enforce that non-retailer parties are
+    GST-verified before they can be saved. Retailers are exempt."""
+    if verification_log_id is not None:
+        log = _get_gst_log_or_404(db, verification_log_id)
+        save_gst_verified_data(log=log, party=party, saved_by=saved_by)
+        log.party_id = party.id
+    is_retailer = (party.party_category or "").strip().upper() == "RETAILER"
+    if not is_retailer and party.gst_verified_status != GSTVerifiedStatus.VERIFIED.value:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message=(
+                "GST verification is mandatory for non-retailer parties. "
+                "Verify the GSTIN before saving."
+            ),
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"field": "gstin"},
+        )
+
+
 @router.post("/parties", response_model=PartyRead, status_code=status.HTTP_201_CREATED)
 def create_party(
     payload: PartyCreate,
@@ -1200,6 +1232,9 @@ def create_party(
     party = Party(**party_payload)
     db.add(party)
     db.flush()
+    _apply_and_require_gst_verification(
+        db, party, verification_log_id=payload.gst_verification_log_id, saved_by=current_user.id
+    )
     _assign_party_code(party)
     _commit_or_400(db, "Failed to create party")
     write_audit_log(
@@ -1296,6 +1331,9 @@ def update_party(
 
     for field, value in updates.items():
         setattr(party, field, value)
+    _apply_and_require_gst_verification(
+        db, party, verification_log_id=payload.gst_verification_log_id, saved_by=current_user.id
+    )
     if not party.party_code:
         _assign_party_code(party)
 

@@ -341,6 +341,7 @@ export type PartyPayload = {
   opening_balance?: string;
   outstanding_tracking_mode?: OutstandingTrackingMode;
   is_active: boolean;
+  gst_verification_log_id?: number | null;
 };
 
 export type BulkImportError = {

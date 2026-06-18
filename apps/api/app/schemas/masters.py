@@ -113,7 +113,9 @@ class PartyBase(BaseModel):
 
 
 class PartyCreate(PartyBase):
-    pass
+    # Optional reference to a successful GST verification log; the server applies
+    # its verified data to the new party and marks it VERIFIED on create.
+    gst_verification_log_id: int | None = None
 
 
 class PartyUpdate(BaseModel):
@@ -148,6 +150,7 @@ class PartyUpdate(BaseModel):
     opening_balance: Decimal | None = None
     outstanding_tracking_mode: OutstandingTrackingMode | None = None
     is_active: bool | None = None
+    gst_verification_log_id: int | None = None
 
     @model_validator(mode="before")
     @classmethod
