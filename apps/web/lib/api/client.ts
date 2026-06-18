@@ -240,6 +240,7 @@ export type Category = {
   id: number;
   name: string;
   is_active: boolean;
+  party_types: PartyType[];
   created_at: string;
   updated_at: string;
 };
@@ -302,6 +303,7 @@ export type TaxRatePayload = {
 export type CategoryPayload = {
   name: string;
   is_active?: boolean;
+  party_types?: PartyType[];
 };
 
 export type BrandPayload = {

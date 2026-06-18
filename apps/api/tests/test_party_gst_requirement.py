@@ -130,3 +130,24 @@ def test_non_retailer_with_verified_log_is_created_verified(
     body = resp.json()
     assert body["gst_verified_status"] == "VERIFIED"
     assert body["gst_legal_name"] == "Verified Distributors Pvt Ltd"
+
+
+def test_category_not_linked_to_party_type_is_rejected(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db = client_with_test_db
+    headers = _superuser_headers(db)
+    # RETAILER is seeded linked to CUSTOMER only — a SUPPLIER party can't use it.
+    resp = client.post(
+        "/masters/parties",
+        headers=headers,
+        json={
+            "party_name": "Mismatched Supplier",
+            "party_type": "SUPPLIER",
+            "party_category": "RETAILER",
+            "gstin": _GSTIN,
+            "state": "Maharashtra",
+        },
+    )
+    assert resp.status_code == 400, resp.text
+    assert "not linked to party type" in resp.json()["message"]

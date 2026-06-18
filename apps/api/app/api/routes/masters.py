@@ -370,6 +370,16 @@ def _assign_party_code(party: Party) -> None:
     party.party_code = f"PTY-{party.id:06d}"
 
 
+def _default_party_types_for_category(name: str) -> list[str]:
+    """Default party-type link for a seeded category, from the legacy mapping."""
+    upper = name.strip().upper()
+    if upper in CUSTOMER_PARTY_CATEGORIES:
+        return [PartyType.CUSTOMER.value]
+    if upper in SUPPLIER_PARTY_CATEGORIES:
+        return [PartyType.SUPPLIER.value]
+    return [PartyType.CUSTOMER.value, PartyType.SUPPLIER.value]
+
+
 def _ensure_default_party_categories(db: Session) -> bool:
     existing_names = {
         str(name).strip().lower()
@@ -393,7 +403,11 @@ def _ensure_default_party_categories(db: Session) -> bool:
         candidate_names.append(raw_name.strip())
 
     missing_categories = [
-        Category(name=name, is_active=True)
+        Category(
+            name=name,
+            is_active=True,
+            party_types=_default_party_types_for_category(name),
+        )
         for name in candidate_names
         if name.lower() not in existing_names
     ]
@@ -422,7 +436,9 @@ def _count_active_parties_for_category(db: Session, category_name: str) -> int:
     )
 
 
-def _validate_active_party_category_name(db: Session, category_name: str | None) -> str | None:
+def _validate_active_party_category_name(
+    db: Session, category_name: str | None, party_type: str | None = None
+) -> str | None:
     normalized_category = _to_nullable_text(category_name)
     if not normalized_category:
         return None
@@ -441,6 +457,25 @@ def _validate_active_party_category_name(db: Session, category_name: str | None)
             status_code=status.HTTP_400_BAD_REQUEST,
             details={"field": "party_category"},
         )
+
+    # Enforce the Master-Settings party-type link. CUSTOMER/SUPPLIER must be in
+    # the category's linked types; an empty link list means unrestricted, and
+    # BOTH/OTHER party types are not restricted by category links.
+    if party_type:
+        normalized_party_type = str(party_type).strip().upper()
+        linked = {str(t).strip().upper() for t in (category_record.party_types or [])}
+        if normalized_party_type in {"CUSTOMER", "SUPPLIER"} and linked and (
+            normalized_party_type not in linked
+        ):
+            raise AppException(
+                error_code="VALIDATION_ERROR",
+                message=(
+                    f"Party Category '{category_record.name}' is not linked to party "
+                    f"type {normalized_party_type}. Update the link in Master Settings."
+                ),
+                status_code=status.HTTP_400_BAD_REQUEST,
+                details={"field": "party_category"},
+            )
     return category_record.name
 
 
@@ -1223,7 +1258,7 @@ def create_party(
 ) -> PartyRead:
     party_payload = _normalize_party_payload(payload.model_dump())
     party_payload["party_category"] = _validate_active_party_category_name(
-        db, party_payload.get("party_category")
+        db, party_payload.get("party_category"), party_payload.get("party_type")
     )
     _ensure_unique_party_identifiers(
         db,
@@ -1322,7 +1357,9 @@ def update_party(
     }
     merged_payload = {**existing_payload, **payload.model_dump(exclude_unset=True)}
     updates = _normalize_party_payload(merged_payload)
-    updates["party_category"] = _validate_active_party_category_name(db, updates.get("party_category"))
+    updates["party_category"] = _validate_active_party_category_name(
+        db, updates.get("party_category"), updates.get("party_type")
+    )
     _ensure_unique_party_identifiers(
         db,
         gstin=updates.get("gstin"),

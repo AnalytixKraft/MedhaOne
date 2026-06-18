@@ -326,6 +326,9 @@ class RackRead(RackBase):
 class CategoryBase(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     is_active: bool = True
+    party_types: list[PartyType] = Field(
+        default_factory=lambda: [PartyType.CUSTOMER, PartyType.SUPPLIER]
+    )
 
     @field_validator("name")
     @classmethod
@@ -340,6 +343,7 @@ class CategoryCreate(CategoryBase):
 class CategoryUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     is_active: bool | None = None
+    party_types: list[PartyType] | None = None
 
     @field_validator("name")
     @classmethod

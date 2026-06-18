@@ -617,13 +617,19 @@ export function PartiesManager() {
     );
   }, [savedParties, searchQuery]);
 
-  const partyCategoryOptions = useMemo(
-    () =>
-      partyCategories
-        .map((category) => category.name)
-        .sort((left, right) => left.localeCompare(right)),
-    [partyCategories],
-  );
+  const partyCategoryOptions = useMemo(() => {
+    const pt = form.party_type;
+    return partyCategories
+      .filter((category) => {
+        // BOTH / OTHER party types are not restricted by category links.
+        if (pt === "BOTH" || pt === "OTHER") return true;
+        const linked = (category.party_types ?? []).map((t) => t.toUpperCase());
+        // Empty links = unrestricted; otherwise the type must be linked.
+        return linked.length === 0 || linked.includes(pt);
+      })
+      .map((category) => category.name)
+      .sort((left, right) => left.localeCompare(right));
+  }, [partyCategories, form.party_type]);
 
   // The actual "Retailer" category name as stored (case-insensitive lookup,
   // falling back to the canonical "RETAILER").
@@ -737,6 +743,17 @@ export function PartiesManager() {
         next.pan_number = "";
         next.registration_type = "";
         next.party_category = retailerCategory;
+      }
+      if (field === "party_type" && value !== "OTHER" && next.party_category) {
+        // Clear the category if it isn't linked to the newly selected party type.
+        const pt = String(value).toUpperCase();
+        const cat = partyCategories.find(
+          (c) => c.name.toUpperCase() === next.party_category.toUpperCase(),
+        );
+        const linked = (cat?.party_types ?? []).map((t) => t.toUpperCase());
+        if (pt !== "BOTH" && linked.length > 0 && !linked.includes(pt)) {
+          next.party_category = "";
+        }
       }
       return next;
     });
