@@ -81,6 +81,7 @@ type PartyFormState = {
   pan_number: string;
   registration_type: RegistrationType | "";
   drug_license_number: string;
+  drug_license_2_number: string;
   fssai_number: string;
   udyam_number: string;
   credit_limit: string;
@@ -116,6 +117,7 @@ function createEmptyForm(): PartyFormState {
     pan_number: "",
     registration_type: "",
     drug_license_number: "",
+    drug_license_2_number: "",
     fssai_number: "",
     udyam_number: "",
     credit_limit: "0.00",
@@ -242,6 +244,7 @@ function toPartyPayload(form: PartyFormState): PartyPayload {
       : form.pan_number.trim() || undefined,
     registration_type: form.registration_type || undefined,
     drug_license_number: form.drug_license_number.trim() || undefined,
+    drug_license_2_number: form.drug_license_2_number.trim() || undefined,
     fssai_number: form.fssai_number.trim() || undefined,
     udyam_number: form.udyam_number.trim() || undefined,
     credit_limit: form.credit_limit.trim() || undefined,
@@ -309,6 +312,7 @@ function fromParty(party: Party): PartyFormState {
     pan_number: party.pan_number ?? "",
     registration_type: party.registration_type ?? "",
     drug_license_number: party.drug_license_number ?? "",
+    drug_license_2_number: party.drug_license_2_number ?? "",
     fssai_number: party.fssai_number ?? "",
     udyam_number: party.udyam_number ?? "",
     credit_limit: party.credit_limit ?? "0.00",
@@ -543,6 +547,10 @@ export function PartiesManager() {
   const [drugLicenseVerifyError, setDrugLicenseVerifyError] = useState<
     string | null
   >(null);
+  const [verifyingDrugLicense2, setVerifyingDrugLicense2] = useState(false);
+  const [drugLicense2VerifyError, setDrugLicense2VerifyError] = useState<
+    string | null
+  >(null);
   const [verifyingGstin, setVerifyingGstin] = useState(false);
   const [gstinVerifyError, setGstinVerifyError] = useState<string | null>(null);
   // True only when address fields hold data auto-filled from a successful GST
@@ -557,6 +565,10 @@ export function PartiesManager() {
   const [drugVerifiedExpiry, setDrugVerifiedExpiry] = useState<string | null>(null);
   // Holder/firm name from the latest drug-licence verification (display only).
   const [drugVerifiedHolder, setDrugVerifiedHolder] = useState<string | null>(null);
+  // Second drug-licence verification completed this session (persisted on save).
+  const [drugVerified2LogId, setDrugVerified2LogId] = useState<number | null>(null);
+  const [drugVerified2Expiry, setDrugVerified2Expiry] = useState<string | null>(null);
+  const [drugVerified2Holder, setDrugVerified2Holder] = useState<string | null>(null);
   // GST status & taxpayer type from the latest GST verification (display only).
   const [gstVerifiedStatus, setGstVerifiedStatus] = useState<string | null>(null);
   const [gstVerifiedTaxpayer, setGstVerifiedTaxpayer] = useState<string | null>(null);
@@ -669,6 +681,15 @@ export function PartiesManager() {
     : "";
   const drugLicenseHolderDisplay =
     drugVerifiedHolder ?? editingParty?.drug_license_holder_name ?? "";
+  const drugLicense2ExpiryValue =
+    drugVerified2Expiry ?? editingParty?.drug_license_2_valid_upto ?? null;
+  const drugLicense2ExpiryDisplay = drugLicense2ExpiryValue
+    ? new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(
+        new Date(drugLicense2ExpiryValue),
+      )
+    : "";
+  const drugLicense2HolderDisplay =
+    drugVerified2Holder ?? editingParty?.drug_license_2_holder_name ?? "";
   const gstStatusDisplay = gstVerifiedStatus ?? editingParty?.gst_status ?? "";
   const gstTaxpayerDisplay =
     gstVerifiedTaxpayer ?? editingParty?.gst_taxpayer_type ?? "";
@@ -717,6 +738,9 @@ export function PartiesManager() {
     setDrugVerifiedLogId(null);
     setDrugVerifiedExpiry(null);
     setDrugVerifiedHolder(null);
+    setDrugVerified2LogId(null);
+    setDrugVerified2Expiry(null);
+    setDrugVerified2Holder(null);
     setGstVerifiedStatus(null);
     setGstVerifiedTaxpayer(null);
     setGstSession(null);
@@ -737,6 +761,9 @@ export function PartiesManager() {
     setDrugVerifiedLogId(null);
     setDrugVerifiedExpiry(null);
     setDrugVerifiedHolder(null);
+    setDrugVerified2LogId(null);
+    setDrugVerified2Expiry(null);
+    setDrugVerified2Holder(null);
     setGstVerifiedStatus(null);
     setGstVerifiedTaxpayer(null);
     setGstSession(null);
@@ -804,6 +831,12 @@ export function PartiesManager() {
       setDrugVerifiedExpiry(null);
       setDrugVerifiedHolder(null);
     }
+    if (field === "drug_license_2_number") {
+      // Editing the second licence number invalidates any prior verification.
+      setDrugVerified2LogId(null);
+      setDrugVerified2Expiry(null);
+      setDrugVerified2Holder(null);
+    }
     setFormErrors((current) => ({ ...current, [field]: undefined }));
   }
 
@@ -831,6 +864,7 @@ export function PartiesManager() {
         ...toPartyPayload(form),
         gst_verification_log_id: verifiedLogId ?? undefined,
         drug_license_verification_log_id: drugVerifiedLogId ?? undefined,
+        drug_license_2_verification_log_id: drugVerified2LogId ?? undefined,
       };
       if (editingPartyId) {
         await apiClient.updateParty(editingPartyId, payload);
@@ -881,18 +915,34 @@ export function PartiesManager() {
     }
   }
 
-  async function verifyDrugLicense() {
+  // Verifies either drug licence slot against the SFDA portal and saves the
+  // result back to the matching party columns. Slot 1 and slot 2 share this
+  // path, differing only by which number field and verify state they use.
+  async function verifyDrugLicense(slot: 1 | 2 = 1) {
     if (!canVerifyDrugLicense) {
       return;
     }
 
-    if (!form.drug_license_number.trim()) {
-      setDrugLicenseVerifyError("Enter a drug licence number first.");
+    const licenseNumber =
+      slot === 2 ? form.drug_license_2_number : form.drug_license_number;
+    const setVerifying =
+      slot === 2 ? setVerifyingDrugLicense2 : setVerifyingDrugLicense;
+    const setVerifyError =
+      slot === 2 ? setDrugLicense2VerifyError : setDrugLicenseVerifyError;
+    const setVerifiedExpiry =
+      slot === 2 ? setDrugVerified2Expiry : setDrugVerifiedExpiry;
+    const setVerifiedHolder =
+      slot === 2 ? setDrugVerified2Holder : setDrugVerifiedHolder;
+    const setVerifiedLogIdForSlot =
+      slot === 2 ? setDrugVerified2LogId : setDrugVerifiedLogId;
+
+    if (!licenseNumber.trim()) {
+      setVerifyError("Enter a drug licence number first.");
       return;
     }
 
-    setVerifyingDrugLicense(true);
-    setDrugLicenseVerifyError(null);
+    setVerifying(true);
+    setVerifyError(null);
 
     try {
       // Verify standalone — like GSTIN verification, don't create the party
@@ -900,16 +950,16 @@ export function PartiesManager() {
       // verification. New-party results are persisted on Save via the log id.
       const session = await apiClient.startDrugLicenseVerification({
         party_id: editingPartyId ?? undefined,
-        drug_license_number: form.drug_license_number.trim(),
+        drug_license_number: licenseNumber.trim(),
       });
       if (session.log.status === "CAPTCHA_REQUIRED") {
-        setDrugLicenseVerifyError(
+        setVerifyError(
           "Captcha required — could not auto-verify. Use the Drug Licence Verification screen to complete verification manually.",
         );
         return;
       }
       if (!session.result) {
-        setDrugLicenseVerifyError(
+        setVerifyError(
           session.log.remarks ??
             "Verification failed. Check the Drug Licence Verification screen for details.",
         );
@@ -917,29 +967,29 @@ export function PartiesManager() {
       }
       // Success: capture the verified expiry; persist now for an existing party,
       // otherwise remember the log so it's applied when the new party is saved.
-      setDrugVerifiedExpiry(session.result.valid_upto ?? null);
-      setDrugVerifiedHolder(session.result.holder_name ?? null);
+      setVerifiedExpiry(session.result.valid_upto ?? null);
+      setVerifiedHolder(session.result.holder_name ?? null);
       if (editingPartyId && session.can_save) {
         const updatedParty = await apiClient.saveDrugLicenseVerification(
           session.log.id,
-          {},
+          { slot },
         );
         setEditingParty(updatedParty);
         setItems((current) =>
           current.map((p) => (p.id === updatedParty.id ? updatedParty : p)),
         );
       } else {
-        setDrugVerifiedLogId(session.log.id);
+        setVerifiedLogIdForSlot(session.log.id);
       }
       setSummary("Drug licence verified.");
     } catch (verifyError) {
-      setDrugLicenseVerifyError(
+      setVerifyError(
         verifyError instanceof Error
           ? verifyError.message
           : "Verification failed",
       );
     } finally {
-      setVerifyingDrugLicense(false);
+      setVerifying(false);
     }
   }
 
@@ -1436,6 +1486,66 @@ export function PartiesManager() {
                 placeholder="Auto-filled after verification"
               />
             </FieldShell>
+            <FieldShell
+              label="Drug License Number 2"
+              error={drugLicense2VerifyError ?? undefined}
+            >
+              <div className="flex items-center gap-2">
+                <Input
+                  value={form.drug_license_2_number}
+                  onChange={(event) => {
+                    updateFormField(
+                      "drug_license_2_number",
+                      event.target.value,
+                    );
+                    setDrugLicense2VerifyError(null);
+                  }}
+                />
+                {canVerifyDrugLicense && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={
+                      verifyingDrugLicense2 ||
+                      !form.drug_license_2_number.trim()
+                    }
+                    onClick={() => void verifyDrugLicense(2)}
+                    className="shrink-0"
+                  >
+                    {verifyingDrugLicense2 ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      "Verify"
+                    )}
+                  </Button>
+                )}
+                {editingParty?.drug_license_2_verified_status === "VERIFIED" &&
+                  !verifyingDrugLicense2 && (
+                    <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" />
+                  )}
+                {(editingParty?.drug_license_2_verified_status === "FAILED" ||
+                  editingParty?.drug_license_2_verified_status ===
+                    "EXPIRED") &&
+                  !verifyingDrugLicense2 && (
+                    <XCircle className="h-5 w-5 shrink-0 text-rose-500" />
+                  )}
+              </div>
+            </FieldShell>
+            <FieldShell label="Drug Licence 2 Holder Name">
+              <Input
+                value={drugLicense2HolderDisplay}
+                disabled
+                placeholder="Auto-filled after verification"
+              />
+            </FieldShell>
+            <FieldShell label="Drug Licence 2 Expiry Date">
+              <Input
+                value={drugLicense2ExpiryDisplay}
+                disabled
+                placeholder="Auto-filled after verification"
+              />
+            </FieldShell>
             <FieldShell label="FSSAI Number">
               <Input
                 value={form.fssai_number}
@@ -1591,6 +1701,7 @@ export function PartiesManager() {
               <TableHead>Drug License No</TableHead>
               <TableHead>Drug Licence Holder</TableHead>
               <TableHead>Drug Licence Expiry</TableHead>
+              <TableHead>Drug License No 2</TableHead>
               <TableHead>FSSAI No</TableHead>
               <TableHead>Udyam No</TableHead>
               <TableHead>Status</TableHead>
@@ -1600,7 +1711,7 @@ export function PartiesManager() {
             {loading ? (
               <TableRow>
                 <TableCell
-                  colSpan={13}
+                  colSpan={14}
                   className="py-10 text-center text-sm text-[hsl(var(--text-secondary))]"
                 >
                   Loading Party Master records...
@@ -1609,7 +1720,7 @@ export function PartiesManager() {
             ) : filteredSavedParties.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={13}
+                  colSpan={14}
                   className="py-10 text-center text-sm text-[hsl(var(--text-secondary))]"
                 >
                   No parties match your search.
@@ -1717,6 +1828,33 @@ export function PartiesManager() {
                           dateStyle: "medium",
                         }).format(new Date(party.drug_license_valid_upto))
                       : "-"}
+                  </TableCell>
+                  <TableCell className="min-w-[170px]">
+                    {party.drug_license_2_number ? (
+                      <div className="space-y-2">
+                        <p>{party.drug_license_2_number}</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={cn(
+                              "inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+                              verificationStatusClass(
+                                party.drug_license_2_verified_status,
+                              ),
+                            )}
+                          >
+                            {formatVerificationStatusLabel(
+                              party.drug_license_2_verified_status,
+                            )}
+                          </span>
+                          <span className="text-xs text-[hsl(var(--text-secondary))]">
+                            Last verified{" "}
+                            {formatDateTime(party.drug_license_2_verified_at)}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      "-"
+                    )}
                   </TableCell>
                   <TableCell className="min-w-[170px]">
                     {party.fssai_number ?? "-"}

@@ -73,6 +73,7 @@ class PartyBase(BaseModel):
     pan_number: str | None = None
     registration_type: RegistrationType | None = None
     drug_license_number: str | None = None
+    drug_license_2_number: str | None = None
     fssai_number: str | None = None
     udyam_number: str | None = None
     credit_limit: Decimal | None = Decimal("0.00")
@@ -119,6 +120,8 @@ class PartyCreate(PartyBase):
     # Optional reference to a successful drug-licence verification log, applied to
     # the new party on create.
     drug_license_verification_log_id: int | None = None
+    # Optional reference to a second drug-licence verification log (licence slot 2).
+    drug_license_2_verification_log_id: int | None = None
 
 
 class PartyUpdate(BaseModel):
@@ -146,6 +149,7 @@ class PartyUpdate(BaseModel):
     pan_number: str | None = None
     registration_type: RegistrationType | None = None
     drug_license_number: str | None = None
+    drug_license_2_number: str | None = None
     fssai_number: str | None = None
     udyam_number: str | None = None
     credit_limit: Decimal | None = None
@@ -155,6 +159,7 @@ class PartyUpdate(BaseModel):
     is_active: bool | None = None
     gst_verification_log_id: int | None = None
     drug_license_verification_log_id: int | None = None
+    drug_license_2_verification_log_id: int | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -199,6 +204,16 @@ class PartyRead(PartyBase):
     drug_license_valid_upto: date | None = None
     drug_license_state: str | None = None
     drug_license_raw_snapshot: dict[str, Any] | None = None
+    drug_license_2_verified_status: DrugLicenseVerifiedStatus = (
+        DrugLicenseVerifiedStatus.NOT_VERIFIED
+    )
+    drug_license_2_verified_at: datetime | None = None
+    drug_license_2_verified_by: int | None = None
+    drug_license_2_verification_source: str | None = None
+    drug_license_2_holder_name: str | None = None
+    drug_license_2_valid_upto: date | None = None
+    drug_license_2_state: str | None = None
+    drug_license_2_raw_snapshot: dict[str, Any] | None = None
     gst_verified_status: GSTVerifiedStatus = GSTVerifiedStatus.NOT_VERIFIED
     gst_verified_at: datetime | None = None
     gst_verified_by: int | None = None
@@ -501,6 +516,7 @@ class DrugLicenseVerificationResumeRequest(BaseModel):
 
 class DrugLicenseVerificationSaveRequest(BaseModel):
     remarks: str | None = None
+    slot: int = Field(default=1, ge=1, le=2)
 
 
 class DrugLicenseVerificationLogRead(BaseModel):

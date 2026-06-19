@@ -80,7 +80,15 @@ def save_verified_data(
     party: Party,
     saved_by: int,
     remarks: str | None = None,
+    slot: int = 1,
 ) -> ParsedDrugLicenseResult:
+    if slot not in (1, 2):
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Drug licence slot must be 1 or 2.",
+            status_code=400,
+            details={"field": "slot"},
+        )
     if log.status != DrugLicenseVerificationLogStatus.SUCCESS.value:
         raise AppException(
             error_code="VALIDATION_ERROR",
@@ -96,15 +104,20 @@ def save_verified_data(
             status_code=400,
         )
 
-    party.drug_license_number = parsed.license_number
-    party.drug_license_verified_status = _derive_party_verified_status(parsed).value
-    party.drug_license_verified_at = datetime.now(timezone.utc)
-    party.drug_license_verified_by = saved_by
-    party.drug_license_verification_source = log.source_url
-    party.drug_license_holder_name = parsed.holder_name
-    party.drug_license_valid_upto = parsed.valid_upto
-    party.drug_license_state = parsed.state
-    party.drug_license_raw_snapshot = parsed.raw_snapshot
+    # Slot 1 and slot 2 share an identical set of columns, differing only by the
+    # "drug_license_2_" prefix. Resolve the prefix once and write through setattr.
+    prefix = "drug_license_" if slot == 1 else "drug_license_2_"
+    number_attr = "drug_license_number" if slot == 1 else "drug_license_2_number"
+
+    setattr(party, number_attr, parsed.license_number)
+    setattr(party, f"{prefix}verified_status", _derive_party_verified_status(parsed).value)
+    setattr(party, f"{prefix}verified_at", datetime.now(timezone.utc))
+    setattr(party, f"{prefix}verified_by", saved_by)
+    setattr(party, f"{prefix}verification_source", log.source_url)
+    setattr(party, f"{prefix}holder_name", parsed.holder_name)
+    setattr(party, f"{prefix}valid_upto", parsed.valid_upto)
+    setattr(party, f"{prefix}state", parsed.state)
+    setattr(party, f"{prefix}raw_snapshot", parsed.raw_snapshot)
 
     if remarks:
         log.remarks = remarks
