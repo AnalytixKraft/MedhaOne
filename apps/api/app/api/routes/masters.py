@@ -150,6 +150,7 @@ PARTY_WRITE_FIELDS = {
     "pan_number",
     "registration_type",
     "drug_license_number",
+    "drug_license_2_number",
     "fssai_number",
     "udyam_number",
     "credit_limit",
@@ -304,6 +305,7 @@ def _normalize_party_payload(payload: dict) -> dict:
     normalized["address_line_2"] = _to_nullable_text(normalized.get("address_line_2"))
     normalized["country"] = _to_nullable_text(normalized.get("country")) or "India"
     normalized["drug_license_number"] = _to_nullable_text(normalized.get("drug_license_number"))
+    normalized["drug_license_2_number"] = _to_nullable_text(normalized.get("drug_license_2_number"))
     normalized["fssai_number"] = _to_nullable_text(normalized.get("fssai_number"))
     normalized["udyam_number"] = _to_nullable_text(normalized.get("udyam_number"))
     normalized["payment_terms"] = _to_nullable_text(normalized.get("payment_terms"))
@@ -1277,6 +1279,7 @@ def update_party(
         "pan_number": party.pan_number,
         "registration_type": party.registration_type,
         "drug_license_number": party.drug_license_number,
+        "drug_license_2_number": party.drug_license_2_number,
         "fssai_number": party.fssai_number,
         "udyam_number": party.udyam_number,
         "credit_limit": party.credit_limit,
@@ -1529,6 +1532,7 @@ def save_drug_license_verification_session(
         party=party,
         saved_by=current_user.id,
         remarks=payload.remarks,
+        slot=payload.slot,
     )
     _commit_or_400(db, "Failed to save verified drug licence data")
     write_audit_log(
@@ -1546,7 +1550,12 @@ def save_drug_license_verification_session(
         metadata={
             "verification_log_id": log.id,
             "license_number": parsed.license_number,
-            "verification_status": party.drug_license_verified_status,
+            "slot": payload.slot,
+            "verification_status": (
+                party.drug_license_verified_status
+                if payload.slot == 1
+                else party.drug_license_2_verified_status
+            ),
         },
     )
     _commit_with_tenant_context(db)

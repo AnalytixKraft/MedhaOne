@@ -148,6 +148,15 @@ export type Party = {
   drug_license_valid_upto: string | null;
   drug_license_state: string | null;
   drug_license_raw_snapshot: Record<string, unknown> | null;
+  drug_license_2_number: string | null;
+  drug_license_2_verified_status: DrugLicenseVerifiedStatus;
+  drug_license_2_verified_at: string | null;
+  drug_license_2_verified_by: number | null;
+  drug_license_2_verification_source: string | null;
+  drug_license_2_holder_name: string | null;
+  drug_license_2_valid_upto: string | null;
+  drug_license_2_state: string | null;
+  drug_license_2_raw_snapshot: Record<string, unknown> | null;
   gst_verified_status: GSTVerifiedStatus;
   gst_verified_at: string | null;
   gst_verified_by: number | null;
@@ -334,6 +343,7 @@ export type PartyPayload = {
   pan_number?: string;
   registration_type?: RegistrationType;
   drug_license_number?: string;
+  drug_license_2_number?: string;
   fssai_number?: string;
   udyam_number?: string;
   credit_limit?: string;
@@ -404,6 +414,7 @@ export type DrugLicenseVerificationResumePayload = {
 
 export type DrugLicenseVerificationSavePayload = {
   remarks?: string;
+  slot?: number;
 };
 
 export type GSTVerificationNormalizedResult = {

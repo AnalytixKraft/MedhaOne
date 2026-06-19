@@ -55,6 +55,21 @@ class Party(Base):
     drug_license_valid_upto: Mapped[date | None] = mapped_column(Date, nullable=True)
     drug_license_state: Mapped[str | None] = mapped_column(String(120), nullable=True)
     drug_license_raw_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Second (optional) drug licence — a company may hold up to two licences.
+    drug_license_2_number: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    drug_license_2_verified_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=DrugLicenseVerifiedStatus.NOT_VERIFIED.value,
+        server_default=DrugLicenseVerifiedStatus.NOT_VERIFIED.value,
+    )
+    drug_license_2_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    drug_license_2_verified_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    drug_license_2_verification_source: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    drug_license_2_holder_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    drug_license_2_valid_upto: Mapped[date | None] = mapped_column(Date, nullable=True)
+    drug_license_2_state: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    drug_license_2_raw_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # GST portal verification fields
     gst_verified_status: Mapped[str] = mapped_column(
         String(32),
@@ -82,6 +97,7 @@ class Party(Base):
     )
 
     drug_license_verifier = relationship("User", foreign_keys=[drug_license_verified_by])
+    drug_license_2_verifier = relationship("User", foreign_keys=[drug_license_2_verified_by])
     drug_license_verification_logs = relationship(
         "DrugLicenseVerificationLog",
         back_populates="party",
