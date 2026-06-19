@@ -354,3 +354,22 @@ def test_drug_license_verification_requires_permission(
     )
 
     assert response.status_code == 403, response.text
+
+
+def test_parse_result_snapshot_maps_ondls_portal_fields() -> None:
+    from app.integrations.drug_license_verification.parser import parse_result_snapshot
+
+    parsed = parse_result_snapshot(
+        license_number="WLF21B2023KL002174",
+        snapshot={
+            "institute_name": "MURUKAN & CO",
+            "licence_status": "Active",
+            "str_ondls_licence_no": "WLF21B2023KL002174",
+            "dt_curr_validity_date": "03-Nov-2028",
+        },
+    )
+    assert parsed.holder_name == "MURUKAN & CO"
+    assert parsed.status == "Active"
+    assert parsed.license_number == "WLF21B2023KL002174"
+    assert parsed.valid_upto is not None
+    assert parsed.valid_upto.isoformat() == "2028-11-03"

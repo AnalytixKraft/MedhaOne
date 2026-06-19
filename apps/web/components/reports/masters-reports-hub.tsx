@@ -48,7 +48,6 @@ const warehouseSlugs = new Set([
   "warehouse-item-summary",
   "warehouse-utilization",
   "warehouse-coverage",
-  "inactive-warehouses",
   "low-usage-unused-warehouses",
 ]);
 
@@ -59,7 +58,6 @@ const itemSlugs = new Set([
   "item-distribution",
   "brand-summary-report",
   "category-summary-report",
-  "inactive-items",
 ]);
 
 const partySlugs = new Set([
@@ -67,7 +65,6 @@ const partySlugs = new Set([
   "party-geography-report",
   "party-commercial-report",
   "party-activity-report",
-  "inactive-parties",
 ]);
 
 const sections: ReportSection[] = [

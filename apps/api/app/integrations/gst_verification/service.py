@@ -104,6 +104,8 @@ def save_verified_data(
     party.gst_verification_source = log.source_url
     party.gst_legal_name = parsed.legal_name
     party.gst_trade_name = parsed.trade_name
+    party.gst_status = parsed.status
+    party.gst_taxpayer_type = parsed.taxpayer_type
     party.gst_registration_date = parsed.registration_date
     party.gst_raw_snapshot = parsed.raw_snapshot
 

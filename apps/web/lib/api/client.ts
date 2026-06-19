@@ -154,6 +154,8 @@ export type Party = {
   gst_verification_source: string | null;
   gst_legal_name: string | null;
   gst_trade_name: string | null;
+  gst_status: string | null;
+  gst_taxpayer_type: string | null;
   gst_registration_date: string | null;
   gst_raw_snapshot: Record<string, unknown> | null;
   fssai_number: string | null;
@@ -344,6 +346,7 @@ export type PartyPayload = {
   outstanding_tracking_mode?: OutstandingTrackingMode;
   is_active: boolean;
   gst_verification_log_id?: number | null;
+  drug_license_verification_log_id?: number | null;
 };
 
 export type BulkImportError = {

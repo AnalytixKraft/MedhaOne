@@ -116,6 +116,9 @@ class PartyCreate(PartyBase):
     # Optional reference to a successful GST verification log; the server applies
     # its verified data to the new party and marks it VERIFIED on create.
     gst_verification_log_id: int | None = None
+    # Optional reference to a successful drug-licence verification log, applied to
+    # the new party on create.
+    drug_license_verification_log_id: int | None = None
 
 
 class PartyUpdate(BaseModel):
@@ -151,6 +154,7 @@ class PartyUpdate(BaseModel):
     outstanding_tracking_mode: OutstandingTrackingMode | None = None
     is_active: bool | None = None
     gst_verification_log_id: int | None = None
+    drug_license_verification_log_id: int | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -201,6 +205,8 @@ class PartyRead(PartyBase):
     gst_verification_source: str | None = None
     gst_legal_name: str | None = None
     gst_trade_name: str | None = None
+    gst_status: str | None = None
+    gst_taxpayer_type: str | None = None
     gst_registration_date: date | None = None
     gst_raw_snapshot: dict[str, Any] | None = None
     created_at: datetime

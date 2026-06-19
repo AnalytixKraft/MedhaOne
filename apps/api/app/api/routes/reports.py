@@ -30,9 +30,6 @@ from app.reports.masters.brand_summary_report import get_brand_summary_report
 from app.reports.masters.category_item_report import get_category_item_report
 from app.reports.masters.category_summary_report import get_category_summary_report
 from app.reports.masters.common import MasterReportFilters
-from app.reports.masters.inactive_items import get_inactive_items_report
-from app.reports.masters.inactive_parties import get_inactive_parties_report
-from app.reports.masters.inactive_warehouses import get_inactive_warehouses_report
 from app.reports.masters.item_distribution import get_item_distribution_report
 from app.reports.masters.item_utilization import get_item_utilization_report
 from app.reports.masters.low_usage_unused_warehouses import get_low_usage_unused_warehouses_report
@@ -1201,49 +1198,6 @@ def masters_category_summary_report(
         page_size=page_size,
     )
     total, data, summary = get_category_summary_report(db, filters)
-    return _generic_response(total=total, page=page, page_size=page_size, summary=summary, data=data)
-
-
-@router.get("/masters/inactive-parties", response_model=GenericTabularReportResponse)
-def masters_inactive_parties(
-    states: str | None = None,
-    cities: str | None = None,
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=50, ge=1, le=200),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission("reports:view")),
-) -> GenericTabularReportResponse:
-    _ = current_user
-    filters = _master_filters(states=states, cities=cities, page=page, page_size=page_size)
-    total, data, summary = get_inactive_parties_report(db, filters)
-    return _generic_response(total=total, page=page, page_size=page_size, summary=summary, data=data)
-
-
-@router.get("/masters/inactive-items", response_model=GenericTabularReportResponse)
-def masters_inactive_items(
-    brand_values: str | None = None,
-    category_values: str | None = None,
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=50, ge=1, le=200),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission("reports:view")),
-) -> GenericTabularReportResponse:
-    _ = current_user
-    filters = _master_filters(brand_values=brand_values, category_values=category_values, page=page, page_size=page_size)
-    total, data, summary = get_inactive_items_report(db, filters)
-    return _generic_response(total=total, page=page, page_size=page_size, summary=summary, data=data)
-
-
-@router.get("/masters/inactive-warehouses", response_model=GenericTabularReportResponse)
-def masters_inactive_warehouses(
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=50, ge=1, le=200),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission("reports:view")),
-) -> GenericTabularReportResponse:
-    _ = current_user
-    filters = _master_filters(page=page, page_size=page_size)
-    total, data, summary = get_inactive_warehouses_report(db, filters)
     return _generic_response(total=total, page=page, page_size=page_size, summary=summary, data=data)
 
 

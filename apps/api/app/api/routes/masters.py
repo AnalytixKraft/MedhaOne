@@ -1250,6 +1250,22 @@ def _apply_and_require_gst_verification(
         )
 
 
+def _apply_drug_license_verification(
+    db: Session,
+    party: Party,
+    *,
+    verification_log_id: int | None,
+    saved_by: int,
+) -> None:
+    """Apply a successful drug-licence verification log to the party. Optional for
+    every party type (drug licence is not mandatory)."""
+    if verification_log_id is None:
+        return
+    log = _get_drug_license_log_or_404(db, verification_log_id)
+    save_drug_license_verified_data(log=log, party=party, saved_by=saved_by)
+    log.party_id = party.id
+
+
 @router.post("/parties", response_model=PartyRead, status_code=status.HTTP_201_CREATED)
 def create_party(
     payload: PartyCreate,
@@ -1269,6 +1285,9 @@ def create_party(
     db.flush()
     _apply_and_require_gst_verification(
         db, party, verification_log_id=payload.gst_verification_log_id, saved_by=current_user.id
+    )
+    _apply_drug_license_verification(
+        db, party, verification_log_id=payload.drug_license_verification_log_id, saved_by=current_user.id
     )
     _assign_party_code(party)
     _commit_or_400(db, "Failed to create party")
@@ -1370,6 +1389,9 @@ def update_party(
         setattr(party, field, value)
     _apply_and_require_gst_verification(
         db, party, verification_log_id=payload.gst_verification_log_id, saved_by=current_user.id
+    )
+    _apply_drug_license_verification(
+        db, party, verification_log_id=payload.drug_license_verification_log_id, saved_by=current_user.id
     )
     if not party.party_code:
         _assign_party_code(party)

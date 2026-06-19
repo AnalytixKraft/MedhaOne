@@ -121,6 +121,40 @@ function printRows(title: string, headers: string[], rows: Array<Record<string, 
   popup.print();
 }
 
+// Columns whose numeric values should render as ₹ currency.
+const _CURRENCY_KEY = /value|amount|balance|credit_limit|price|cost/i;
+// Numeric (right-aligned) columns, by key — used for header alignment when a
+// report has no rows to infer types from.
+const _NUMERIC_KEY =
+  /count|qty|value|amount|total|balance|limit|rate|pct|present|covered|parties|rank|days|frequency/i;
+
+// Central, consistent formatting for every report cell so all reports align and
+// format the same way: numbers grouped (₹ for value/amount columns), ISO dates
+// as medium dates, booleans as Yes/No, blanks as "-".
+function formatReportCell(
+  value: string | number | boolean | null,
+  key: string,
+): string {
+  if (value === null || value === undefined || value === "") return "-";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "number") {
+    return _CURRENCY_KEY.test(key)
+      ? new Intl.NumberFormat("en-IN", {
+          style: "currency",
+          currency: "INR",
+          maximumFractionDigits: 2,
+        }).format(value)
+      : new Intl.NumberFormat("en-IN").format(value);
+  }
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}([T ]|$)/.test(value)) {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(parsed);
+    }
+  }
+  return String(value);
+}
+
 export function GenericMasterReportPage({ config }: { config: GenericReportConfig }) {
   const [rows, setRows] = useState<Array<Record<string, string | number | boolean | null>>>([]);
   const [summary, setSummary] = useState<GenericTabularReportResponse["summary"]>([]);
@@ -149,6 +183,20 @@ export function GenericMasterReportPage({ config }: { config: GenericReportConfi
   }, [load]);
 
   const headers = useMemo(() => config.columns?.map((column) => column.key) ?? [], [config.columns]);
+  // A column is numeric (right-aligned) if any row holds a number for it.
+  const numericColumns = useMemo(() => {
+    const keys = new Set<string>();
+    for (const column of config.columns ?? []) {
+      // With data, infer from value types; when empty, fall back to the key
+      // heuristic so headers still align correctly.
+      const numeric =
+        rows.length > 0
+          ? rows.some((row) => typeof row[column.key] === "number")
+          : _NUMERIC_KEY.test(column.key);
+      if (numeric) keys.add(column.key);
+    }
+    return keys;
+  }, [config.columns, rows]);
 
   return (
     <div className="space-y-6">
@@ -159,7 +207,7 @@ export function GenericMasterReportPage({ config }: { config: GenericReportConfi
             <MetricCard
               key={metric.key}
               title={metric.label}
-              value={String(metric.value ?? 0)}
+              value={formatReportCell(metric.value ?? 0, metric.key)}
               accent={metricAccent(index)}
             />
           ))}
@@ -193,7 +241,12 @@ export function GenericMasterReportPage({ config }: { config: GenericReportConfi
             <TableHeader className="bg-[hsl(var(--table-header-bg))]">
               <TableRow>
                 {config.columns?.map((column) => (
-                  <TableHead key={column.key}>{column.label}</TableHead>
+                  <TableHead
+                    key={column.key}
+                    className={numericColumns.has(column.key) ? "text-right" : undefined}
+                  >
+                    {column.label}
+                  </TableHead>
                 ))}
               </TableRow>
             </TableHeader>
@@ -201,7 +254,16 @@ export function GenericMasterReportPage({ config }: { config: GenericReportConfi
               {rows.map((row, index) => (
                 <TableRow key={`${config.slug}-${index}`}>
                   {config.columns?.map((column) => (
-                    <TableCell key={column.key}>{String(row[column.key] ?? "-")}</TableCell>
+                    <TableCell
+                      key={column.key}
+                      className={
+                        numericColumns.has(column.key)
+                          ? "text-right tabular-nums"
+                          : undefined
+                      }
+                    >
+                      {formatReportCell(row[column.key], column.key)}
+                    </TableCell>
                   ))}
                 </TableRow>
               ))}
@@ -267,6 +329,20 @@ export function GenericDataQualityReportPage({ config }: { config: GenericReport
   }, [load]);
 
   const headers = useMemo(() => config.columns?.map((column) => column.key) ?? [], [config.columns]);
+  // A column is numeric (right-aligned) if any row holds a number for it.
+  const numericColumns = useMemo(() => {
+    const keys = new Set<string>();
+    for (const column of config.columns ?? []) {
+      // With data, infer from value types; when empty, fall back to the key
+      // heuristic so headers still align correctly.
+      const numeric =
+        rows.length > 0
+          ? rows.some((row) => typeof row[column.key] === "number")
+          : _NUMERIC_KEY.test(column.key);
+      if (numeric) keys.add(column.key);
+    }
+    return keys;
+  }, [config.columns, rows]);
 
   return (
     <div className="space-y-6">
@@ -295,7 +371,7 @@ export function GenericDataQualityReportPage({ config }: { config: GenericReport
             <MetricCard
               key={metric.key}
               title={metric.label}
-              value={String(metric.value ?? 0)}
+              value={formatReportCell(metric.value ?? 0, metric.key)}
               accent={metricAccent(index)}
             />
           ))}
@@ -310,7 +386,12 @@ export function GenericDataQualityReportPage({ config }: { config: GenericReport
             <TableHeader className="bg-[hsl(var(--table-header-bg))]">
               <TableRow>
                 {config.columns?.map((column) => (
-                  <TableHead key={column.key}>{column.label}</TableHead>
+                  <TableHead
+                    key={column.key}
+                    className={numericColumns.has(column.key) ? "text-right" : undefined}
+                  >
+                    {column.label}
+                  </TableHead>
                 ))}
               </TableRow>
             </TableHeader>
@@ -318,7 +399,16 @@ export function GenericDataQualityReportPage({ config }: { config: GenericReport
               {rows.map((row, index) => (
                 <TableRow key={`${config.slug}-${index}`}>
                   {config.columns?.map((column) => (
-                    <TableCell key={column.key}>{String(row[column.key] ?? "-")}</TableCell>
+                    <TableCell
+                      key={column.key}
+                      className={
+                        numericColumns.has(column.key)
+                          ? "text-right tabular-nums"
+                          : undefined
+                      }
+                    >
+                      {formatReportCell(row[column.key], column.key)}
+                    </TableCell>
                   ))}
                 </TableRow>
               ))}

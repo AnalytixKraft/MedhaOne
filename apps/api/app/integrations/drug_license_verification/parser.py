@@ -30,10 +30,22 @@ def parse_result_snapshot(
         payload = _parse_snapshot_text(snapshot)
 
     return ParsedDrugLicenseResult(
-        license_number=str(payload.get("license_number") or license_number).strip(),
-        holder_name=_as_optional_text(payload.get("holder_name") or payload.get("firm_name")),
-        status=_as_optional_text(payload.get("status")),
-        valid_upto=_parse_date(payload.get("valid_upto") or payload.get("validity_date")),
+        license_number=str(
+            payload.get("license_number")
+            or payload.get("str_ondls_licence_no")
+            or license_number
+        ).strip(),
+        holder_name=_as_optional_text(
+            payload.get("holder_name")
+            or payload.get("firm_name")
+            or payload.get("institute_name")
+        ),
+        status=_as_optional_text(payload.get("status") or payload.get("licence_status")),
+        valid_upto=_parse_date(
+            payload.get("valid_upto")
+            or payload.get("validity_date")
+            or payload.get("dt_curr_validity_date")
+        ),
         authority=_as_optional_text(payload.get("authority")),
         state=_as_optional_text(payload.get("state")),
         raw_snapshot=payload,
@@ -122,7 +134,7 @@ def _parse_date(value: Any) -> date | None:
     text = _as_optional_text(value)
     if not text:
         return None
-    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%d %b %Y", "%d %B %Y"):
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%d %b %Y", "%d %B %Y", "%d-%b-%Y", "%d-%B-%Y"):
         try:
             return datetime.strptime(text, fmt).date()
         except ValueError:
