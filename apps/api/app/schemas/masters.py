@@ -223,6 +223,7 @@ class PartyRead(PartyBase):
     gst_status: str | None = None
     gst_taxpayer_type: str | None = None
     gst_registration_date: date | None = None
+    gst_additional_addresses: str | None = None
     gst_raw_snapshot: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime

@@ -166,6 +166,7 @@ export type Party = {
   gst_status: string | null;
   gst_taxpayer_type: string | null;
   gst_registration_date: string | null;
+  gst_additional_addresses: string | null;
   gst_raw_snapshot: Record<string, unknown> | null;
   fssai_number: string | null;
   udyam_number: string | null;
@@ -436,6 +437,7 @@ export type GSTVerificationNormalizedResult = {
   state_jurisdiction: string | null;
   central_jurisdiction: string | null;
   principal_address: string | null;
+  additional_addresses: string | null;
   nature_of_business: string[] | null;
   einvoice_status: string | null;
   raw_snapshot: Record<string, unknown> | null;

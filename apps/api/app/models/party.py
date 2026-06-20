@@ -85,6 +85,7 @@ class Party(Base):
     gst_status: Mapped[str | None] = mapped_column(String(60), nullable=True)
     gst_taxpayer_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
     gst_registration_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    gst_additional_addresses: Mapped[str | None] = mapped_column(Text, nullable=True)
     gst_raw_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     fssai_number: Mapped[str | None] = mapped_column(String(120), nullable=True)
     udyam_number: Mapped[str | None] = mapped_column(String(120), nullable=True)

@@ -572,6 +572,11 @@ export function PartiesManager() {
   // GST status & taxpayer type from the latest GST verification (display only).
   const [gstVerifiedStatus, setGstVerifiedStatus] = useState<string | null>(null);
   const [gstVerifiedTaxpayer, setGstVerifiedTaxpayer] = useState<string | null>(null);
+  // Reveal the optional second drug licence only on demand.
+  const [showSecondDrugLicense, setShowSecondDrugLicense] = useState(false);
+  // GST additional places of business (display only) + show/hide toggle.
+  const [gstVerifiedAdditional, setGstVerifiedAdditional] = useState<string | null>(null);
+  const [showAdditionalAddresses, setShowAdditionalAddresses] = useState(true);
   // Holds a pending verification session when the portal's auto captcha-solve
   // failed and we need the user to read the captcha image inline.
   const [gstSession, setGstSession] = useState<GSTVerificationSession | null>(
@@ -693,6 +698,8 @@ export function PartiesManager() {
   const gstStatusDisplay = gstVerifiedStatus ?? editingParty?.gst_status ?? "";
   const gstTaxpayerDisplay =
     gstVerifiedTaxpayer ?? editingParty?.gst_taxpayer_type ?? "";
+  const additionalAddressesDisplay =
+    gstVerifiedAdditional ?? editingParty?.gst_additional_addresses ?? "";
 
   // Party type OTHER is always Retailer — enforce it for manual switches and
   // for any legacy record loaded into the form with a different category.
@@ -734,6 +741,7 @@ export function PartiesManager() {
     setForm(createEmptyForm());
     setFormErrors({});
     setGstAutofilled(false);
+    setShowSecondDrugLicense(false);
     setVerifiedLogId(null);
     setDrugVerifiedLogId(null);
     setDrugVerifiedExpiry(null);
@@ -743,6 +751,7 @@ export function PartiesManager() {
     setDrugVerified2Holder(null);
     setGstVerifiedStatus(null);
     setGstVerifiedTaxpayer(null);
+    setGstVerifiedAdditional(null);
     setGstSession(null);
     setGstCaptchaValue("");
     setGstinVerifyError(null);
@@ -757,6 +766,7 @@ export function PartiesManager() {
     // Only treat the loaded address as portal-derived (locked) if this party was
     // actually GST-verified; otherwise leave the fields editable.
     setGstAutofilled(party.gst_verified_status === "VERIFIED");
+    setShowSecondDrugLicense(!!party.drug_license_2_number);
     setVerifiedLogId(null);
     setDrugVerifiedLogId(null);
     setDrugVerifiedExpiry(null);
@@ -766,6 +776,7 @@ export function PartiesManager() {
     setDrugVerified2Holder(null);
     setGstVerifiedStatus(null);
     setGstVerifiedTaxpayer(null);
+    setGstVerifiedAdditional(null);
     setGstSession(null);
     setGstCaptchaValue("");
     setGstinVerifyError(null);
@@ -821,6 +832,7 @@ export function PartiesManager() {
       setGstAutofilled(false);
       setGstVerifiedStatus(null);
       setGstVerifiedTaxpayer(null);
+      setGstVerifiedAdditional(null);
       // Any pending captcha challenge is tied to the old GSTIN — discard it.
       setGstSession(null);
       setGstCaptchaValue("");
@@ -1025,6 +1037,7 @@ export function PartiesManager() {
     setVerifiedLogId(session.log.id);
     setGstVerifiedStatus(result.status ?? null);
     setGstVerifiedTaxpayer(result.taxpayer_type ?? null);
+    setGstVerifiedAdditional(result.additional_addresses ?? null);
     setGstSession(null);
     setGstCaptchaValue("");
     // If there's an existing party, save the verified data to it. Keep this in
@@ -1371,6 +1384,7 @@ export function PartiesManager() {
             <FieldShell label="Country">
               <Input
                 value={form.country}
+                disabled={gstFieldsLocked}
                 onChange={(event) =>
                   updateFormField("country", event.target.value)
                 }
@@ -1401,6 +1415,26 @@ export function PartiesManager() {
               />
             </FieldShell>
           </AppFormGrid>
+          {additionalAddressesDisplay ? (
+            <div className="mt-5 space-y-2">
+              <button
+                type="button"
+                onClick={() => setShowAdditionalAddresses((value) => !value)}
+                className="text-sm font-medium text-[hsl(var(--primary))] underline-offset-4 hover:underline"
+              >
+                {showAdditionalAddresses ? "Hide" : "Show"} additional places of
+                business
+              </button>
+              {showAdditionalAddresses ? (
+                <textarea
+                  readOnly
+                  value={additionalAddressesDisplay}
+                  rows={4}
+                  className="w-full cursor-not-allowed rounded-xl border border-input bg-[hsl(var(--muted-bg))] px-3 py-2 text-sm text-[hsl(var(--text-secondary))] shadow-inner outline-none"
+                />
+              ) : null}
+            </div>
+          ) : null}
         </FormSection>
 
         <FormSection title="Tax & Compliance">
@@ -1463,7 +1497,14 @@ export function PartiesManager() {
                 )}
                 {editingParty?.drug_license_verified_status === "VERIFIED" &&
                   !verifyingDrugLicense && (
-                    <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" />
+                    <span className="inline-flex shrink-0 items-center gap-1 text-[hsl(var(--primary))]">
+                      <CheckCircle2
+                        role="img"
+                        aria-label="Drug licence verified"
+                        className="h-5 w-5"
+                      />
+                      <span className="text-xs font-semibold">Verified</span>
+                    </span>
                   )}
                 {(editingParty?.drug_license_verified_status === "FAILED" ||
                   editingParty?.drug_license_verified_status === "EXPIRED") &&
@@ -1486,6 +1527,26 @@ export function PartiesManager() {
                 placeholder="Auto-filled after verification"
               />
             </FieldShell>
+            {showSecondDrugLicense ? (
+              <>
+            <div className="col-span-1 flex items-center justify-between md:col-span-2 xl:col-span-3">
+              <p className="text-sm font-semibold text-[hsl(var(--text-primary))]">
+                Second Drug Licence
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setShowSecondDrugLicense(false);
+                  updateFormField("drug_license_2_number", "");
+                  setDrugLicense2VerifyError(null);
+                }}
+                className="text-rose-600 hover:text-rose-700"
+              >
+                Remove
+              </Button>
+            </div>
             <FieldShell
               label="Drug License Number 2"
               error={drugLicense2VerifyError ?? undefined}
@@ -1522,7 +1583,14 @@ export function PartiesManager() {
                 )}
                 {editingParty?.drug_license_2_verified_status === "VERIFIED" &&
                   !verifyingDrugLicense2 && (
-                    <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" />
+                    <span className="inline-flex shrink-0 items-center gap-1 text-[hsl(var(--primary))]">
+                      <CheckCircle2
+                        role="img"
+                        aria-label="Second drug licence verified"
+                        className="h-5 w-5"
+                      />
+                      <span className="text-xs font-semibold">Verified</span>
+                    </span>
                   )}
                 {(editingParty?.drug_license_2_verified_status === "FAILED" ||
                   editingParty?.drug_license_2_verified_status ===
@@ -1546,6 +1614,19 @@ export function PartiesManager() {
                 placeholder="Auto-filled after verification"
               />
             </FieldShell>
+              </>
+            ) : (
+              <FieldShell label="Second Drug Licence">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowSecondDrugLicense(true)}
+                  className="w-full justify-center"
+                >
+                  + Add another drug licence
+                </Button>
+              </FieldShell>
+            )}
             <FieldShell label="FSSAI Number">
               <Input
                 value={form.fssai_number}

@@ -60,6 +60,36 @@ def _format_principal_address(principal_fields: Any) -> str | None:
     return ", ".join(cleaned) or None
 
 
+def _format_additional_addresses(additional_fields: Any) -> str | None:
+    """Flatten API Setu's additionalPlaceOfBusinessFields into one line per place."""
+    if not isinstance(additional_fields, list) or not additional_fields:
+        return None
+    lines: list[str] = []
+    for entry in additional_fields:
+        if not isinstance(entry, dict):
+            continue
+        addr = entry.get("additionalPlaceOfBusinessAddress")
+        if not isinstance(addr, dict):
+            continue
+        parts = [
+            addr.get("floorNumber"),
+            addr.get("buildingNumber"),
+            addr.get("buildingName"),
+            addr.get("streetName"),
+            addr.get("locality") or addr.get("location"),
+            addr.get("districtName"),
+            addr.get("stateName"),
+            addr.get("pincode"),
+        ]
+        line = ", ".join(str(p).strip() for p in parts if p and str(p).strip())
+        nature = entry.get("natureOfAdditionalPlaceOfBusiness")
+        if nature and str(nature).strip():
+            line = f"{line} ({str(nature).strip()})" if line else str(nature).strip()
+        if line:
+            lines.append(line)
+    return "\n".join(lines) or None
+
+
 def _map_apisetu_response(
     *,
     gstin: str,
@@ -117,6 +147,9 @@ def _map_apisetu_response(
         ),
         "principal_address": _format_principal_address(
             body.get("principalPlaceOfBusinessFields")
+        ),
+        "additional_addresses": _format_additional_addresses(
+            body.get("additionalPlaceOfBusinessFields")
         ),
         "nature_of_business": nba if isinstance(nba, list) and nba else None,
         "einvoice_status": body.get("eInvoiceStatus") or None,
