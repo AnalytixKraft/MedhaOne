@@ -40,6 +40,7 @@ from app.models.gst_verification import GSTVerificationLog
 from app.models.enums import (
     DrugLicenseVerificationLogStatus,
     GSTVerificationLogStatus,
+    GSTVerifiedStatus,
     OutstandingTrackingMode,
     PartyCategory,
     PartyType,
@@ -150,6 +151,7 @@ PARTY_WRITE_FIELDS = {
     "pan_number",
     "registration_type",
     "drug_license_number",
+    "drug_license_2_number",
     "fssai_number",
     "udyam_number",
     "credit_limit",
@@ -304,27 +306,32 @@ def _normalize_party_payload(payload: dict) -> dict:
     normalized["address_line_2"] = _to_nullable_text(normalized.get("address_line_2"))
     normalized["country"] = _to_nullable_text(normalized.get("country")) or "India"
     normalized["drug_license_number"] = _to_nullable_text(normalized.get("drug_license_number"))
+    normalized["drug_license_2_number"] = _to_nullable_text(normalized.get("drug_license_2_number"))
     normalized["fssai_number"] = _to_nullable_text(normalized.get("fssai_number"))
     normalized["udyam_number"] = _to_nullable_text(normalized.get("udyam_number"))
     normalized["payment_terms"] = _to_nullable_text(normalized.get("payment_terms"))
     normalized["credit_limit"] = normalized.get("credit_limit") or Decimal("0.00")
     normalized["opening_balance"] = normalized.get("opening_balance") or Decimal("0.00")
 
+    is_retailer = (normalized.get("party_category") or "").strip().upper() == "RETAILER"
     gstin = normalize_and_validate_gstin(normalized.get("gstin"))
-    if not gstin:
+    if gstin:
+        normalized["gstin"] = gstin
+        normalized["pan_number"] = extract_pan_from_gstin(gstin)
+        if not normalized.get("state"):
+            normalized["state"] = derive_state_from_gstin(gstin)
+        if not normalized.get("registration_type"):
+            normalized["registration_type"] = RegistrationType.REGISTERED.value
+    elif is_retailer:
+        # Retailers may be saved without a GSTIN; their details are entered manually.
+        normalized["gstin"] = None
+    else:
         raise AppException(
             error_code="VALIDATION_ERROR",
-            message="GSTIN is required for Party Master",
+            message="GSTIN is required for non-retailer parties",
             status_code=status.HTTP_400_BAD_REQUEST,
             details={"field": "gstin"},
         )
-
-    normalized["gstin"] = gstin
-    normalized["pan_number"] = extract_pan_from_gstin(gstin)
-    if not normalized.get("state"):
-        normalized["state"] = derive_state_from_gstin(gstin)
-    if not normalized.get("registration_type"):
-        normalized["registration_type"] = RegistrationType.REGISTERED.value
 
     outstanding_tracking_mode = _to_text(normalized.get("outstanding_tracking_mode")).upper()
     if outstanding_tracking_mode:
@@ -365,6 +372,16 @@ def _assign_party_code(party: Party) -> None:
     party.party_code = f"PTY-{party.id:06d}"
 
 
+def _default_party_types_for_category(name: str) -> list[str]:
+    """Default party-type link for a seeded category, from the legacy mapping."""
+    upper = name.strip().upper()
+    if upper in CUSTOMER_PARTY_CATEGORIES:
+        return [PartyType.CUSTOMER.value]
+    if upper in SUPPLIER_PARTY_CATEGORIES:
+        return [PartyType.SUPPLIER.value]
+    return [PartyType.CUSTOMER.value, PartyType.SUPPLIER.value]
+
+
 def _ensure_default_party_categories(db: Session) -> bool:
     existing_names = {
         str(name).strip().lower()
@@ -388,7 +405,11 @@ def _ensure_default_party_categories(db: Session) -> bool:
         candidate_names.append(raw_name.strip())
 
     missing_categories = [
-        Category(name=name, is_active=True)
+        Category(
+            name=name,
+            is_active=True,
+            party_types=_default_party_types_for_category(name),
+        )
         for name in candidate_names
         if name.lower() not in existing_names
     ]
@@ -417,7 +438,9 @@ def _count_active_parties_for_category(db: Session, category_name: str) -> int:
     )
 
 
-def _validate_active_party_category_name(db: Session, category_name: str | None) -> str | None:
+def _validate_active_party_category_name(
+    db: Session, category_name: str | None, party_type: str | None = None
+) -> str | None:
     normalized_category = _to_nullable_text(category_name)
     if not normalized_category:
         return None
@@ -436,6 +459,25 @@ def _validate_active_party_category_name(db: Session, category_name: str | None)
             status_code=status.HTTP_400_BAD_REQUEST,
             details={"field": "party_category"},
         )
+
+    # Enforce the Master-Settings party-type link. CUSTOMER/SUPPLIER must be in
+    # the category's linked types; an empty link list means unrestricted, and
+    # BOTH/OTHER party types are not restricted by category links.
+    if party_type:
+        normalized_party_type = str(party_type).strip().upper()
+        linked = {str(t).strip().upper() for t in (category_record.party_types or [])}
+        if normalized_party_type in {"CUSTOMER", "SUPPLIER"} and linked and (
+            normalized_party_type not in linked
+        ):
+            raise AppException(
+                error_code="VALIDATION_ERROR",
+                message=(
+                    f"Party Category '{category_record.name}' is not linked to party "
+                    f"type {normalized_party_type}. Update the link in Master Settings."
+                ),
+                status_code=status.HTTP_400_BAD_REQUEST,
+                details={"field": "party_category"},
+            )
     return category_record.name
 
 
@@ -1183,6 +1225,50 @@ def delete_category(
     return category_snapshot
 
 
+def _apply_and_require_gst_verification(
+    db: Session,
+    party: Party,
+    *,
+    verification_log_id: int | None,
+    saved_by: int,
+) -> None:
+    """Apply a successful GST verification log to the party (persisting VERIFIED
+    status + portal-derived fields) and enforce that non-retailer parties are
+    GST-verified before they can be saved. Retailers are exempt."""
+    if verification_log_id is not None:
+        log = _get_gst_log_or_404(db, verification_log_id)
+        save_gst_verified_data(log=log, party=party, saved_by=saved_by)
+        log.party_id = party.id
+    is_retailer = (party.party_category or "").strip().upper() == "RETAILER"
+    if not is_retailer and party.gst_verified_status != GSTVerifiedStatus.VERIFIED.value:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message=(
+                "GST verification is mandatory for non-retailer parties. "
+                "Verify the GSTIN before saving."
+            ),
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"field": "gstin"},
+        )
+
+
+def _apply_drug_license_verification(
+    db: Session,
+    party: Party,
+    *,
+    verification_log_id: int | None,
+    saved_by: int,
+    slot: int = 1,
+) -> None:
+    """Apply a successful drug-licence verification log to the given licence slot on
+    the party. Optional for every party type (drug licence is not mandatory)."""
+    if verification_log_id is None:
+        return
+    log = _get_drug_license_log_or_404(db, verification_log_id)
+    save_drug_license_verified_data(log=log, party=party, saved_by=saved_by, slot=slot)
+    log.party_id = party.id
+
+
 @router.post("/parties", response_model=PartyRead, status_code=status.HTTP_201_CREATED)
 def create_party(
     payload: PartyCreate,
@@ -1191,7 +1277,7 @@ def create_party(
 ) -> PartyRead:
     party_payload = _normalize_party_payload(payload.model_dump())
     party_payload["party_category"] = _validate_active_party_category_name(
-        db, party_payload.get("party_category")
+        db, party_payload.get("party_category"), party_payload.get("party_type")
     )
     _ensure_unique_party_identifiers(
         db,
@@ -1200,6 +1286,19 @@ def create_party(
     party = Party(**party_payload)
     db.add(party)
     db.flush()
+    _apply_and_require_gst_verification(
+        db, party, verification_log_id=payload.gst_verification_log_id, saved_by=current_user.id
+    )
+    _apply_drug_license_verification(
+        db, party, verification_log_id=payload.drug_license_verification_log_id, saved_by=current_user.id
+    )
+    _apply_drug_license_verification(
+        db,
+        party,
+        verification_log_id=payload.drug_license_2_verification_log_id,
+        saved_by=current_user.id,
+        slot=2,
+    )
     _assign_party_code(party)
     _commit_or_400(db, "Failed to create party")
     write_audit_log(
@@ -1277,6 +1376,7 @@ def update_party(
         "pan_number": party.pan_number,
         "registration_type": party.registration_type,
         "drug_license_number": party.drug_license_number,
+        "drug_license_2_number": party.drug_license_2_number,
         "fssai_number": party.fssai_number,
         "udyam_number": party.udyam_number,
         "credit_limit": party.credit_limit,
@@ -1287,7 +1387,9 @@ def update_party(
     }
     merged_payload = {**existing_payload, **payload.model_dump(exclude_unset=True)}
     updates = _normalize_party_payload(merged_payload)
-    updates["party_category"] = _validate_active_party_category_name(db, updates.get("party_category"))
+    updates["party_category"] = _validate_active_party_category_name(
+        db, updates.get("party_category"), updates.get("party_type")
+    )
     _ensure_unique_party_identifiers(
         db,
         gstin=updates.get("gstin"),
@@ -1296,6 +1398,19 @@ def update_party(
 
     for field, value in updates.items():
         setattr(party, field, value)
+    _apply_and_require_gst_verification(
+        db, party, verification_log_id=payload.gst_verification_log_id, saved_by=current_user.id
+    )
+    _apply_drug_license_verification(
+        db, party, verification_log_id=payload.drug_license_verification_log_id, saved_by=current_user.id
+    )
+    _apply_drug_license_verification(
+        db,
+        party,
+        verification_log_id=payload.drug_license_2_verification_log_id,
+        saved_by=current_user.id,
+        slot=2,
+    )
     if not party.party_code:
         _assign_party_code(party)
 
@@ -1529,6 +1644,7 @@ def save_drug_license_verification_session(
         party=party,
         saved_by=current_user.id,
         remarks=payload.remarks,
+        slot=payload.slot,
     )
     _commit_or_400(db, "Failed to save verified drug licence data")
     write_audit_log(
@@ -1546,7 +1662,12 @@ def save_drug_license_verification_session(
         metadata={
             "verification_log_id": log.id,
             "license_number": parsed.license_number,
-            "verification_status": party.drug_license_verified_status,
+            "slot": payload.slot,
+            "verification_status": (
+                party.drug_license_verified_status
+                if payload.slot == 1
+                else party.drug_license_2_verified_status
+            ),
         },
     )
     _commit_with_tenant_context(db)

@@ -12,24 +12,17 @@ const options = [
   { value: "system", label: "System", icon: Monitor },
 ] as const;
 
+// Compact theme switcher (icon toggle) shown in the app header.
 export function ThemePreferenceSelector() {
   const { user } = usePermissions();
-  const { preference, loading, saving, setPreference } = useThemePreference();
+  const { preference, setPreference } = useThemePreference();
 
   if (!user) {
     return null;
   }
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-border/80 bg-card px-3 py-2 shadow-sm">
-      <div className="hidden min-w-0 sm:block">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-          Theme
-        </p>
-        <p className="truncate text-xs text-foreground/80">
-          {saving ? "Saving..." : loading ? "Syncing..." : "User preference"}
-        </p>
-      </div>
+    <div className="inline-flex items-center rounded-lg border border-border/80 bg-card p-1 shadow-sm">
       <div className="flex items-center gap-1 rounded-md bg-muted/70 p-1">
         {options.map((option) => {
           const Icon = option.icon;

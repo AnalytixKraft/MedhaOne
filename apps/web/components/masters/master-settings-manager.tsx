@@ -20,6 +20,7 @@ import {
   type BrandPayload,
   type Category,
   type CategoryPayload,
+  type PartyType,
   type TaxRate,
   type TaxRatePayload,
 } from "@/lib/api/client";
@@ -36,6 +37,7 @@ type TaxRateFormState = {
 type CategoryFormState = {
   name: string;
   is_active: boolean;
+  party_types: PartyType[];
 };
 
 type BrandFormState = {
@@ -60,6 +62,7 @@ const emptyTaxRateForm: TaxRateFormState = {
 const emptyCategoryForm: CategoryFormState = {
   name: "",
   is_active: true,
+  party_types: ["CUSTOMER", "SUPPLIER"],
 };
 
 const emptyBrandForm: BrandFormState = {
@@ -351,6 +354,7 @@ export function MasterSettingsManager({
     const payload: CategoryPayload = {
       name: categoryForm.name.trim(),
       is_active: categoryForm.is_active,
+      party_types: categoryForm.party_types,
     };
 
     try {
@@ -410,6 +414,10 @@ export function MasterSettingsManager({
     setCategoryForm({
       name: category.name,
       is_active: category.is_active,
+      party_types:
+        category.party_types && category.party_types.length > 0
+          ? category.party_types
+          : ["CUSTOMER", "SUPPLIER"],
     });
     setActiveTab("categories");
   };
@@ -766,6 +774,34 @@ export function MasterSettingsManager({
                   error={categoryFormTouched ? categoryFormErrors.name : undefined}
                 />
                 <div className="flex items-end gap-3">
+                  <div className="pb-1">
+                    <p className="mb-1 text-xs font-medium text-muted-foreground">
+                      Allowed Party Types
+                    </p>
+                    <div className="flex gap-3">
+                      {(["CUSTOMER", "SUPPLIER"] as PartyType[]).map((pt) => (
+                        <label
+                          key={pt}
+                          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={categoryForm.party_types.includes(pt)}
+                            disabled={!canManageCategories}
+                            onChange={(event) =>
+                              setCategoryForm((current) => ({
+                                ...current,
+                                party_types: event.target.checked
+                                  ? [...current.party_types.filter((t) => t !== pt), pt]
+                                  : current.party_types.filter((t) => t !== pt),
+                              }))
+                            }
+                          />
+                          {pt === "CUSTOMER" ? "Customer" : "Supplier"}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
                   <label className="inline-flex items-center gap-2 pb-3 text-sm text-muted-foreground">
                     <input
                       type="checkbox"
@@ -794,6 +830,7 @@ export function MasterSettingsManager({
                   <TableHeader className="bg-[hsl(var(--table-header-bg))]">
                     <TableRow>
                       <TableHead>Name</TableHead>
+                      <TableHead>Party Types</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -801,13 +838,13 @@ export function MasterSettingsManager({
                   <TableBody>
                     {categoriesLoading ? (
                       <TableRow>
-                        <TableCell colSpan={3} className="py-10 text-center text-muted-foreground">
+                        <TableCell colSpan={4} className="py-10 text-center text-muted-foreground">
                           Loading party categories...
                         </TableCell>
                       </TableRow>
                     ) : categories.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={3} className="py-10 text-center text-muted-foreground">
+                        <TableCell colSpan={4} className="py-10 text-center text-muted-foreground">
                           No party categories configured yet.
                         </TableCell>
                       </TableRow>
@@ -818,6 +855,19 @@ export function MasterSettingsManager({
                         .map((category) => (
                           <TableRow key={category.id}>
                             <TableCell className="font-medium">{category.name}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {(category.party_types ?? []).length === 0
+                                ? "—"
+                                : category.party_types
+                                    .map((t) =>
+                                      t === "CUSTOMER"
+                                        ? "Customer"
+                                        : t === "SUPPLIER"
+                                          ? "Supplier"
+                                          : t,
+                                    )
+                                    .join(", ")}
+                            </TableCell>
                             <TableCell>
                               <StatusBadge active={category.is_active} />
                             </TableCell>

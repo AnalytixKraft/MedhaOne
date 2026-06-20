@@ -104,7 +104,10 @@ def save_verified_data(
     party.gst_verification_source = log.source_url
     party.gst_legal_name = parsed.legal_name
     party.gst_trade_name = parsed.trade_name
+    party.gst_status = parsed.status
+    party.gst_taxpayer_type = parsed.taxpayer_type
     party.gst_registration_date = parsed.registration_date
+    party.gst_additional_addresses = parsed.additional_addresses
     party.gst_raw_snapshot = parsed.raw_snapshot
 
     if remarks:
@@ -150,6 +153,7 @@ def _apply_step_to_log(
                 "state_jurisdiction": result.state_jurisdiction,
                 "central_jurisdiction": result.central_jurisdiction,
                 "principal_address": result.principal_address,
+                "additional_addresses": result.additional_addresses,
                 "nature_of_business": result.nature_of_business,
                 "einvoice_status": result.einvoice_status,
                 "raw_snapshot": result.raw_snapshot,

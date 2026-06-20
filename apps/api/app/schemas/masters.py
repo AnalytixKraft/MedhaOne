@@ -73,6 +73,7 @@ class PartyBase(BaseModel):
     pan_number: str | None = None
     registration_type: RegistrationType | None = None
     drug_license_number: str | None = None
+    drug_license_2_number: str | None = None
     fssai_number: str | None = None
     udyam_number: str | None = None
     credit_limit: Decimal | None = Decimal("0.00")
@@ -113,7 +114,14 @@ class PartyBase(BaseModel):
 
 
 class PartyCreate(PartyBase):
-    pass
+    # Optional reference to a successful GST verification log; the server applies
+    # its verified data to the new party and marks it VERIFIED on create.
+    gst_verification_log_id: int | None = None
+    # Optional reference to a successful drug-licence verification log, applied to
+    # the new party on create.
+    drug_license_verification_log_id: int | None = None
+    # Optional reference to a second drug-licence verification log (licence slot 2).
+    drug_license_2_verification_log_id: int | None = None
 
 
 class PartyUpdate(BaseModel):
@@ -141,6 +149,7 @@ class PartyUpdate(BaseModel):
     pan_number: str | None = None
     registration_type: RegistrationType | None = None
     drug_license_number: str | None = None
+    drug_license_2_number: str | None = None
     fssai_number: str | None = None
     udyam_number: str | None = None
     credit_limit: Decimal | None = None
@@ -148,6 +157,9 @@ class PartyUpdate(BaseModel):
     opening_balance: Decimal | None = None
     outstanding_tracking_mode: OutstandingTrackingMode | None = None
     is_active: bool | None = None
+    gst_verification_log_id: int | None = None
+    drug_license_verification_log_id: int | None = None
+    drug_license_2_verification_log_id: int | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -192,13 +204,26 @@ class PartyRead(PartyBase):
     drug_license_valid_upto: date | None = None
     drug_license_state: str | None = None
     drug_license_raw_snapshot: dict[str, Any] | None = None
+    drug_license_2_verified_status: DrugLicenseVerifiedStatus = (
+        DrugLicenseVerifiedStatus.NOT_VERIFIED
+    )
+    drug_license_2_verified_at: datetime | None = None
+    drug_license_2_verified_by: int | None = None
+    drug_license_2_verification_source: str | None = None
+    drug_license_2_holder_name: str | None = None
+    drug_license_2_valid_upto: date | None = None
+    drug_license_2_state: str | None = None
+    drug_license_2_raw_snapshot: dict[str, Any] | None = None
     gst_verified_status: GSTVerifiedStatus = GSTVerifiedStatus.NOT_VERIFIED
     gst_verified_at: datetime | None = None
     gst_verified_by: int | None = None
     gst_verification_source: str | None = None
     gst_legal_name: str | None = None
     gst_trade_name: str | None = None
+    gst_status: str | None = None
+    gst_taxpayer_type: str | None = None
     gst_registration_date: date | None = None
+    gst_additional_addresses: str | None = None
     gst_raw_snapshot: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
@@ -323,6 +348,9 @@ class RackRead(RackBase):
 class CategoryBase(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     is_active: bool = True
+    party_types: list[PartyType] = Field(
+        default_factory=lambda: [PartyType.CUSTOMER, PartyType.SUPPLIER]
+    )
 
     @field_validator("name")
     @classmethod
@@ -337,6 +365,7 @@ class CategoryCreate(CategoryBase):
 class CategoryUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     is_active: bool | None = None
+    party_types: list[PartyType] | None = None
 
     @field_validator("name")
     @classmethod
@@ -488,6 +517,7 @@ class DrugLicenseVerificationResumeRequest(BaseModel):
 
 class DrugLicenseVerificationSaveRequest(BaseModel):
     remarks: str | None = None
+    slot: int = Field(default=1, ge=1, le=2)
 
 
 class DrugLicenseVerificationLogRead(BaseModel):

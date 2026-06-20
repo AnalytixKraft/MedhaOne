@@ -148,13 +148,25 @@ export type Party = {
   drug_license_valid_upto: string | null;
   drug_license_state: string | null;
   drug_license_raw_snapshot: Record<string, unknown> | null;
+  drug_license_2_number: string | null;
+  drug_license_2_verified_status: DrugLicenseVerifiedStatus;
+  drug_license_2_verified_at: string | null;
+  drug_license_2_verified_by: number | null;
+  drug_license_2_verification_source: string | null;
+  drug_license_2_holder_name: string | null;
+  drug_license_2_valid_upto: string | null;
+  drug_license_2_state: string | null;
+  drug_license_2_raw_snapshot: Record<string, unknown> | null;
   gst_verified_status: GSTVerifiedStatus;
   gst_verified_at: string | null;
   gst_verified_by: number | null;
   gst_verification_source: string | null;
   gst_legal_name: string | null;
   gst_trade_name: string | null;
+  gst_status: string | null;
+  gst_taxpayer_type: string | null;
   gst_registration_date: string | null;
+  gst_additional_addresses: string | null;
   gst_raw_snapshot: Record<string, unknown> | null;
   fssai_number: string | null;
   udyam_number: string | null;
@@ -240,6 +252,7 @@ export type Category = {
   id: number;
   name: string;
   is_active: boolean;
+  party_types: PartyType[];
   created_at: string;
   updated_at: string;
 };
@@ -302,6 +315,7 @@ export type TaxRatePayload = {
 export type CategoryPayload = {
   name: string;
   is_active?: boolean;
+  party_types?: PartyType[];
 };
 
 export type BrandPayload = {
@@ -334,6 +348,7 @@ export type PartyPayload = {
   pan_number?: string;
   registration_type?: RegistrationType;
   drug_license_number?: string;
+  drug_license_2_number?: string;
   fssai_number?: string;
   udyam_number?: string;
   credit_limit?: string;
@@ -341,6 +356,9 @@ export type PartyPayload = {
   opening_balance?: string;
   outstanding_tracking_mode?: OutstandingTrackingMode;
   is_active: boolean;
+  gst_verification_log_id?: number | null;
+  drug_license_verification_log_id?: number | null;
+  drug_license_2_verification_log_id?: number | null;
 };
 
 export type BulkImportError = {
@@ -404,6 +422,7 @@ export type DrugLicenseVerificationResumePayload = {
 
 export type DrugLicenseVerificationSavePayload = {
   remarks?: string;
+  slot?: number;
 };
 
 export type GSTVerificationNormalizedResult = {
@@ -418,6 +437,7 @@ export type GSTVerificationNormalizedResult = {
   state_jurisdiction: string | null;
   central_jurisdiction: string | null;
   principal_address: string | null;
+  additional_addresses: string | null;
   nature_of_business: string[] | null;
   einvoice_status: string | null;
   raw_snapshot: Record<string, unknown> | null;

@@ -21,6 +21,7 @@ class ParsedGSTResult:
     state_jurisdiction: str | None
     central_jurisdiction: str | None
     principal_address: str | None
+    additional_addresses: str | None
     nature_of_business: list[str] | None
     einvoice_status: str | None
     raw_snapshot: dict[str, Any]
@@ -62,6 +63,7 @@ def parse_result_snapshot(
     principal_address = _extract_address(
         payload.get("pradr") or payload.get("principal_address")
     )
+    additional_addresses = _as_optional_text(payload.get("additional_addresses"))
 
     # Nature of business — list of strings
     nba_raw = payload.get("nba") or payload.get("nature_of_business")
@@ -83,6 +85,7 @@ def parse_result_snapshot(
         state_jurisdiction=state_jurisdiction,
         central_jurisdiction=central_jurisdiction,
         principal_address=principal_address,
+        additional_addresses=additional_addresses,
         nature_of_business=nature_of_business,
         einvoice_status=einvoice_status,
         raw_snapshot=payload,
