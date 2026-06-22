@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 from app.models.batch import Batch
 from app.models.inventory import InventoryLedger, StockSummary
 from app.models.product import Product
-from app.reports.predicates import opening_entry_predicate
 from app.models.warehouse import Warehouse
+from app.reports.predicates import opening_entry_predicate
 
 
 @dataclass(slots=True)

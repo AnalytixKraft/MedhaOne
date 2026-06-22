@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Landmark, Loader2, ReceiptText, Tags, type LucideIcon } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import { AppSectionCard, AppTabs } from "@/components/erp/app-primitives";
 import { usePermissions } from "@/components/auth/permission-provider";
@@ -23,9 +23,10 @@ import {
   type PartyType,
   type TaxRate,
   type TaxRatePayload,
+  type Uom,
 } from "@/lib/api/client";
 
-type MasterSettingsTab = "gst" | "brands" | "tds-tcs" | "categories";
+type MasterSettingsTab = "gst" | "brands" | "uoms" | "tds-tcs" | "categories";
 
 type TaxRateFormState = {
   code: string;
@@ -48,6 +49,7 @@ type BrandFormState = {
 const tabs: Array<{ id: MasterSettingsTab; label: string }> = [
   { id: "gst", label: "GST" },
   { id: "brands", label: "Manufacturers" },
+  { id: "uoms", label: "Units (UOM)" },
   { id: "tds-tcs", label: "TDS / TCS" },
   { id: "categories", label: "Party Categories" },
 ];
@@ -174,21 +176,6 @@ export function MasterSettingsManager({
       cancelled = true;
     };
   }, [canViewCategories, canViewGst]);
-
-  const activeTaxRatesCount = useMemo(
-    () => taxRates.filter((taxRate) => taxRate.is_active).length,
-    [taxRates],
-  );
-
-  const activeCategoriesCount = useMemo(
-    () => categories.filter((category) => category.is_active).length,
-    [categories],
-  );
-
-  const activeBrandsCount = useMemo(
-    () => brands.filter((brand) => brand.is_active).length,
-    [brands],
-  );
 
   const taxRateFormErrors = useMemo(() => {
     const errors: Partial<Record<keyof TaxRateFormState, string>> = {};
@@ -474,37 +461,6 @@ export function MasterSettingsManager({
 
   return (
     <div className="space-y-6">
-      <div className="grid items-stretch gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MasterSettingsMetricTile
-          title="GST Slabs"
-          value={String(taxRates.length)}
-          description={`${activeTaxRatesCount} active`}
-          icon={ReceiptText}
-          tone="primary"
-        />
-        <MasterSettingsMetricTile
-          title="Manufacturers"
-          value={String(brands.length)}
-          description={`${activeBrandsCount} active`}
-          icon={Tags}
-          tone="success"
-        />
-        <MasterSettingsMetricTile
-          title="Party Categories"
-          value={String(categories.length)}
-          description={`${activeCategoriesCount} active`}
-          icon={Tags}
-          tone="success"
-        />
-        <MasterSettingsMetricTile
-          title="TDS / TCS"
-          value="Planned"
-          description="Reserved for the next implementation phase."
-          icon={Landmark}
-          tone="warning"
-        />
-      </div>
-
       <AppTabs tabs={tabs} value={activeTab} onChange={setActiveTab} />
 
       {toast ? (
@@ -756,6 +712,10 @@ export function MasterSettingsManager({
         </AppSectionCard>
       ) : null}
 
+      {activeTab === "uoms" ? (
+        <UomSettingsSection canView={canViewCategories} canManage={canManageCategories} />
+      ) : null}
+
       {activeTab === "categories" ? (
         <AppSectionCard
           title="Party Categories"
@@ -918,6 +878,225 @@ export function MasterSettingsManager({
   );
 }
 
+function UomSettingsSection({
+  canView,
+  canManage,
+}: {
+  canView: boolean;
+  canManage: boolean;
+}) {
+  const [uoms, setUoms] = useState<Uom[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState<{ name: string; is_active: boolean }>({
+    name: "",
+    is_active: true,
+  });
+  const [touched, setTouched] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canView) {
+      setLoading(false);
+      return;
+    }
+    let active = true;
+    setLoading(true);
+    apiClient
+      .listUoms(true)
+      .then((rows) => {
+        if (active) setUoms(rows);
+      })
+      .catch(() => {
+        if (active) setError("Failed to load units of measure.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [canView]);
+
+  const nameError = useMemo(() => {
+    const name = form.name.trim();
+    if (!name) {
+      return "Name is required";
+    }
+    const duplicate = uoms.some(
+      (uom) => uom.id !== editingId && uom.name.trim().toLowerCase() === name.toLowerCase(),
+    );
+    return duplicate ? "This unit already exists" : undefined;
+  }, [form.name, uoms, editingId]);
+
+  const resetForm = () => {
+    setForm({ name: "", is_active: true });
+    setEditingId(null);
+    setTouched(false);
+  };
+
+  const handleSave = async () => {
+    setTouched(true);
+    if (!canManage || nameError) {
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const payload = { name: form.name.trim(), is_active: form.is_active };
+      const saved = editingId
+        ? await apiClient.updateUom(editingId, payload)
+        : await apiClient.createUom(payload);
+      setUoms((current) =>
+        editingId ? current.map((uom) => (uom.id === saved.id ? saved : uom)) : [...current, saved],
+      );
+      resetForm();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to save unit of measure.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEdit = (uom: Uom) => {
+    setEditingId(uom.id);
+    setForm({ name: uom.name, is_active: uom.is_active });
+    setTouched(false);
+    setError(null);
+  };
+
+  const handleDelete = async (uom: Uom) => {
+    if (!canManage) {
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await apiClient.deleteUom(uom.id);
+      setUoms((current) => current.filter((item) => item.id !== uom.id));
+      if (editingId === uom.id) {
+        resetForm();
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to delete unit of measure.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <AppSectionCard
+      title="Units of Measure"
+      description="Manage the UOM list. Products select their unit from these active entries."
+    >
+      {!canView ? (
+        <p className="text-sm text-muted-foreground">
+          You do not have permission to view units of measure.
+        </p>
+      ) : (
+        <div className="space-y-6">
+          {error ? <p className="text-sm text-rose-600">{error}</p> : null}
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
+            <TextField
+              label="Unit Name"
+              value={form.name}
+              onChange={(value) =>
+                setForm((current) => ({ ...current, name: value.toUpperCase() }))
+              }
+              disabled={!canManage}
+              error={touched ? nameError : undefined}
+            />
+            <div className="flex items-end gap-3">
+              <label className="inline-flex items-center gap-2 pb-3 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={form.is_active}
+                  disabled={!canManage}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, is_active: event.target.checked }))
+                  }
+                />
+                Active
+              </label>
+              <Button type="button" onClick={() => void handleSave()} disabled={saving || !canManage}>
+                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {editingId ? "Update Unit" : "Add Unit"}
+              </Button>
+              {editingId ? (
+                <Button type="button" variant="outline" onClick={resetForm}>
+                  Cancel
+                </Button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-2xl border">
+            <Table>
+              <TableHeader className="bg-[hsl(var(--table-header-bg))]">
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={3} className="py-10 text-center text-muted-foreground">
+                      Loading units...
+                    </TableCell>
+                  </TableRow>
+                ) : uoms.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={3} className="py-10 text-center text-muted-foreground">
+                      No units configured yet.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  uoms
+                    .slice()
+                    .sort((left, right) => left.name.localeCompare(right.name))
+                    .map((uom) => (
+                      <TableRow key={uom.id}>
+                        <TableCell className="font-medium">{uom.name}</TableCell>
+                        <TableCell>
+                          <StatusBadge active={uom.is_active} />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleEdit(uom)}
+                              disabled={!canManage}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void handleDelete(uom)}
+                              disabled={!canManage || saving}
+                            >
+                              Delete
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+    </AppSectionCard>
+  );
+}
+
 function TextField({
   label,
   value,
@@ -962,44 +1141,3 @@ function StatusBadge({ active }: { active: boolean }) {
   );
 }
 
-function MasterSettingsMetricTile({
-  title,
-  value,
-  description,
-  icon: Icon,
-  tone,
-}: {
-  title: string;
-  value: string;
-  description: string;
-  icon: LucideIcon;
-  tone: "primary" | "success" | "warning";
-}) {
-  const toneClasses =
-    tone === "primary"
-      ? "bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300"
-      : tone === "success"
-        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
-        : "bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300";
-
-  return (
-    <div className="flex h-full min-h-[122px] flex-col justify-between rounded-3xl border border-[hsl(var(--card-border))] bg-[hsl(var(--card-bg))] p-6 shadow-sm">
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[hsl(var(--text-secondary))]">
-            {title}
-          </p>
-          <p className="text-2xl font-semibold leading-none tracking-tight text-[hsl(var(--text-primary))]">
-            {value}
-          </p>
-        </div>
-        <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${toneClasses}`}>
-          <Icon className="h-5 w-5" />
-        </span>
-      </div>
-      <p className="min-h-[48px] pt-4 text-sm leading-6 text-[hsl(var(--text-secondary))]">
-        {description}
-      </p>
-    </div>
-  );
-}

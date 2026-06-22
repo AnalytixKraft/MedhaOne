@@ -19,5 +19,6 @@ export default defineConfig([
     "e2e/reports/**",
     "playwright-report/**",
     "test-results/**",
+    "lib/api/generated/**",
   ]),
 ]);

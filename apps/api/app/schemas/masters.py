@@ -2,7 +2,15 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from app.domain.quantity import (
     decimal_allowed_from_quantity_precision,
@@ -417,6 +425,40 @@ class BrandRead(BrandBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class UomBase(BaseModel):
+    name: str = Field(min_length=1, max_length=30)
+    is_active: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        return value.strip()
+
+
+class UomCreate(UomBase):
+    pass
+
+
+class UomUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=30)
+    is_active: bool | None = None
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip()
+
+
+class UomRead(UomBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ProductBase(BaseModel):
     sku: str
     name: str
@@ -490,10 +532,18 @@ class ProductRead(ProductBase):
     default_purchase_rate: Decimal | None = None
     default_sale_rate: Decimal | None = None
     mrp: Decimal | None = None
+    unit_price: Decimal | None = None
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ProductListResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    data: list[ProductRead]
 
 
 class DrugLicenseVerificationNormalizedResult(BaseModel):

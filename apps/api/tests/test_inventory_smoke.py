@@ -52,6 +52,13 @@ def test_inventory_endpoints_smoke(client_with_test_db: tuple[TestClient, Sessio
     token = _create_access_user(db)
     headers = {"Authorization": f"Bearer {token}"}
 
+    brand_resp = client.post(
+        "/masters/brands",
+        headers=headers,
+        json={"name": "AK", "is_active": True},
+    )
+    assert brand_resp.status_code in {201, 400}, brand_resp.text
+
     product_resp = client.post(
         "/masters/products",
         headers=headers,
@@ -140,6 +147,13 @@ def test_bulk_opening_stock_upload_mixed_rows(client_with_test_db: tuple[TestCli
     client, db = client_with_test_db
     token = _create_access_user(db)
     headers = {"Authorization": f"Bearer {token}"}
+
+    brand_resp = client.post(
+        "/masters/brands",
+        headers=headers,
+        json={"name": "AK", "is_active": True},
+    )
+    assert brand_resp.status_code in {201, 400}, brand_resp.text
 
     product_resp = client.post(
         "/masters/products",

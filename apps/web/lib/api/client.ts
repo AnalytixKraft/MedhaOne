@@ -1,3 +1,5 @@
+import type { Schemas } from "./generated";
+
 export type ApiError = {
   error_code?: string;
   detail?:
@@ -233,9 +235,17 @@ export type Product = {
   default_purchase_rate: string | null;
   default_sale_rate: string | null;
   mrp: string | null;
+  unit_price: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
+};
+
+export type ProductListResponse = {
+  total: number;
+  page: number;
+  page_size: number;
+  data: Product[];
 };
 
 export type TaxRate = {
@@ -257,7 +267,11 @@ export type Category = {
   updated_at: string;
 };
 
-export type Brand = {
+// Sourced from the backend OpenAPI schema — a contract change to BrandRead surfaces
+// here (and in every consumer) as a TypeScript error. See lib/api/generated.
+export type Brand = Schemas["BrandRead"];
+
+export type Uom = {
   id: number;
   name: string;
   is_active: boolean;
@@ -319,6 +333,11 @@ export type CategoryPayload = {
 };
 
 export type BrandPayload = {
+  name: string;
+  is_active?: boolean;
+};
+
+export type UomPayload = {
   name: string;
   is_active?: boolean;
 };
@@ -668,19 +687,19 @@ export type RackPayload = {
 export type ProductPayload = {
   sku: string;
   name: string;
-  display_name?: string;
+  display_name?: string | null;
   brand?: string;
-  category?: string;
+  category?: string | null;
   uom: string;
   decimal_allowed?: boolean;
-  barcode?: string;
-  hsn?: string;
-  gst_rate?: string;
+  barcode?: string | null;
+  hsn?: string | null;
+  gst_rate?: string | null;
   default_warehouse_id?: number | null;
-  rack_number?: string;
-  default_purchase_rate?: string;
-  default_sale_rate?: string;
-  mrp?: string;
+  rack_number?: string | null;
+  default_purchase_rate?: string | null;
+  default_sale_rate?: string | null;
+  mrp?: string | null;
   is_active: boolean;
 };
 
@@ -1607,6 +1626,25 @@ export const apiClient = {
     request<Brand>(`/api/masters/brands/${id}`, {
       method: "DELETE",
     }),
+  listUoms: (includeInactive = false) =>
+    request<Uom[]>(
+      withQuery("/api/masters/uoms", { include_inactive: includeInactive }),
+      { method: "GET" },
+    ),
+  createUom: (payload: UomPayload) =>
+    request<Uom>("/api/masters/uoms", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateUom: (id: number, payload: Partial<UomPayload>) =>
+    request<Uom>(`/api/masters/uoms/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  deleteUom: (id: number) =>
+    request<Uom>(`/api/masters/uoms/${id}`, {
+      method: "DELETE",
+    }),
 
   listParties: () =>
     request<Party[]>("/api/masters/parties", { method: "GET" }),
@@ -1693,8 +1731,21 @@ export const apiClient = {
       method: "GET",
     }),
 
-  listProducts: () =>
-    request<Product[]>("/api/masters/products", { method: "GET" }),
+  listProducts: (includeInactive = false) =>
+    request<Product[]>(
+      withQuery("/api/masters/products", {
+        include_inactive: includeInactive ? "true" : undefined,
+      }),
+      { method: "GET" },
+    ),
+  listProductsPage: (
+    query?: Record<string, string | number | boolean | undefined | null>,
+  ) =>
+    request<ProductListResponse>(withQuery("/api/masters/products/page", query), {
+      method: "GET",
+    }),
+  listProductCategories: () =>
+    request<string[]>("/api/masters/products/categories", { method: "GET" }),
   createProduct: (payload: ProductPayload) =>
     request<Product>("/api/masters/products", {
       method: "POST",

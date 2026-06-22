@@ -1,6 +1,7 @@
+from collections.abc import Callable
 from datetime import date
 from decimal import Decimal
-from typing import Callable, TypeVar
+from typing import TypeVar
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel

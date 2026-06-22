@@ -1,20 +1,19 @@
 from datetime import date
 from decimal import Decimal
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token
 from app.models.enums import (
     InventoryReason,
-    PartyType,
     PurchaseBillExtractionStatus,
     PurchaseBillStatus,
 )
 from app.models.purchase_bill import PurchaseBill, PurchaseBillLine
 from app.models.role import Role
 from app.models.user import User
+from app.testing import verify_gstin
 
 
 def _create_access_user(db: Session) -> str:
@@ -58,6 +57,7 @@ def _create_limited_access_user(db: Session) -> str:
 def _create_supplier(client: TestClient, headers: dict[str, str], name: str) -> int:
     serial = (sum(ord(char) for char in name) % 9000) + 1000
     suffix = chr(65 + (sum(ord(char) for char in name) % 26))
+    gstin = f"27ABCDE{serial:04d}{suffix}1Z5"
     response = client.post(
         "/masters/parties",
         headers=headers,
@@ -65,7 +65,8 @@ def _create_supplier(client: TestClient, headers: dict[str, str], name: str) -> 
             "party_name": name,
             "party_type": "SUPPLIER",
             "party_category": "DISTRIBUTOR",
-            "gstin": f"27ABCDE{serial:04d}{suffix}1Z5",
+            "gstin": gstin,
+            "gst_verification_log_id": verify_gstin(client, headers, gstin),
             "mobile": "9999999999",
             "state": "Maharashtra",
             "is_active": True,

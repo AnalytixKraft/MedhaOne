@@ -632,6 +632,7 @@ def _ensure_runtime_schema_compatibility(db: Session, schema_name: str) -> None:
                     id SERIAL PRIMARY KEY,
                     name VARCHAR(120) NOT NULL UNIQUE,
                     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    party_types JSON NOT NULL DEFAULT '["CUSTOMER", "SUPPLIER"]'::json,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
@@ -643,6 +644,8 @@ def _ensure_runtime_schema_compatibility(db: Session, schema_name: str) -> None:
             "Auto-repaired tenant schema to add missing categories table",
             extra={"schema": schema_name},
         )
+    else:
+        _auto_repair_category_party_types(db, schema_name)
 
     brands_table_exists = db.execute(
         text(
@@ -982,6 +985,75 @@ def _index_exists(db: Session, schema_name: str, index_name: str) -> bool:
             {"schema_name": schema_name, "index_name": index_name},
         ).scalar_one_or_none()
         is not None
+    )
+
+
+def _auto_repair_category_party_types(db: Session, schema_name: str) -> None:
+    # Categories created before the Category.party_types link column (migration 0033)
+    # lack it. Default-category seeding writes party_types, so add and backfill the
+    # column when missing, mirroring the migration's customer/supplier mapping.
+    party_types_exists = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = :schema_name
+              AND table_name = 'categories'
+              AND column_name = 'party_types'
+            """
+        ),
+        {"schema_name": schema_name},
+    ).scalar_one_or_none()
+
+    if party_types_exists is not None:
+        return
+
+    categories_table = _build_quoted_schema_table(schema_name, "categories")
+    db.execute(
+        text(f"ALTER TABLE {categories_table} ADD COLUMN IF NOT EXISTS party_types JSON")
+    )
+    db.execute(
+        text(
+            f"""
+            UPDATE {categories_table}
+            SET party_types = '["CUSTOMER"]'::json
+            WHERE party_types IS NULL
+              AND upper(name) IN ('RETAILER', 'HOSPITAL', 'PHARMACY', 'INSTITUTION')
+            """
+        )
+    )
+    db.execute(
+        text(
+            f"""
+            UPDATE {categories_table}
+            SET party_types = '["SUPPLIER"]'::json
+            WHERE party_types IS NULL
+              AND upper(name) IN ('DISTRIBUTOR', 'STOCKIST')
+            """
+        )
+    )
+    db.execute(
+        text(
+            f"""
+            UPDATE {categories_table}
+            SET party_types = '["CUSTOMER", "SUPPLIER"]'::json
+            WHERE party_types IS NULL
+            """
+        )
+    )
+    db.execute(
+        text(
+            f"""
+            ALTER TABLE {categories_table}
+            ALTER COLUMN party_types SET DEFAULT '["CUSTOMER", "SUPPLIER"]'::json,
+            ALTER COLUMN party_types SET NOT NULL
+            """
+        )
+    )
+    db.commit()
+    logger.warning(
+        "Auto-repaired tenant schema to add missing categories.party_types",
+        extra={"schema": schema_name},
     )
 
 
@@ -2082,14 +2154,39 @@ def _auto_repair_drug_license_verification_tables(db: Session, schema_name: str)
     logs_table = _build_quoted_schema_table(schema_name, "drug_license_verification_logs")
     parties_table = _build_quoted_schema_table(schema_name, "parties")
     users_table = _build_quoted_schema_table(schema_name, "users")
+    # requested_by references users.id. Legacy tenant schemas use a TEXT users.id, so
+    # the column type must follow the live users.id type or the FK fails to build
+    # (DatatypeMismatch). Drop the FK when users.id is non-integer, matching how the
+    # inventory/purchase repairs handle created_by.
+    users_id_data_type = (
+        db.execute(
+            text(
+                """
+                SELECT data_type
+                FROM information_schema.columns
+                WHERE table_schema = :schema_name
+                  AND table_name = 'users'
+                  AND column_name = 'id'
+                """
+            ),
+            {"schema_name": schema_name},
+        ).scalar_one_or_none()
+        or ""
+    )
+    users_id_type = "INTEGER" if users_id_data_type in {"integer", "smallint", "bigint"} else "TEXT"
+    requested_by_column_sql = (
+        f"requested_by {users_id_type} NOT NULL REFERENCES {users_table}(id),"
+        if users_id_type == "INTEGER"
+        else f"requested_by {users_id_type} NOT NULL,"
+    )
     db.execute(
         text(
             f"""
             CREATE TABLE IF NOT EXISTS {logs_table} (
                 id SERIAL PRIMARY KEY,
-                party_id INTEGER NOT NULL REFERENCES {parties_table}(id) ON DELETE CASCADE,
+                party_id INTEGER NULL REFERENCES {parties_table}(id) ON DELETE CASCADE,
                 drug_license_number VARCHAR(120) NOT NULL,
-                requested_by INTEGER NOT NULL REFERENCES {users_table}(id),
+                {requested_by_column_sql}
                 requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 status VARCHAR(32) NOT NULL,
                 source_url VARCHAR(255),

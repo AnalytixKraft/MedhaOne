@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -115,6 +115,51 @@ class _FailureClient:
         session_context: dict | None,
     ) -> VerificationClientStep:
         raise AssertionError("resume_verification should not be called for the failure client")
+
+
+class _SuccessButNoRecordClient:
+    """Portal replies HTTP 200 but with a 'no record found' page (empty parse)."""
+
+    def start_verification(self, *, license_number: str) -> VerificationClientStep:
+        return VerificationClientStep(
+            state="CAPTCHA_REQUIRED",
+            source_url="https://verify.example.gov",
+            session_context={"session_id": "abc123", "license_number": license_number},
+            challenge_text="Captcha shown on the government portal.",
+        )
+
+    def resume_verification(
+        self,
+        *,
+        license_number: str,
+        captcha_value: str,
+        session_context: dict | None,
+    ) -> VerificationClientStep:
+        return VerificationClientStep(
+            state="SUCCESS",
+            source_url="https://verify.example.gov",
+            result_snapshot="<html><body>No record found for this licence.</body></html>",
+        )
+
+
+class _StartNoRecordClient:
+    """Auto-completes on start but the portal returns a 'no record found' page."""
+
+    def start_verification(self, *, license_number: str) -> VerificationClientStep:
+        return VerificationClientStep(
+            state="SUCCESS",
+            source_url="https://verify.example.gov",
+            result_snapshot="<html><body>No record found for this licence.</body></html>",
+        )
+
+    def resume_verification(
+        self,
+        *,
+        license_number: str,
+        captcha_value: str,
+        session_context: dict | None,
+    ) -> VerificationClientStep:
+        raise AssertionError("resume_verification should not be called")
 
 
 def test_drug_license_verification_prefills_party_licence_and_enters_captcha_required_state(
@@ -247,6 +292,106 @@ def test_successful_verification_resume_and_save_updates_party(
     )
     assert history_response.status_code == 200, history_response.text
     assert history_response.json()["items"][0]["status"] == "SUCCESS"
+
+
+def test_no_record_response_is_not_treated_as_verified(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    """A portal 200 with no matching licence must report FAILED, never VERIFIED."""
+    client, db = client_with_test_db
+    party = _create_party(
+        db,
+        name="Ghost Pharma",
+        gstin="27ABCDE1234F1Z2",
+        drug_license_number="KL/PAL/MD42/2026/00001",
+    )
+    headers = _create_access_user(
+        db,
+        email="drug-license-nomatch@medhaone.app",
+        permission_codes={
+            "drug_license:verify",
+            "drug_license:save_verified_data",
+            "party:view",
+        },
+    )
+    original_client = get_drug_license_verification_client()
+    set_drug_license_verification_client(_SuccessButNoRecordClient())
+
+    try:
+        start_response = client.post(
+            "/masters/drug-license-verification/start",
+            headers=headers,
+            json={"party_id": party.id},
+        )
+        assert start_response.status_code == 200, start_response.text
+        log_id = start_response.json()["log"]["id"]
+
+        resume_response = client.post(
+            f"/masters/drug-license-verification/{log_id}/resume",
+            headers=headers,
+            json={"captcha_value": "654321"},
+        )
+        assert resume_response.status_code == 200, resume_response.text
+        resume_body = resume_response.json()
+        # Portal returned 200 but no licence details → must NOT be verified.
+        assert resume_body["log"]["status"] == "FAILED"
+        assert resume_body["result"] is None
+
+        # Saving must be rejected — there is no verified result to persist.
+        save_response = client.post(
+            f"/masters/drug-license-verification/{log_id}/save",
+            headers=headers,
+            json={},
+        )
+        assert save_response.status_code == 400, save_response.text
+    finally:
+        set_drug_license_verification_client(original_client)
+
+    db.refresh(party)
+    assert party.drug_license_verified_status == "NOT_VERIFIED"
+
+
+def test_no_match_clears_existing_party_verified_status(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    """A confirmed no-match must downgrade a party's previously-verified licence."""
+    client, db = client_with_test_db
+    party = _create_party(
+        db,
+        name="Stale Verified Pharma",
+        gstin="27ABCDE1234F1Z3",
+        drug_license_number="KL/PAL/MD42/2026/00001",
+    )
+    # Simulate a licence that was marked verified earlier.
+    party.drug_license_verified_status = "VERIFIED"
+    party.drug_license_holder_name = "Old Holder"
+    db.commit()
+
+    headers = _create_access_user(
+        db,
+        email="drug-license-clear@medhaone.app",
+        permission_codes={"drug_license:verify", "party:view"},
+    )
+    original_client = get_drug_license_verification_client()
+    set_drug_license_verification_client(_StartNoRecordClient())
+
+    try:
+        response = client.post(
+            "/masters/drug-license-verification/start",
+            headers=headers,
+            json={"party_id": party.id},
+        )
+    finally:
+        set_drug_license_verification_client(original_client)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["log"]["status"] == "FAILED"
+    assert body["result"] is None
+
+    db.refresh(party)
+    assert party.drug_license_verified_status == "FAILED"
+    assert party.drug_license_holder_name is None
 
 
 def test_failed_verification_is_logged_for_traceability(

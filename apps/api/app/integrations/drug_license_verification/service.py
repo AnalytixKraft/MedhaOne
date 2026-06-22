@@ -49,6 +49,11 @@ def start_verification(
     workflow = _apply_step_to_log(log, license_number=drug_license_number, step=step)
     db.add(log)
     db.flush()
+    # A confirmed "no record" result must clear any stale verified status the
+    # party still carries for this licence, so the Party form stops showing it
+    # as verified.
+    if party is not None and (log.extracted_data_json or {}).get("match_found") is False:
+        _clear_party_verified_for_no_match(party, drug_license_number)
     return workflow
 
 
@@ -141,6 +146,7 @@ def _apply_step_to_log(
         "portal_state": step.state,
     }
 
+    no_match = False
     if step.result_snapshot is not None:
         try:
             result = parse_result_snapshot(
@@ -154,10 +160,23 @@ def _apply_step_to_log(
                 **asdict(result),
                 "valid_upto": result.valid_upto.isoformat() if result.valid_upto is not None else None,
             }
+            # A 200 response with no licence details (e.g. a "no record found"
+            # page) parses into an empty result and must NOT count as verified.
+            if (
+                log_status == DrugLicenseVerificationLogStatus.SUCCESS
+                and not _result_indicates_match(result)
+            ):
+                log_status = DrugLicenseVerificationLogStatus.FAILED
+                no_match = True
+                extracted_data["match_found"] = False
 
     log.status = log_status.value
     log.source_url = step.source_url
-    log.remarks = step.remarks
+    log.remarks = (
+        "No matching licence record was returned by the portal for this number."
+        if no_match
+        else step.remarks
+    )
     log.extracted_data_json = extracted_data
     log.response_snapshot = _serialize_snapshot(step.result_snapshot)
 
@@ -224,7 +243,44 @@ def _read_parsed_result(payload: dict[str, Any] | None) -> ParsedDrugLicenseResu
     )
 
 
+def _clear_party_verified_for_no_match(party: Party, license_number: str) -> None:
+    """Downgrade a party's stored verified status to FAILED for the licence slot
+    matching this number, after a confirmed "no record" result. Only the slot
+    whose number matches is touched; the other slot is left untouched.
+    """
+    normalized = (license_number or "").strip().lower()
+    if not normalized:
+        return
+    now = datetime.now(timezone.utc)
+    if (party.drug_license_number or "").strip().lower() == normalized:
+        party.drug_license_verified_status = DrugLicenseVerifiedStatus.FAILED.value
+        party.drug_license_verified_at = now
+        party.drug_license_holder_name = None
+        party.drug_license_valid_upto = None
+    if (party.drug_license_2_number or "").strip().lower() == normalized:
+        party.drug_license_2_verified_status = DrugLicenseVerifiedStatus.FAILED.value
+        party.drug_license_2_verified_at = now
+        party.drug_license_2_holder_name = None
+        party.drug_license_2_valid_upto = None
+
+
+def _result_indicates_match(parsed: ParsedDrugLicenseResult | None) -> bool:
+    """True only when the portal actually returned licence details.
+
+    A "no record found" page parses into an all-empty result (only the echoed
+    input licence number), which must not be treated as a verified match.
+    """
+    if parsed is None:
+        return False
+    return any(
+        field is not None
+        for field in (parsed.holder_name, parsed.status, parsed.valid_upto, parsed.authority)
+    )
+
+
 def _derive_party_verified_status(parsed: ParsedDrugLicenseResult) -> DrugLicenseVerifiedStatus:
+    if not _result_indicates_match(parsed):
+        return DrugLicenseVerifiedStatus.FAILED
     if parsed.valid_upto is not None and parsed.valid_upto < datetime.now(timezone.utc).date():
         return DrugLicenseVerifiedStatus.EXPIRED
     return DrugLicenseVerifiedStatus.VERIFIED

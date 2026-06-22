@@ -1,14 +1,12 @@
 from datetime import date
 from decimal import Decimal
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token
 from app.models.audit import AuditLog
-from app.models.brand import Brand
 from app.models.enums import (
     InventoryReason,
     PartyType,
@@ -19,6 +17,7 @@ from app.models.inventory import InventoryLedger, StockSummary
 from app.models.purchase_bill import PurchaseBill, PurchaseBillLine
 from app.models.role import Role
 from app.models.user import User
+from app.testing import verify_gstin
 
 
 def _error_payload(response) -> dict[str, str]:
@@ -57,13 +56,15 @@ def _valid_test_gstin(seed: str) -> str:
 
 
 def _create_supplier(client: TestClient, headers: dict[str, str], code_suffix: str = "01") -> int:
+    gstin = _valid_test_gstin(code_suffix)
     response = client.post(
         "/masters/parties",
         headers=headers,
         json={
             "name": f"Supplier {code_suffix}",
             "party_type": PartyType.DISTRIBUTOR.value,
-            "gstin": _valid_test_gstin(code_suffix),
+            "gstin": gstin,
+            "gst_verification_log_id": verify_gstin(client, headers, gstin),
             "state": "Maharashtra",
             "phone": "9999999999",
             "is_active": True,
@@ -629,7 +630,7 @@ def test_one_grn_line_can_have_multiple_batch_rows(
     assert len(draft["lines"][0]["batch_lines"]) == 2
 
     posted = _post_grn(client, headers, draft["id"])
-    assert posted["lines"][0]["product_name_snapshot"] == f"Product MBR-SKU-1"
+    assert posted["lines"][0]["product_name_snapshot"] == "Product MBR-SKU-1"
     assert [batch["batch_no"] for batch in posted["lines"][0]["batch_lines"]] == [
         "MBR-BATCH-1",
         "MBR-BATCH-2",

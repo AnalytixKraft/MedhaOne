@@ -6,10 +6,12 @@ import {
   Building2,
   FileSearch,
   LayoutDashboard,
+  Package2,
   PackageCheck,
   Settings,
   ShoppingCart,
   SquareStack,
+  Users2,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -27,7 +29,8 @@ import {
 import { PURCHASE_NAV_ITEMS, PURCHASE_REPORT_ITEMS } from "@/lib/purchase/navigation";
 import {
   DATA_QUALITY_REPORTS,
-  MASTERS_REPORTS,
+  MASTERS_REPORT_CATEGORIES,
+  mastersReportsByCategory,
   PURCHASE_ANALYTICS_REPORTS,
 } from "@/lib/reports/navigation";
 import { SALES_NAV_ITEMS } from "@/lib/sales/navigation";
@@ -166,13 +169,25 @@ const navItems: NavNode[] = [
         testId: "nav-reports-masters",
         icon: Building2,
         requiredPermission: "reports:view",
-        children: MASTERS_REPORTS.map((item) => ({
-          id: `reports-masters-${item.slug}`,
-          label: item.title,
-          href: item.href,
-          testId: `nav-reports-masters-${item.slug}`,
-          icon: BarChart3,
+        children: MASTERS_REPORT_CATEGORIES.map((category) => ({
+          id: `reports-masters-${category.id}`,
+          label: category.label,
+          testId: `nav-reports-masters-${category.id}`,
+          icon:
+            category.id === "parties"
+              ? Users2
+              : category.id === "items"
+                ? Package2
+                : Building2,
           requiredPermission: "reports:view",
+          children: mastersReportsByCategory(category.id).map((item) => ({
+            id: `reports-masters-${item.slug}`,
+            label: item.title,
+            href: item.href,
+            testId: `nav-reports-masters-${item.slug}`,
+            icon: BarChart3,
+            requiredPermission: "reports:view",
+          })),
         })),
       },
       {

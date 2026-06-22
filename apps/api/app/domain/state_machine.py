@@ -18,9 +18,11 @@ class PurchaseStateMachine:
             PurchaseOrderStatus.CLOSED,
         ):
             return
-        if (
-            current_state == PurchaseOrderStatus.PARTIALLY_RECEIVED
-            and target_state == PurchaseOrderStatus.CLOSED
+        if current_state == PurchaseOrderStatus.PARTIALLY_RECEIVED and target_state in (
+            # Self-transition: a further partial GRN that still does not complete the PO
+            # keeps it PARTIALLY_RECEIVED. Multiple partial receipts per PO are standard.
+            PurchaseOrderStatus.PARTIALLY_RECEIVED,
+            PurchaseOrderStatus.CLOSED,
         ):
             return
 

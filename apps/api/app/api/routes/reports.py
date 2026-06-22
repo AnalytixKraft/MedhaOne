@@ -9,8 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models.batch import Batch
-from app.models.enums import PartyCategory, PartyType
-from app.models.enums import PurchaseOrderStatus
+from app.models.enums import PartyCategory, PartyType, PurchaseOrderStatus
 from app.models.party import Party
 from app.models.product import Product
 from app.models.purchase import GRN
@@ -30,18 +29,20 @@ from app.reports.masters.brand_summary_report import get_brand_summary_report
 from app.reports.masters.category_item_report import get_category_item_report
 from app.reports.masters.category_summary_report import get_category_summary_report
 from app.reports.masters.common import MasterReportFilters
+from app.reports.masters.item_directory_report import get_item_directory_report
 from app.reports.masters.item_distribution import get_item_distribution_report
 from app.reports.masters.item_utilization import get_item_utilization_report
 from app.reports.masters.low_usage_unused_warehouses import get_low_usage_unused_warehouses_report
 from app.reports.masters.party_activity_report import get_party_activity_report
 from app.reports.masters.party_commercial_report import get_party_commercial_report
+from app.reports.masters.party_directory_report import get_party_directory_report
 from app.reports.masters.party_geography_report import get_party_geography_report
 from app.reports.masters.party_type_report import get_party_type_report
+from app.reports.masters.rack_report import get_rack_report
 from app.reports.masters.warehouse_coverage import get_warehouse_coverage_report
 from app.reports.masters.warehouse_item_summary import get_warehouse_item_summary_report
 from app.reports.masters.warehouse_utilization import get_warehouse_utilization_report
 from app.reports.opening_stock import OpeningStockFilters, get_opening_stock_report
-from app.reports.purchase_register import PurchaseRegisterFilters, get_purchase_register_report
 from app.reports.purchase_analytics.common import (
     PurchaseAnalyticsFilters,
     build_summary_metric,
@@ -63,6 +64,7 @@ from app.reports.purchase_analytics.supplier_lead_time import (
 from app.reports.purchase_analytics.supplier_price_comparison import (
     get_supplier_price_comparison_report,
 )
+from app.reports.purchase_register import PurchaseRegisterFilters, get_purchase_register_report
 from app.reports.stock_ageing import StockAgeingFilters, get_stock_ageing_report
 from app.reports.stock_inward import StockInwardFilters, get_stock_inward_report
 from app.reports.stock_movement import StockMovementFilters, get_stock_movement_report
@@ -72,18 +74,18 @@ from app.reports.stock_source_traceability import (
     get_stock_source_traceability_report,
 )
 from app.schemas.reports import (
-    CurrentStockSourceDetailResponse,
     CurrentStockReportResponse,
+    CurrentStockSourceDetailResponse,
     DataQualityFilterOptionsResponse,
     DeadStockReportResponse,
     ExpiryReportResponse,
     GenericTabularReportResponse,
     MasterReportFilterOptionsResponse,
     OpeningStockReportResponse,
-    PurchaseRegisterReportResponse,
     PurchaseAnalyticsDashboardResponse,
     PurchaseAnalyticsFilterOptionsResponse,
     PurchaseAnalyticsReportResponse,
+    PurchaseRegisterReportResponse,
     ReportEntityOption,
     ReportFilterOptionsResponse,
     ReportSummaryMetric,
@@ -148,6 +150,7 @@ def _master_filters(
     party_categories: str | None = None,
     states: str | None = None,
     cities: str | None = None,
+    search: str | None = None,
     active_status: str | None = None,
     inactivity_days: int = 30,
     date_from: date | None = None,
@@ -164,6 +167,7 @@ def _master_filters(
         party_categories=_parse_csv_strings(party_categories),
         states=_parse_csv_strings(states),
         cities=_parse_csv_strings(cities),
+        search=(search or "").strip(),
         is_active=_parse_bool(active_status),
         inactivity_days=inactivity_days,
         date_from=date_from,
@@ -923,6 +927,26 @@ def masters_warehouse_item_summary(
     return _generic_response(total=total, page=page, page_size=page_size, summary=summary, data=data)
 
 
+@router.get("/masters/rack-report", response_model=GenericTabularReportResponse)
+def masters_rack_report(
+    warehouse_ids: str | None = None,
+    active_status: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("reports:view")),
+) -> GenericTabularReportResponse:
+    _ = current_user
+    filters = _master_filters(
+        warehouse_ids=warehouse_ids,
+        active_status=active_status,
+        page=page,
+        page_size=page_size,
+    )
+    total, data, summary = get_rack_report(db, filters)
+    return _generic_response(total=total, page=page, page_size=page_size, summary=summary, data=data)
+
+
 @router.get("/masters/warehouse-utilization", response_model=GenericTabularReportResponse)
 def masters_warehouse_utilization(
     warehouse_ids: str | None = None,
@@ -1058,6 +1082,56 @@ def masters_item_distribution(
         page_size=page_size,
     )
     total, data, summary = get_item_distribution_report(db, filters)
+    return _generic_response(total=total, page=page, page_size=page_size, summary=summary, data=data)
+
+
+@router.get("/masters/item-directory", response_model=GenericTabularReportResponse)
+def masters_item_directory(
+    brand_values: str | None = None,
+    search: str | None = None,
+    active_status: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("reports:view")),
+) -> GenericTabularReportResponse:
+    _ = current_user
+    filters = _master_filters(
+        brand_values=brand_values,
+        search=search,
+        active_status=active_status,
+        page=page,
+        page_size=page_size,
+    )
+    total, data, summary = get_item_directory_report(db, filters)
+    return _generic_response(total=total, page=page, page_size=page_size, summary=summary, data=data)
+
+
+@router.get("/masters/party-directory", response_model=GenericTabularReportResponse)
+def masters_party_directory(
+    party_types: str | None = None,
+    party_categories: str | None = None,
+    states: str | None = None,
+    cities: str | None = None,
+    search: str | None = None,
+    active_status: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("reports:view")),
+) -> GenericTabularReportResponse:
+    _ = current_user
+    filters = _master_filters(
+        party_types=party_types,
+        party_categories=party_categories,
+        states=states,
+        cities=cities,
+        search=search,
+        active_status=active_status,
+        page=page,
+        page_size=page_size,
+    )
+    total, data, summary = get_party_directory_report(db, filters)
     return _generic_response(total=total, page=page, page_size=page_size, summary=summary, data=data)
 
 

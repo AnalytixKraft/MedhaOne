@@ -5,14 +5,21 @@ Revises: 20260311_0029
 Create Date: 2026-03-12 15:00:00.000000
 """
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 revision = "20260312_0030"
 down_revision = "20260311_0029"
 branch_labels = None
 depends_on = None
+
+
+def _current_schema(bind) -> str:
+    # During tenant provisioning the search_path is the tenant schema; the inspector's
+    # cached default_schema_name is "public", so existence guards must target the live
+    # current_schema() or they wrongly check public and skip the tenant.
+    return bind.execute(sa.text("SELECT current_schema()")).scalar() or "public"
 
 
 def _existing_columns(table_name: str) -> set[str]:
@@ -55,7 +62,7 @@ def upgrade() -> None:
             ["id"],
         )
 
-    if not inspector.has_table("drug_license_verification_logs"):
+    if not inspector.has_table("drug_license_verification_logs", schema=_current_schema(bind)):
         op.create_table(
             "drug_license_verification_logs",
             sa.Column("id", sa.Integer(), primary_key=True),
@@ -103,7 +110,7 @@ def downgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
 
-    if inspector.has_table("drug_license_verification_logs"):
+    if inspector.has_table("drug_license_verification_logs", schema=_current_schema(bind)):
         op.drop_index("ix_drug_license_verification_logs_license_number", table_name="drug_license_verification_logs")
         op.drop_index("ix_drug_license_verification_logs_status", table_name="drug_license_verification_logs")
         op.drop_index("ix_drug_license_verification_logs_requested_by", table_name="drug_license_verification_logs")

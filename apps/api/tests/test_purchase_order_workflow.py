@@ -5,6 +5,7 @@ from app.core.security import create_access_token, get_password_hash
 from app.models.company_settings import CompanySettings
 from app.models.role import Role
 from app.models.user import User
+from app.testing import verify_gstin
 
 
 def _token_for_admin(db: Session, email: str = "po-workflow@medhaone.app") -> str:
@@ -26,6 +27,7 @@ def _token_for_admin(db: Session, email: str = "po-workflow@medhaone.app") -> st
 
 
 def _create_supplier(client: TestClient, headers: dict[str, str], name: str = "PO Workflow Supplier") -> int:
+    gstin = "27ABCDE1234F1Z5"
     response = client.post(
         "/masters/parties",
         headers=headers,
@@ -33,7 +35,8 @@ def _create_supplier(client: TestClient, headers: dict[str, str], name: str = "P
             "name": name,
             "party_type": "SUPPLIER",
             "party_category": "STOCKIST",
-            "gstin": "27ABCDE1234F1Z5",
+            "gstin": gstin,
+            "gst_verification_log_id": verify_gstin(client, headers, gstin),
             "state": "Maharashtra",
             "phone": "9999999999",
             "is_active": True,
@@ -60,6 +63,13 @@ def _create_product(client: TestClient, headers: dict[str, str], sku: str = "POW
         json={"name": "AK", "is_active": True},
     )
     assert brand_response.status_code in {201, 400}, brand_response.text
+
+    tax_response = client.post(
+        "/tax-rates",
+        headers=headers,
+        json={"code": "GST_12", "label": "GST 12%", "rate_percent": 12, "is_active": True},
+    )
+    assert tax_response.status_code in {201, 400}, tax_response.text
 
     response = client.post(
         "/masters/products",

@@ -8,6 +8,11 @@ import {
   DataQualityFilterBar,
   defaultDataQualityFilters,
   type DataQualityFilterState,
+  MasterReportFilterBar,
+  defaultMasterReportFilters,
+  masterReportFilterQuery,
+  type MasterReportFilterField,
+  type MasterReportFilterState,
 } from "@/components/reports/master-data-filter-bars";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +27,7 @@ import {
   apiClient,
   type DataQualityFilterOptions,
   type GenericTabularReportResponse,
+  type MasterReportFilterOptions,
 } from "@/lib/api/client";
 import { type GenericReportConfig } from "@/lib/reports/navigation";
 
@@ -160,6 +166,16 @@ export function GenericMasterReportPage({ config }: { config: GenericReportConfi
   const [summary, setSummary] = useState<GenericTabularReportResponse["summary"]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [filterOptions, setFilterOptions] = useState<MasterReportFilterOptions | null>(null);
+  const [filters, setFilters] = useState<MasterReportFilterState>(defaultMasterReportFilters);
+  const [appliedFilters, setAppliedFilters] = useState<MasterReportFilterState>(defaultMasterReportFilters);
+
+  // Auto-apply: debounce live filter changes into the applied set, so selecting a
+  // value (or typing in search) reloads automatically without an Apply button.
+  useEffect(() => {
+    const handle = setTimeout(() => setAppliedFilters(filters), 250);
+    return () => clearTimeout(handle);
+  }, [filters]);
 
   const load = useCallback(async () => {
     if (!config.endpoint) {
@@ -168,7 +184,8 @@ export function GenericMasterReportPage({ config }: { config: GenericReportConfi
     setLoading(true);
     setError(null);
     try {
-      const response = await apiClient.getGenericReport(config.endpoint);
+      const query = config.filterable ? masterReportFilterQuery(appliedFilters) : undefined;
+      const response = await apiClient.getGenericReport(config.endpoint, query);
       setRows(response.data);
       setSummary(response.summary);
     } catch (caught) {
@@ -176,11 +193,33 @@ export function GenericMasterReportPage({ config }: { config: GenericReportConfi
     } finally {
       setLoading(false);
     }
-  }, [config.endpoint]);
+  }, [config.endpoint, config.filterable, appliedFilters]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!config.filterable) {
+      return;
+    }
+    let active = true;
+    void apiClient
+      .getMasterReportFilterOptions()
+      .then((options) => {
+        if (active) {
+          setFilterOptions(options);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setFilterOptions(null);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [config.filterable]);
 
   const headers = useMemo(() => config.columns?.map((column) => column.key) ?? [], [config.columns]);
   // A column is numeric (right-aligned) if any row holds a number for it.
@@ -201,7 +240,21 @@ export function GenericMasterReportPage({ config }: { config: GenericReportConfi
   return (
     <div className="space-y-6">
       <PageTitle title={config.title} description={config.description} />
-      {summary.length > 0 ? (
+      {config.filterable && filterOptions ? (
+        <MasterReportFilterBar
+          options={filterOptions}
+          value={filters}
+          onChange={setFilters}
+          fields={config.filterFields as MasterReportFilterField[] | undefined}
+          actions={{
+            onClear: () => setFilters(defaultMasterReportFilters),
+            onExportCsv: () => exportRows(`${config.slug}.csv`, headers, rows, "csv"),
+            onExportExcel: () => exportRows(`${config.slug}.xls`, headers, rows, "xls"),
+            onPrint: () => printRows(config.title, headers, rows),
+          }}
+        />
+      ) : null}
+      {!config.hideSummary && summary.length > 0 ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {summary.map((metric, index) => (
             <MetricCard

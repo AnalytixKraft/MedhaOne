@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from conftest import TEST_TENANT_SLUG
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -14,7 +15,7 @@ from app.models.tax_rate import TaxRate
 from app.models.user import User
 from app.models.warehouse import Rack, Warehouse
 from app.services.rbac import assign_roles_to_user, ensure_rbac_seeded
-from conftest import TEST_TENANT_SLUG
+from app.testing import verify_gstin
 
 
 def _create_user(
@@ -66,6 +67,7 @@ def test_party_gstin_extracts_pan(client_with_test_db: tuple[TestClient, Session
             "party_name": "GST Supplier",
             "party_type": "DISTRIBUTOR",
             "gstin": "27abcde1234f1z5",
+            "gst_verification_log_id": verify_gstin(client, headers, "27abcde1234f1z5"),
             "is_active": True,
         },
     )
@@ -94,6 +96,7 @@ def test_party_code_is_auto_generated_and_not_editable(
             "party_type": "SUPPLIER",
             "party_category": "DISTRIBUTOR",
             "gstin": "27ABCDE1234F1Z5",
+            "gst_verification_log_id": verify_gstin(client, headers, "27ABCDE1234F1Z5"),
             "party_code": "MANUAL-CODE",
             "is_active": True,
         },
@@ -151,7 +154,7 @@ def test_party_missing_gstin_rejected(client_with_test_db: tuple[TestClient, Ses
     assert response.status_code == 400, response.text
     body = response.json()
     assert body["error_code"] == "VALIDATION_ERROR"
-    assert body["message"] == "GSTIN is required for Party Master"
+    assert body["message"] == "GSTIN is required for non-retailer parties"
     assert body["details"]["field"] == "gstin"
 
 
@@ -202,6 +205,7 @@ def test_party_state_override_respected_when_gstin_present(
             "party_name": "Override State Party",
             "party_type": "DISTRIBUTOR",
             "gstin": "27ABCDE1234F1Z5",
+            "gst_verification_log_id": verify_gstin(client, headers, "27ABCDE1234F1Z5"),
             "state": "Custom State",
             "is_active": True,
         },
@@ -290,6 +294,13 @@ def test_product_creation_supports_storage_defaults_and_decimal_behavior(
     )
     assert warehouse_response.status_code == 201, warehouse_response.text
     warehouse_id = warehouse_response.json()["id"]
+
+    rack_response = client.post(
+        "/masters/racks",
+        headers=headers,
+        json={"warehouse_id": warehouse_id, "rack_number": "R-12", "is_active": True},
+    )
+    assert rack_response.status_code == 201, rack_response.text
 
     create_response = client.post(
         "/masters/products",
@@ -405,6 +416,7 @@ def test_party_category_cannot_be_disabled_when_active_party_exists(
             "party_type": "BOTH",
             "party_category": "CHANNEL_PARTNER",
             "gstin": "27ABCDE1234F1Z5",
+            "gst_verification_log_id": verify_gstin(client, headers, "27ABCDE1234F1Z5"),
             "is_active": True,
         },
     )
@@ -440,6 +452,7 @@ def test_party_category_cannot_be_deleted_when_active_party_exists(
             "party_type": "CUSTOMER",
             "party_category": "KEY_ACCOUNT",
             "gstin": "29ABCDE1234F1Z5",
+            "gst_verification_log_id": verify_gstin(client, headers, "29ABCDE1234F1Z5"),
             "is_active": True,
         },
     )
@@ -471,6 +484,7 @@ def test_party_category_rename_updates_existing_parties(
             "party_type": "SUPPLIER",
             "party_category": "TRADE_PARTNER",
             "gstin": "33ABCDE1234F1Z5",
+            "gst_verification_log_id": verify_gstin(client, headers, "33ABCDE1234F1Z5"),
             "is_active": False,
         },
     )
@@ -623,9 +637,12 @@ def test_bulk_item_import_accepts_current_product_fields(
     client_with_test_db: tuple[TestClient, Session],
 ) -> None:
     client, db, headers = _headers_for_admin(client_with_test_db)
+    warehouse = Warehouse(name="Main Warehouse", code="MAINWH", address="Pune", is_active=True)
     db.add(TaxRate(code="GST_12", label="GST 12%", rate_percent="12.00", is_active=True))
     db.add(Brand(name="Medha Pharma", is_active=True))
-    db.add(Warehouse(name="Main Warehouse", code="MAINWH", address="Pune", is_active=True))
+    db.add(warehouse)
+    db.flush()
+    db.add(Rack(warehouse_id=warehouse.id, rack_number="R-01", is_active=True))
     db.commit()
 
     response = client.post(
@@ -682,6 +699,7 @@ def test_party_duplicate_gstin_rejected(client_with_test_db: tuple[TestClient, S
             "party_type": "SUPPLIER",
             "party_category": "DISTRIBUTOR",
             "gstin": "27ABCDE1234F1Z5",
+            "gst_verification_log_id": verify_gstin(client, headers, "27ABCDE1234F1Z5"),
             "is_active": True,
         },
     )
@@ -934,6 +952,100 @@ def test_delete_product_rejected_when_stock_exists(
     assert body["message"] == "Product cannot be deleted while stock is available."
 
 
+def test_update_product_cannot_deactivate_while_stock_exists(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db, headers = _headers_for_admin(client_with_test_db)
+    db.add(Brand(name="Inline Stock Brand", is_active=True))
+    db.commit()
+    product_response = client.post(
+        "/masters/products",
+        headers=headers,
+        json={
+            "sku": "PRDSTK02",
+            "name": "Inline Deactivate Product",
+            "brand": "Inline Stock Brand",
+            "uom": "BOX",
+            "is_active": True,
+        },
+    )
+    assert product_response.status_code == 201, product_response.text
+    product_id = product_response.json()["id"]
+
+    warehouse_response = client.post(
+        "/masters/warehouses",
+        headers=headers,
+        json={
+            "name": "Inline Stock Warehouse",
+            "code": "PSTKWH2",
+            "address": "Pune",
+            "is_active": True,
+        },
+    )
+    assert warehouse_response.status_code == 201, warehouse_response.text
+    warehouse_id = warehouse_response.json()["id"]
+
+    batch = Batch(product_id=product_id, batch_no="PRD-B2", expiry_date="2030-12-31")
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+
+    stock_response = client.post(
+        "/inventory/in",
+        headers=headers,
+        json={
+            "warehouse_id": warehouse_id,
+            "product_id": product_id,
+            "batch_id": batch.id,
+            "qty": "3",
+            "reason": "PURCHASE_GRN",
+        },
+    )
+    assert stock_response.status_code == 200, stock_response.text
+
+    # Inline-edit deactivation (PUT) must enforce the same stock guard as DELETE.
+    blocked = client.put(
+        f"/masters/products/{product_id}",
+        headers=headers,
+        json={"is_active": False},
+    )
+    assert blocked.status_code == 400, blocked.text
+    body = blocked.json()
+    assert body["error_code"] == "VALIDATION_ERROR"
+    assert body["message"] == "Product cannot be deactivated while stock is available."
+    still_active = client.get(f"/masters/products/{product_id}", headers=headers)
+    assert still_active.json()["is_active"] is True
+
+
+def test_update_product_can_deactivate_without_stock(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db, headers = _headers_for_admin(client_with_test_db)
+    db.add(Brand(name="No Stock Brand", is_active=True))
+    db.commit()
+    product_response = client.post(
+        "/masters/products",
+        headers=headers,
+        json={
+            "sku": "PRDNOSTK1",
+            "name": "Deactivatable Product",
+            "brand": "No Stock Brand",
+            "uom": "BOX",
+            "is_active": True,
+        },
+    )
+    assert product_response.status_code == 201, product_response.text
+    product_id = product_response.json()["id"]
+
+    response = client.put(
+        f"/masters/products/{product_id}",
+        headers=headers,
+        json={"is_active": False},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["is_active"] is False
+
+
 def test_party_advanced_fields_persist(client_with_test_db: tuple[TestClient, Session]) -> None:
     client, _db, headers = _headers_for_admin(client_with_test_db)
     response = client.post(
@@ -958,6 +1070,7 @@ def test_party_advanced_fields_persist(client_with_test_db: tuple[TestClient, Se
             "pincode": "411045",
             "country": "India",
             "gstin": "27ABCDE1234F1Z5",
+            "gst_verification_log_id": verify_gstin(client, headers, "27ABCDE1234F1Z5"),
             "registration_type": "REGISTERED",
             "drug_license_number": "DL-123",
             "fssai_number": "FSSAI-123",
@@ -1051,3 +1164,354 @@ def test_rack_master_and_product_rack_validation(
     assert valid_product_response.json()["rack_number"] == "A-01"
 
     assert db.query(Rack).filter(Rack.warehouse_id == warehouse_id).count() == 1
+
+
+def test_update_product_clears_optional_fields_with_null(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db, headers = _headers_for_admin(client_with_test_db)
+    db.add(Brand(name="ClearBrand", is_active=True))
+    db.commit()
+
+    warehouse_response = client.post(
+        "/masters/warehouses",
+        headers=headers,
+        json={"name": "Clear Warehouse", "code": "CLRWH", "is_active": True},
+    )
+    assert warehouse_response.status_code == 201, warehouse_response.text
+    warehouse_id = warehouse_response.json()["id"]
+
+    rack_response = client.post(
+        "/masters/racks",
+        headers=headers,
+        json={"warehouse_id": warehouse_id, "rack_number": "C-01", "is_active": True},
+    )
+    assert rack_response.status_code == 201, rack_response.text
+
+    create_response = client.post(
+        "/masters/products",
+        headers=headers,
+        json={
+            "sku": "CLEAR-SKU-1",
+            "name": "Clearable Product",
+            "display_name": "Clearable Display",
+            "category": "General Medicines",
+            "brand": "ClearBrand",
+            "uom": "BOX",
+            "default_warehouse_id": warehouse_id,
+            "rack_number": "C-01",
+            "is_active": True,
+        },
+    )
+    assert create_response.status_code == 201, create_response.text
+    product_id = create_response.json()["id"]
+
+    # Sending null (not an omitted key) must actually clear optional fields.
+    update_response = client.put(
+        f"/masters/products/{product_id}",
+        headers=headers,
+        json={"display_name": None, "category": None, "rack_number": None},
+    )
+    assert update_response.status_code == 200, update_response.text
+    body = update_response.json()
+    assert body["display_name"] is None
+    assert body["category"] is None
+    assert body["rack_number"] is None
+    # Warehouse was not part of the payload and must be retained.
+    assert body["default_warehouse_id"] == warehouse_id
+
+
+def _create_simple_product(client: TestClient, headers: dict, **overrides: object) -> None:
+    payload = {"uom": "BOX", "is_active": True, "brand": "PageBrand"}
+    payload.update(overrides)
+    response = client.post("/masters/products", headers=headers, json=payload)
+    assert response.status_code == 201, response.text
+
+
+def test_list_products_page_paginates_orders_and_searches(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db, headers = _headers_for_admin(client_with_test_db)
+    db.add(Brand(name="PageBrand", is_active=True))
+    db.commit()
+    for i in range(5):
+        _create_simple_product(
+            client,
+            headers,
+            sku=f"PAGE-{i}",
+            name=f"Page Product {i}",
+            category="Analgesics" if i % 2 == 0 else "Antibiotics",
+        )
+
+    first = client.get("/masters/products/page?page=1&page_size=2", headers=headers)
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert body["total"] == 5
+    assert body["page"] == 1
+    assert body["page_size"] == 2
+    assert len(body["data"]) == 2
+    assert body["data"][0]["name"] == "Page Product 0"  # ordered by name asc
+
+    last_page = client.get("/masters/products/page?page=3&page_size=2", headers=headers)
+    assert len(last_page.json()["data"]) == 1
+
+    search = client.get("/masters/products/page?search=page product 1", headers=headers)
+    search_body = search.json()
+    assert search_body["total"] == 1
+    assert search_body["data"][0]["sku"] == "PAGE-1"
+
+    cat = client.get("/masters/products/page?category=Analgesics", headers=headers)
+    assert cat.json()["total"] == 3
+
+    categories = client.get("/masters/products/categories", headers=headers)
+    assert categories.status_code == 200, categories.text
+    assert categories.json() == ["Analgesics", "Antibiotics"]
+
+
+def test_list_products_page_filters_by_active_status(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db, headers = _headers_for_admin(client_with_test_db)
+    db.add(Brand(name="PageBrand", is_active=True))
+    db.commit()
+    _create_simple_product(client, headers, sku="ACT-1", name="Active One", is_active=True)
+    _create_simple_product(client, headers, sku="INA-1", name="Inactive One", is_active=False)
+
+    inactive = client.get("/masters/products/page?is_active=false", headers=headers)
+    inactive_body = inactive.json()
+    assert inactive_body["total"] == 1
+    assert inactive_body["data"][0]["sku"] == "INA-1"
+
+    active = client.get("/masters/products/page?is_active=true", headers=headers)
+    assert [row["sku"] for row in active.json()["data"]] == ["ACT-1"]
+
+    everything = client.get("/masters/products/page", headers=headers)
+    assert everything.json()["total"] == 2
+
+
+def test_product_unit_price_derived_from_mrp_and_gst(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db, headers = _headers_for_admin(client_with_test_db)
+    db.add(Brand(name="PriceBrand", is_active=True))
+    db.add(TaxRate(code="GST_18", label="GST 18%", rate_percent="18.00", is_active=True))
+    db.commit()
+
+    created = client.post(
+        "/masters/products",
+        headers=headers,
+        json={
+            "sku": "PRICE-1",
+            "name": "Priced Product",
+            "brand": "PriceBrand",
+            "uom": "BOX",
+            "gst_rate": "18.00",
+            "mrp": "118.00",
+            "is_active": True,
+        },
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["unit_price"] == "100.00"  # 118 / 1.18
+    product_id = body["id"]
+
+    # Removing GST recomputes unit price to equal MRP.
+    no_gst = client.put(
+        f"/masters/products/{product_id}",
+        headers=headers,
+        json={"gst_rate": None},
+    )
+    assert no_gst.status_code == 200, no_gst.text
+    assert no_gst.json()["unit_price"] == "118.00"
+
+    # Clearing MRP clears the derived unit price.
+    cleared = client.put(
+        f"/masters/products/{product_id}",
+        headers=headers,
+        json={"mrp": None},
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["unit_price"] is None
+
+
+def test_rack_report_endpoint(client_with_test_db: tuple[TestClient, Session]) -> None:
+    client, db = client_with_test_db
+    admin = _create_user(
+        db,
+        email="rack-report-admin@medhaone.app",
+        role_names=["ADMIN"],
+        is_superuser=True,
+    )
+    headers = {"Authorization": f"Bearer {_token_for(admin)}"}
+    db.add(Brand(name="RackRptBrand", is_active=True))
+    db.commit()
+
+    warehouse = client.post(
+        "/masters/warehouses",
+        headers=headers,
+        json={"name": "Rack Rpt WH", "code": "RKRPT", "is_active": True},
+    )
+    assert warehouse.status_code == 201, warehouse.text
+    warehouse_id = warehouse.json()["id"]
+
+    rack = client.post(
+        "/masters/racks",
+        headers=headers,
+        json={"warehouse_id": warehouse_id, "rack_number": "RPT-A1", "is_active": True},
+    )
+    assert rack.status_code == 201, rack.text
+    client.post(
+        "/masters/racks",
+        headers=headers,
+        json={"warehouse_id": warehouse_id, "rack_number": "RPT-EMPTY", "is_active": True},
+    )
+
+    product = client.post(
+        "/masters/products",
+        headers=headers,
+        json={
+            "sku": "RKRPT-1",
+            "name": "Rack Rpt Product",
+            "brand": "RackRptBrand",
+            "uom": "BOX",
+            "default_warehouse_id": warehouse_id,
+            "rack_number": "RPT-A1",
+            "is_active": True,
+        },
+    )
+    assert product.status_code == 201, product.text
+    product_id = product.json()["id"]
+
+    batch = Batch(product_id=product_id, batch_no="RKRPT-B1", expiry_date="2031-12-31")
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+    stock = client.post(
+        "/inventory/in",
+        headers=headers,
+        json={
+            "warehouse_id": warehouse_id,
+            "product_id": product_id,
+            "batch_id": batch.id,
+            "qty": "5",
+            "reason": "PURCHASE_GRN",
+        },
+    )
+    assert stock.status_code == 200, stock.text
+
+    response = client.get("/reports/masters/rack-report", headers=headers)
+    assert response.status_code == 200, response.text
+    rows = {row["rack_number"]: row for row in response.json()["data"]}
+    assert rows["RPT-A1"]["products_assigned"] == 1
+    assert Decimal(str(rows["RPT-A1"]["total_stock_qty"])) == Decimal("5")
+    # Racks with no assigned products still appear, with zero counts.
+    assert rows["RPT-EMPTY"]["products_assigned"] == 0
+
+
+def test_party_directory_report_filters_and_search(
+    client_with_test_db: tuple[TestClient, Session],
+) -> None:
+    client, db = client_with_test_db
+    admin = _create_user(
+        db,
+        email="party-dir-admin@medhaone.app",
+        role_names=["ADMIN"],
+        is_superuser=True,
+    )
+    headers = {"Authorization": f"Bearer {_token_for(admin)}"}
+    # Build parties directly to bypass the GSTIN-verification gate on the API.
+    db.add_all(
+        [
+            Party(
+                name="Alpha Pharma",
+                party_type="SUPPLIER",
+                party_category="DISTRIBUTOR",
+                state="Maharashtra",
+                city="Pune",
+                gstin="27AAAAA0000A1Z5",
+                is_active=True,
+            ),
+            Party(
+                name="Beta Retail",
+                party_type="CUSTOMER",
+                party_category="PHARMACY",
+                state="Karnataka",
+                city="Bengaluru",
+                gstin="29BBBBB1111B1Z5",
+                is_active=True,
+            ),
+            Party(
+                name="Gamma Closed",
+                party_type="SUPPLIER",
+                state="Maharashtra",
+                city="Mumbai",
+                is_active=False,
+            ),
+        ]
+    )
+    db.commit()
+
+    base = "/reports/masters/party-directory"
+    all_parties = client.get(base, headers=headers)
+    assert all_parties.status_code == 200, all_parties.text
+    assert all_parties.json()["total"] == 3
+
+    # Search matches GSTIN (case-insensitive).
+    by_gstin = client.get(base, headers=headers, params={"search": "27aaaaa"})
+    gstin_body = by_gstin.json()
+    assert gstin_body["total"] == 1
+    assert gstin_body["data"][0]["party_name"] == "Alpha Pharma"
+
+    # Location filter.
+    in_mh = client.get(base, headers=headers, params={"states": "Maharashtra"})
+    assert in_mh.json()["total"] == 2
+
+    # Type + status filters.
+    suppliers = client.get(base, headers=headers, params={"party_types": "SUPPLIER"})
+    assert suppliers.json()["total"] == 2
+    active_only = client.get(base, headers=headers, params={"active_status": "active"})
+    assert active_only.json()["total"] == 2
+
+
+def test_uom_master_crud_and_defaults(client_with_test_db: tuple[TestClient, Session]) -> None:
+    client, db = client_with_test_db
+    admin = _create_user(
+        db,
+        email="uom-admin@medhaone.app",
+        role_names=["ADMIN"],
+        is_superuser=True,
+    )
+    headers = {"Authorization": f"Bearer {_token_for(admin)}"}
+
+    # Listing seeds the common default UOMs so the dropdown is never empty.
+    listed = client.get("/masters/uoms", headers=headers)
+    assert listed.status_code == 200, listed.text
+    names = {row["name"] for row in listed.json()}
+    assert {"EA", "BOX", "KG"}.issubset(names)
+
+    created = client.post(
+        "/masters/uoms",
+        headers=headers,
+        json={"name": "CASE", "is_active": True},
+    )
+    assert created.status_code == 201, created.text
+    uom_id = created.json()["id"]
+
+    # Case-insensitive duplicate is rejected.
+    dup = client.post("/masters/uoms", headers=headers, json={"name": "case"})
+    assert dup.status_code == 400, dup.text
+
+    updated = client.patch(
+        f"/masters/uoms/{uom_id}",
+        headers=headers,
+        json={"is_active": False},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["is_active"] is False
+
+    # Inactive UOMs are excluded unless explicitly included.
+    active_names = {row["name"] for row in client.get("/masters/uoms", headers=headers).json()}
+    assert "CASE" not in active_names
+
+    deleted = client.delete(f"/masters/uoms/{uom_id}", headers=headers)
+    assert deleted.status_code == 200, deleted.text

@@ -9,7 +9,10 @@ from app.models.party import Party
 from app.models.product import Product
 from app.models.warehouse import Warehouse
 from app.schemas.purchase_bill import PurchaseBillExtractionPayload
-from app.services.purchase_bill import get_purchase_invoice_extractor, set_purchase_invoice_extractor
+from app.services.purchase_bill import (
+    get_purchase_invoice_extractor,
+    set_purchase_invoice_extractor,
+)
 from app.testing import create_restricted_headers, create_superuser_headers
 
 

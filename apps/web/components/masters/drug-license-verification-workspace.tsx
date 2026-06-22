@@ -115,25 +115,36 @@ function ResultCard({ session, party, canSave, submitting, onSave }: ResultCardP
 
   const freshResult = session?.result ?? null;
   const freshStatus = session?.log.status ?? null;
+  // A fresh check ran and the portal returned no matching/valid record. We must
+  // not keep showing the licence as verified, even if the party still carries a
+  // stale "verified" status from an earlier check — clear it instead.
+  const freshFailed = freshStatus === "FAILED" || freshStatus === "PARSE_FAILED";
 
-  // Prefer fresh session result; fall back to data stored on the party
+  // Prefer fresh session result; fall back to data stored on the party — but a
+  // fresh failure clears the stale verified data rather than falling back to it.
   const licenceNumber = freshResult?.license_number ?? party?.drug_license_number ?? null;
-  const holderName = freshResult?.holder_name ?? party?.drug_license_holder_name ?? null;
-  const validUpto = freshResult?.valid_upto ?? party?.drug_license_valid_upto ?? null;
+  const holderName =
+    freshResult?.holder_name ?? (freshFailed ? null : (party?.drug_license_holder_name ?? null));
+  const validUpto =
+    freshResult?.valid_upto ?? (freshFailed ? null : (party?.drug_license_valid_upto ?? null));
   const authority = freshResult?.authority ?? null;
-  const state = freshResult?.state ?? party?.drug_license_state ?? null;
+  const state = freshResult?.state ?? (freshFailed ? null : (party?.drug_license_state ?? null));
   const verifiedAt =
     freshStatus === "SUCCESS"
       ? (session?.log.requested_at ?? null)
-      : (party?.drug_license_verified_at ?? null);
+      : freshFailed
+        ? null
+        : (party?.drug_license_verified_at ?? null);
   const sourceUrl =
     session?.log.source_url ?? party?.drug_license_verification_source ?? null;
   const displayStatus =
     freshStatus === "SUCCESS"
       ? "VERIFIED"
-      : party?.drug_license_verified_status !== "NOT_VERIFIED"
-        ? (party?.drug_license_verified_status ?? null)
-        : null;
+      : freshFailed
+        ? "FAILED"
+        : party?.drug_license_verified_status !== "NOT_VERIFIED"
+          ? (party?.drug_license_verified_status ?? null)
+          : null;
 
   const hasData = !!(licenceNumber || holderName);
   const canSaveNow = session?.can_save && canSave;

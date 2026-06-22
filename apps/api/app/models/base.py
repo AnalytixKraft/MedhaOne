@@ -24,6 +24,7 @@ from app.models.role import Role
 from app.models.stock_operations import StockAdjustment, StockCorrection
 from app.models.stock_provenance import StockSourceProvenance
 from app.models.tax_rate import TaxRate
+from app.models.uom import Uom
 from app.models.user import User
 from app.models.warehouse import Rack, Warehouse
 
@@ -60,4 +61,5 @@ __all__ = [
     "StockAdjustment",
     "StockSourceProvenance",
     "TaxRate",
+    "Uom",
 ]

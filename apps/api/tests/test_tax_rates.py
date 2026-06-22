@@ -1,3 +1,4 @@
+from conftest import TEST_TENANT_SLUG
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -5,7 +6,6 @@ from sqlalchemy.orm import Session
 from app.core.security import create_access_token, get_password_hash
 from app.models.user import User
 from app.services.rbac import assign_roles_to_user, ensure_rbac_seeded
-from conftest import TEST_TENANT_SLUG
 
 
 def _create_user(

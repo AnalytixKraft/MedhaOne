@@ -7,9 +7,9 @@ Create Date: 2026-06-18 10:00:00.000000
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 revision: str = "20260618_0033"
 down_revision: str | Sequence[str] | None = "20260312_0032"
@@ -17,12 +17,20 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def _current_schema(bind) -> str:
+    # During tenant provisioning the search_path is the tenant schema; the inspector's
+    # cached default_schema_name is "public", so existence guards must target the live
+    # current_schema() or they wrongly check public and skip the tenant.
+    return bind.execute(sa.text("SELECT current_schema()")).scalar() or "public"
+
+
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
-    if "categories" not in inspector.get_table_names():
+    schema = _current_schema(bind)
+    if "categories" not in inspector.get_table_names(schema=schema):
         return
-    columns = {col["name"] for col in inspector.get_columns("categories")}
+    columns = {col["name"] for col in inspector.get_columns("categories", schema=schema)}
     if "party_types" in columns:
         return
 
@@ -51,9 +59,10 @@ def upgrade() -> None:
 def downgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
-    if "categories" not in inspector.get_table_names():
+    schema = _current_schema(bind)
+    if "categories" not in inspector.get_table_names(schema=schema):
         return
-    columns = {col["name"] for col in inspector.get_columns("categories")}
+    columns = {col["name"] for col in inspector.get_columns("categories", schema=schema)}
     if "party_types" not in columns:
         return
     op.drop_column("categories", "party_types")

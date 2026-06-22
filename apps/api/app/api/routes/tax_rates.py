@@ -4,8 +4,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.database import set_tenant_search_path
-from app.core.database import get_db
+from app.core.database import get_db, set_tenant_search_path
 from app.core.exceptions import AppException
 from app.core.permissions import require_permission
 from app.models.tax_rate import TaxRate
