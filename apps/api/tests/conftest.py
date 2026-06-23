@@ -112,6 +112,8 @@ def db_session() -> Generator[Session, None, None]:
 
 @pytest.fixture()
 def client_with_test_db() -> Generator[tuple[TestClient, Session], None, None]:
+    import app.main as app_main
+
     with _isolated_test_db() as (session, _engine):
         def _override_get_db() -> Generator[Session, None, None]:
             yield session
@@ -120,9 +122,17 @@ def client_with_test_db() -> Generator[tuple[TestClient, Session], None, None]:
         app.dependency_overrides[get_public_db] = _override_get_db
         app.dependency_overrides[resolve_request_tenant_schema] = lambda: TEST_TENANT_SCHEMA
         app.dependency_overrides[ensure_tenant_db_context] = lambda: None
+        # The tenant-guard middleware is not a FastAPI dependency, so dependency_overrides
+        # can't reach it; it resolves tenant context against public.users using its own
+        # session. These tests are already isolated to the tenant schema via the overrides
+        # above, so neutralize the middleware's redundant, public-schema-dependent check
+        # (otherwise the suite depends on public.users existing/being seeded).
+        original_guard = app_main.validate_tenant_header_or_raise
+        app_main.validate_tenant_header_or_raise = lambda *args, **kwargs: None
         client = TestClient(app)
         try:
             yield client, session
         finally:
+            app_main.validate_tenant_header_or_raise = original_guard
             app.dependency_overrides.clear()
             client.close()

@@ -78,6 +78,10 @@ jobs:
           echo "alembic heads found: $heads"
           test "$heads" -eq 1
 
+      - name: Apply migrations (creates the public app schema the tests rely on)
+        working-directory: apps/api
+        run: alembic upgrade head
+
       - name: Tests (pytest)
         working-directory: apps/api
         run: python -m pytest -q
