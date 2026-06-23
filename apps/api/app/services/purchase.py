@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timezone
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import uuid4
 
 from sqlalchemy import select, text
@@ -713,7 +713,7 @@ def create_po(db: Session, payload: PurchaseOrderCreate, created_by: int) -> Pur
             error_code="PURCHASE_ORDER_CREATE_FAILED",
             message="Failed to create purchase order",
             status_code=500,
-        )
+        ) from None
 
     return _get_po_with_lines(db, po.id)  # type: ignore[return-value]
 
@@ -829,7 +829,7 @@ def update_po(db: Session, po_id: int, payload: PurchaseOrderUpdate, user_id: in
             error_code="PURCHASE_ORDER_UPDATE_FAILED",
             message="Failed to update purchase order",
             status_code=500,
-        )
+        ) from None
 
     return _get_po_with_lines(db, po.id)  # type: ignore[return-value]
 

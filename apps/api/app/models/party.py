@@ -1,5 +1,4 @@
 from datetime import date, datetime
-
 from decimal import Decimal
 
 from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Numeric, String, Text, func
@@ -9,10 +8,7 @@ from app.core.database import Base
 from app.models.enums import (
     DrugLicenseVerifiedStatus,
     GSTVerifiedStatus,
-    OutstandingTrackingMode,
-    PartyCategory,
     PartyType,
-    RegistrationType,
 )
 
 

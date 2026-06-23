@@ -4,12 +4,15 @@ version = "0.1.0"
 description = "MedhaOne ERP API"
 requires-python = ">=3.10"
 dependencies = [
-  "fastapi>=0.115.8,<1.0.0",
+  # Pinned exactly: the committed openapi.json (and the generated web client types) are
+  # produced from these, and CI fails on drift — a newer patch can change schema output.
+  "fastapi==0.133.0",
   "uvicorn[standard]>=0.34.0,<1.0.0",
   "sqlalchemy>=2.0.38,<3.0.0",
   "psycopg[binary]>=3.2.3,<4.0.0",
   "alembic>=1.14.1,<2.0.0",
-  "pydantic-settings>=2.8.0,<3.0.0",
+  "pydantic==2.12.5",
+  "pydantic-settings==2.13.1",
   "email-validator>=2.2.0,<3.0.0",
   "httpx>=0.28.1,<1.0.0",
   "openai>=1.0.0,<2.0.0",
@@ -33,7 +36,14 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N"]
-ignore = ["B008"]
+# E501 (line-length) is owned by the formatter (black / `ruff format`), not the linter:
+# black leaves long string/URL/SQL literals intact, so linting E501 is mostly noise.
+# ~375 pre-existing violations remain; tracked for a separate formatting cleanup.
+ignore = ["B008", "E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Package __init__ modules intentionally re-export symbols.
+"__init__.py" = ["F401"]
 
 [tool.ruff.format]
 quote-style = "double"

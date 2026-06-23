@@ -8,9 +8,9 @@ from enum import Enum
 from typing import Any
 from uuid import uuid4
 
+from sqlalchemy import text
 from sqlalchemy.inspection import inspect as sqlalchemy_inspect
 from sqlalchemy.orm import Session
-from sqlalchemy import text
 
 from app.models.audit import AuditLog
 

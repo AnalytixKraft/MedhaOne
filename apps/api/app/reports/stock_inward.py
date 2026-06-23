@@ -5,6 +5,7 @@ from decimal import Decimal
 from sqlalchemy import String, and_, cast, func, select
 from sqlalchemy.orm import Session
 
+from app.models.batch import Batch
 from app.models.enums import InventoryReason
 from app.models.inventory import InventoryLedger
 from app.models.party import Party
@@ -12,7 +13,6 @@ from app.models.product import Product
 from app.models.purchase import GRN, GRNBatchLine, GRNLine, PurchaseOrder
 from app.models.user import User
 from app.models.warehouse import Warehouse
-from app.models.batch import Batch
 
 
 @dataclass(slots=True)

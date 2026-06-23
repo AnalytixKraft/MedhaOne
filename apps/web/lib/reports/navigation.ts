@@ -11,6 +11,12 @@ export type GenericReportConfig = {
   endpoint?: string;
   columns?: GenericReportColumn[];
   defaultFilters?: Record<string, string>;
+  // When true, the master report viewer renders the shared filter/search bar.
+  filterable?: boolean;
+  // Which filter controls to expose (subset of MasterReportFilterField keys).
+  filterFields?: string[];
+  // When true, hide the summary metric tiles above the table.
+  hideSummary?: boolean;
   testId: string;
   legacyKind?:
     | "current-stock"
@@ -82,6 +88,48 @@ export const MASTERS_REPORTS: GenericReportConfig[] = [
     ],
   },
   {
+    slug: "rack-report",
+    title: "Rack Report",
+    description: "Products assigned to each rack and their stock on hand, by warehouse.",
+    href: "/reports/masters/rack-report",
+    endpoint: "/api/reports/masters/rack-report",
+    testId: "report-masters-rack-report",
+    columns: [
+      { key: "warehouse_name", label: "Warehouse" },
+      { key: "rack_number", label: "Rack Number" },
+      { key: "description", label: "Description" },
+      { key: "products_assigned", label: "Products Assigned" },
+      { key: "total_stock_qty", label: "Stock Qty" },
+      { key: "total_stock_value", label: "Stock Value" },
+      { key: "status", label: "Status" },
+    ],
+  },
+  {
+    slug: "item-directory",
+    title: "Item Directory",
+    description:
+      "Searchable master list of every item — filter by manufacturer or status, search by SKU, name, or HSN.",
+    href: "/reports/masters/item-directory",
+    endpoint: "/api/reports/masters/item-directory",
+    testId: "report-masters-item-directory",
+    filterable: true,
+    filterFields: ["search", "brandValues", "activeStatus"],
+    hideSummary: true,
+    columns: [
+      { key: "sku", label: "SKU" },
+      { key: "product_name", label: "Product Name" },
+      { key: "brand", label: "Manufacturer" },
+      { key: "category", label: "Category" },
+      { key: "hsn", label: "HSN" },
+      { key: "uom", label: "UOM" },
+      { key: "gst_rate", label: "GST %" },
+      { key: "default_warehouse", label: "Default Warehouse" },
+      { key: "rack_number", label: "Rack" },
+      { key: "mrp", label: "MRP" },
+      { key: "status", label: "Status" },
+    ],
+  },
+  {
     slug: "brand-item-report",
     title: "Manufacturer-wise Item Report",
     description: "Business item visibility and stock by manufacturer.",
@@ -144,6 +192,32 @@ export const MASTERS_REPORTS: GenericReportConfig[] = [
       { key: "batch_count", label: "Batch Count" },
       { key: "qty", label: "Qty" },
       { key: "stock_value", label: "Stock Value" },
+    ],
+  },
+  {
+    slug: "party-directory",
+    title: "Party Directory",
+    description: "Searchable master list of every party — filter by location, type, status, or search by GSTIN.",
+    href: "/reports/masters/party-directory",
+    endpoint: "/api/reports/masters/party-directory",
+    testId: "report-masters-party-directory",
+    filterable: true,
+    filterFields: ["search", "partyTypes", "partyCategories", "states", "cities", "activeStatus"],
+    hideSummary: true,
+    columns: [
+      { key: "party_code", label: "Code" },
+      { key: "party_name", label: "Party Name" },
+      { key: "party_type", label: "Type" },
+      { key: "party_category", label: "Category" },
+      { key: "state", label: "State" },
+      { key: "city", label: "City" },
+      { key: "gstin", label: "GSTIN" },
+      { key: "pan_number", label: "PAN" },
+      { key: "drug_license_number", label: "Drug Licence" },
+      { key: "mobile", label: "Mobile" },
+      { key: "email", label: "Email" },
+      { key: "credit_limit", label: "Credit Limit" },
+      { key: "status", label: "Status" },
     ],
   },
   {
@@ -261,6 +335,68 @@ export const MASTERS_REPORTS: GenericReportConfig[] = [
     ],
   },
 ];
+
+export type MastersReportCategoryId = "parties" | "items" | "warehouse";
+
+// Single source of truth for how masters reports group into Party / Item /
+// Warehouse — drives both the reports hub tabs and the sidebar grouping so the
+// two never drift. Order here is the display order: Party, Item, Warehouse.
+export const MASTERS_REPORT_CATEGORIES: ReadonlyArray<{
+  id: MastersReportCategoryId;
+  label: string;
+  slugs: readonly string[];
+}> = [
+  {
+    id: "parties",
+    label: "Party",
+    slugs: [
+      "party-directory",
+      "party-type-report",
+      "party-geography-report",
+      "party-commercial-report",
+      "party-activity-report",
+    ],
+  },
+  {
+    id: "items",
+    label: "Item",
+    slugs: [
+      "item-directory",
+      "brand-item-report",
+      "category-item-report",
+      "item-utilization",
+      "item-distribution",
+      "brand-summary-report",
+      "category-summary-report",
+    ],
+  },
+  {
+    id: "warehouse",
+    label: "Warehouse",
+    slugs: [
+      "current-stock",
+      "warehouse-item-summary",
+      "warehouse-utilization",
+      "warehouse-coverage",
+      "rack-report",
+      "low-usage-unused-warehouses",
+    ],
+  },
+];
+
+// Masters reports for one category, in the order declared above.
+export function mastersReportsByCategory(
+  id: MastersReportCategoryId,
+): GenericReportConfig[] {
+  const category = MASTERS_REPORT_CATEGORIES.find((entry) => entry.id === id);
+  if (!category) {
+    return [];
+  }
+  const order = new Map(category.slugs.map((slug, index) => [slug, index] as const));
+  return MASTERS_REPORTS.filter((report) => order.has(report.slug)).sort(
+    (left, right) => (order.get(left.slug) ?? 0) - (order.get(right.slug) ?? 0),
+  );
+}
 
 export const DATA_QUALITY_REPORTS: GenericReportConfig[] = [
   {

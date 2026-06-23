@@ -1,302 +1,163 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ArrowRight,
-  Boxes,
   Building2,
   ChartColumnBig,
-  ChevronDown,
-  MapPinned,
   Package2,
+  Search,
   Users2,
   type LucideIcon,
 } from "lucide-react";
 
-import { AppPageHeader } from "@/components/erp/app-primitives";
+import { AppPageHeader, AppTabs } from "@/components/erp/app-primitives";
 import { MastersNav } from "@/components/masters/masters-nav";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MASTERS_REPORTS, type GenericReportConfig } from "@/lib/reports/navigation";
+import { Input } from "@/components/ui/input";
+import {
+  MASTERS_REPORTS,
+  MASTERS_REPORT_CATEGORIES,
+  mastersReportsByCategory,
+  type GenericReportConfig,
+  type MastersReportCategoryId,
+} from "@/lib/reports/navigation";
 import { cn } from "@/lib/utils";
 
-type SectionTone = {
-  badgeClassName: string;
-  borderClassName: string;
-  surfaceClassName: string;
-  chipClassName: string;
-};
+type TabId = "all" | MastersReportCategoryId;
 
-type ReportSection = {
-  id: string;
-  title: string;
-  subtitle: string;
+// Reports introduced recently — flagged with a small "New" pill in the list.
+const newSlugs = new Set(["rack-report", "party-directory", "item-directory"]);
+
+type CategoryMeta = {
+  id: MastersReportCategoryId;
+  label: string;
   icon: LucideIcon;
-  tone: SectionTone;
-  reports: GenericReportConfig[];
+  // Token-aware accent for the row icon chip and category pill (works in both
+  // themes — mirrors the MetricCard accent pattern).
+  tone: string;
+  slugs: Set<string>;
 };
 
-type SummaryCardConfig = {
-  title: string;
-  value: string;
-  icon: LucideIcon;
-  badgeClassName: string;
-};
-
-const warehouseSlugs = new Set([
-  "current-stock",
-  "warehouse-item-summary",
-  "warehouse-utilization",
-  "warehouse-coverage",
-  "low-usage-unused-warehouses",
-]);
-
-const itemSlugs = new Set([
-  "brand-item-report",
-  "category-item-report",
-  "item-utilization",
-  "item-distribution",
-  "brand-summary-report",
-  "category-summary-report",
-]);
-
-const partySlugs = new Set([
-  "party-type-report",
-  "party-geography-report",
-  "party-commercial-report",
-  "party-activity-report",
-]);
-
-const sections: ReportSection[] = [
-  {
-    id: "parties",
-    title: "Party Reports",
-    subtitle: "Business visibility for suppliers, customers, geography, commercial terms, and activity.",
+// Icon + accent per category. Membership, labels, and order all come from the
+// shared MASTERS_REPORT_CATEGORIES so the hub and the sidebar stay in sync.
+const CATEGORY_UI: Record<MastersReportCategoryId, { icon: LucideIcon; tone: string }> = {
+  parties: {
     icon: Users2,
-    tone: {
-      badgeClassName:
-        "bg-amber-100 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-500/12 dark:text-amber-200 dark:ring-amber-500/30",
-      borderClassName:
-        "border-amber-200/80 hover:border-amber-300 dark:border-amber-500/20 dark:hover:border-amber-400/40",
-      surfaceClassName:
-        "bg-gradient-to-br from-amber-50/90 via-white to-orange-50/70 dark:from-slate-950 dark:via-slate-950 dark:to-amber-950/20",
-      chipClassName:
-        "bg-amber-100 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-500/12 dark:text-amber-200 dark:ring-amber-500/30",
-    },
-    reports: MASTERS_REPORTS.filter((report) => partySlugs.has(report.slug)),
+    tone: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
   },
-  {
-    id: "items",
-    title: "Item / Product Reports",
-    subtitle: "Manufacturer, category, distribution, and utilization visibility for the product master set.",
+  items: {
     icon: Package2,
-    tone: {
-      badgeClassName:
-        "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/12 dark:text-emerald-200 dark:ring-emerald-500/30",
-      borderClassName:
-        "border-emerald-200/80 hover:border-emerald-300 dark:border-emerald-500/20 dark:hover:border-emerald-400/40",
-      surfaceClassName:
-        "bg-gradient-to-br from-emerald-50/90 via-white to-teal-50/70 dark:from-slate-950 dark:via-slate-950 dark:to-emerald-950/20",
-      chipClassName:
-        "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/12 dark:text-emerald-200 dark:ring-emerald-500/30",
-    },
-    reports: MASTERS_REPORTS.filter((report) => itemSlugs.has(report.slug)),
+    tone: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
   },
-  {
-    id: "warehouse",
-    title: "Warehouse Reports",
-    subtitle: "Stock spread, warehouse usage, current holdings, and inactive location visibility.",
+  warehouse: {
     icon: Building2,
-    tone: {
-      badgeClassName:
-        "bg-sky-100 text-sky-700 ring-1 ring-sky-200 dark:bg-sky-500/12 dark:text-sky-200 dark:ring-sky-500/30",
-      borderClassName:
-        "border-sky-200/80 hover:border-sky-300 dark:border-sky-500/20 dark:hover:border-sky-400/40",
-      surfaceClassName:
-        "bg-gradient-to-br from-sky-50/90 via-white to-indigo-50/70 dark:from-slate-950 dark:via-slate-950 dark:to-sky-950/20",
-      chipClassName:
-        "bg-sky-100 text-sky-700 ring-1 ring-sky-200 dark:bg-sky-500/12 dark:text-sky-200 dark:ring-sky-500/30",
-    },
-    reports: MASTERS_REPORTS.filter((report) => warehouseSlugs.has(report.slug)),
+    tone: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
   },
-];
+};
 
-const summaryCards: SummaryCardConfig[] = [
-  {
-    title: "Total Reports",
-    value: String(MASTERS_REPORTS.length),
-    icon: ChartColumnBig,
-    badgeClassName:
-      "bg-sky-100 text-sky-700 ring-1 ring-sky-200 dark:bg-sky-500/12 dark:text-sky-200 dark:ring-sky-500/30",
-  },
-  {
-    title: "Warehouse Reports",
-    value: String(sections.find((section) => section.id === "warehouse")?.reports.length ?? 0),
-    icon: Building2,
-    badgeClassName:
-      "bg-sky-100 text-sky-700 ring-1 ring-sky-200 dark:bg-sky-500/12 dark:text-sky-200 dark:ring-sky-500/30",
-  },
-  {
-    title: "Item Reports",
-    value: String(sections.find((section) => section.id === "items")?.reports.length ?? 0),
-    icon: Boxes,
-    badgeClassName:
-      "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/12 dark:text-emerald-200 dark:ring-emerald-500/30",
-  },
-  {
-    title: "Party Reports",
-    value: String(sections.find((section) => section.id === "parties")?.reports.length ?? 0),
-    icon: MapPinned,
-    badgeClassName:
-      "bg-amber-100 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-500/12 dark:text-amber-200 dark:ring-amber-500/30",
-  },
-];
+const CATEGORIES: CategoryMeta[] = MASTERS_REPORT_CATEGORIES.map((category) => ({
+  id: category.id,
+  label: category.label,
+  icon: CATEGORY_UI[category.id].icon,
+  tone: CATEGORY_UI[category.id].tone,
+  slugs: new Set(category.slugs),
+}));
 
-function SummaryTile({ title, value, icon: Icon, badgeClassName }: SummaryCardConfig) {
-  return (
-    <Card className="h-full">
-      <CardContent className="flex min-h-[102px] items-center justify-between gap-4 p-5 md:p-6">
-        <div className="flex min-w-0 flex-1 flex-col justify-center space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[hsl(var(--text-secondary))]">
-            {title}
-          </p>
-          <p className="text-3xl font-semibold tracking-tight text-[hsl(var(--text-primary))]">
-            {value}
-          </p>
-        </div>
-        <span
-          className={`flex h-11 w-11 shrink-0 items-center justify-center self-start rounded-2xl ${badgeClassName}`}
-        >
-          <Icon className="h-5 w-5" />
-        </span>
-      </CardContent>
-    </Card>
-  );
+function categoryOf(slug: string): CategoryMeta | null {
+  return CATEGORIES.find((category) => category.slugs.has(slug)) ?? null;
 }
 
-type AccordionSectionProps = {
-  section: ReportSection;
-  expanded: boolean;
-  onToggle: () => void;
-};
-
-export function AccordionSection({ section, expanded, onToggle }: AccordionSectionProps) {
-  const SectionIcon = section.icon;
+function ReportRow({ report }: { report: GenericReportConfig }) {
+  const category = categoryOf(report.slug);
+  const Icon = category?.icon ?? ChartColumnBig;
 
   return (
-    <Card
-      className={cn(
-        "overflow-hidden border shadow-sm transition-all duration-300",
-        section.tone.surfaceClassName,
-        section.tone.borderClassName,
-      )}
+    <Link
+      href={report.href}
+      data-testid={`masters-workspace-${report.slug}`}
+      className="group flex items-center gap-4 px-4 py-3.5 transition-colors hover:bg-[hsl(var(--table-row-hover))] md:px-5"
     >
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full text-left"
-        aria-expanded={expanded}
-      >
-        <CardHeader className="border-b border-border/70 bg-white/70 backdrop-blur transition-colors hover:bg-white/90 dark:bg-slate-950/60 dark:hover:bg-slate-950/80">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <span
-                  className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl ${section.tone.badgeClassName}`}
-                >
-                  <SectionIcon className="h-5 w-5" />
-                </span>
-                <div className="space-y-1">
-                  <CardTitle className="text-xl text-[hsl(var(--text-primary))]">
-                    {section.title}
-                  </CardTitle>
-                  <p className="max-w-3xl text-sm text-[hsl(var(--text-secondary))]">
-                    {section.subtitle}
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <span
-                className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${section.tone.chipClassName}`}
-              >
-                {section.reports.length} reports
-              </span>
-              <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-border/70 bg-white/80 text-[hsl(var(--text-secondary))] dark:bg-slate-950/70">
-                <ChevronDown
-                  className={cn(
-                    "h-5 w-5 transition-transform duration-300",
-                    expanded ? "rotate-180" : "rotate-0",
-                  )}
-                />
-              </span>
-            </div>
-          </div>
-        </CardHeader>
-      </button>
-
-      <div
+      <span
         className={cn(
-          "grid transition-all duration-300 ease-out",
-          expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+          "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition group-hover:scale-105",
+          category?.tone,
         )}
       >
-        <div className="overflow-hidden">
-          <CardContent className="p-5 md:p-6">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {section.reports.map((report) => (
-                <Link
-                  key={report.href}
-                  href={report.href}
-                  data-testid={`masters-workspace-${report.slug}`}
-                  className="group block h-full"
-                >
-                  <Card
-                    className={`h-full border shadow-sm transition duration-200 group-hover:-translate-y-1 group-hover:shadow-lg ${section.tone.borderClassName}`}
-                  >
-                    <CardContent className="flex min-h-[206px] h-full flex-col p-5">
-                      <div className="flex items-start justify-between gap-3">
-                        <span
-                          className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl transition group-hover:scale-105 ${section.tone.badgeClassName}`}
-                        >
-                          <SectionIcon className="h-4.5 w-4.5" />
-                        </span>
-                        <ArrowRight className="h-4.5 w-4.5 text-[hsl(var(--text-secondary))] transition group-hover:translate-x-1 group-hover:text-[hsl(var(--text-primary))]" />
-                      </div>
-                      <div className="flex flex-1 flex-col justify-start pt-4">
-                        <div className="space-y-2">
-                          <h3 className="text-base font-semibold leading-snug text-[hsl(var(--text-primary))]">
-                            {report.title}
-                          </h3>
-                          <p className="text-sm leading-6 text-[hsl(var(--text-secondary))]">
-                            {report.description}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="mt-auto flex items-center justify-between gap-3 pt-5">
-                        <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${section.tone.chipClassName}`}
-                        >
-                          Open report
-                        </span>
-                        <span className="text-xs text-[hsl(var(--text-secondary))]">
-                          View details
-                        </span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
-              ))}
-            </div>
-          </CardContent>
+        <Icon className="h-5 w-5" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-sm font-semibold leading-snug text-[hsl(var(--text-primary))]">
+            {report.title}
+          </h3>
+          {newSlugs.has(report.slug) ? (
+            <span className="rounded-full bg-[hsl(var(--primary))] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[hsl(var(--primary-foreground))]">
+              New
+            </span>
+          ) : null}
         </div>
+        <p className="truncate text-xs text-[hsl(var(--text-secondary))]">
+          {report.description}
+        </p>
       </div>
-    </Card>
+      {category ? (
+        <span
+          className={cn(
+            "hidden shrink-0 items-center rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] sm:inline-flex",
+            category.tone,
+          )}
+        >
+          {category.label}
+        </span>
+      ) : null}
+      <ArrowRight className="h-4 w-4 shrink-0 text-[hsl(var(--text-secondary))] transition group-hover:translate-x-1 group-hover:text-[hsl(var(--text-primary))]" />
+    </Link>
   );
 }
 
 export function MastersReportsHub({ showMastersNav = true }: { showMastersNav?: boolean }) {
-  const [activeSectionId, setActiveSectionId] = useState<string | null>(sections[0]?.id ?? null);
+  const [activeTab, setActiveTab] = useState<TabId>("all");
+  const [query, setQuery] = useState("");
+
+  const counts = useMemo(() => {
+    const result: Record<TabId, number> = {
+      all: MASTERS_REPORTS.length,
+      parties: 0,
+      items: 0,
+      warehouse: 0,
+    };
+    for (const category of CATEGORIES) {
+      result[category.id] = MASTERS_REPORTS.filter((report) =>
+        category.slugs.has(report.slug),
+      ).length;
+    }
+    return result;
+  }, []);
+
+  const tabs: Array<{ id: TabId; label: string }> = [
+    { id: "all", label: `All (${counts.all})` },
+    ...CATEGORIES.map((category) => ({
+      id: category.id,
+      label: `${category.label} (${counts[category.id]})`,
+    })),
+  ];
+
+  const visibleReports = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    const scoped =
+      activeTab === "all"
+        ? CATEGORIES.flatMap((category) => mastersReportsByCategory(category.id))
+        : mastersReportsByCategory(activeTab);
+    if (!normalized) {
+      return scoped;
+    }
+    return scoped.filter((report) =>
+      `${report.title} ${report.description} ${report.slug}`
+        .toLowerCase()
+        .includes(normalized),
+    );
+  }, [activeTab, query]);
 
   return (
     <div className="space-y-6">
@@ -307,23 +168,45 @@ export function MastersReportsHub({ showMastersNav = true }: { showMastersNav?: 
 
       {showMastersNav ? <MastersNav /> : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {summaryCards.map((card) => (
-          <SummaryTile key={card.title} {...card} />
-        ))}
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <AppTabs
+          tabs={tabs}
+          value={activeTab}
+          onChange={setActiveTab}
+          className="w-full lg:w-auto"
+        />
+        <div className="relative w-full lg:w-72">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--text-secondary))]"
+            aria-hidden="true"
+          />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search reports…"
+            aria-label="Search reports"
+            className="pl-9"
+          />
+        </div>
       </div>
 
-      <div className="space-y-4">
-        {sections.map((section) => (
-          <AccordionSection
-            key={section.id}
-            section={section}
-            expanded={section.id === activeSectionId}
-            onToggle={() => {
-              setActiveSectionId((current) => (current === section.id ? null : section.id));
-            }}
-          />
-        ))}
+      <div className="overflow-hidden rounded-2xl border border-[hsl(var(--card-border))] bg-[hsl(var(--card-bg))] shadow-sm">
+        {visibleReports.length > 0 ? (
+          <div className="divide-y divide-border/60">
+            {visibleReports.map((report) => (
+              <ReportRow key={report.slug} report={report} />
+            ))}
+          </div>
+        ) : (
+          <div className="px-4 py-14 text-center">
+            <p className="text-sm font-medium text-[hsl(var(--text-primary))]">
+              No reports match your search.
+            </p>
+            <p className="mt-1 text-sm text-[hsl(var(--text-secondary))]">
+              Try a different term or switch tabs.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

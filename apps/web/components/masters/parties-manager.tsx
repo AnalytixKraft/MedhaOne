@@ -19,6 +19,7 @@ import {
   AppActionBar,
   AppFormGrid,
   AppTable,
+  AppTabs,
 } from "@/components/erp/app-primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -535,6 +536,7 @@ export function PartiesManager() {
   const [formErrors, setFormErrors] = useState<ValidationErrors>({});
   const [editingPartyId, setEditingPartyId] = useState<number | null>(null);
   const [editingParty, setEditingParty] = useState<Party | null>(null);
+  const [formTab, setFormTab] = useState<"contact" | "tax" | "commercial">("contact");
   const formCardRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -740,6 +742,7 @@ export function PartiesManager() {
     setEditingParty(null);
     setForm(createEmptyForm());
     setFormErrors({});
+    setFormTab("contact");
     setGstAutofilled(false);
     setShowSecondDrugLicense(false);
     setVerifiedLogId(null);
@@ -763,6 +766,7 @@ export function PartiesManager() {
     setEditingParty(party);
     setForm(fromParty(party));
     setFormErrors({});
+    setFormTab("contact");
     // Only treat the loaded address as portal-derived (locked) if this party was
     // actually GST-verified; otherwise leave the fields editable.
     setGstAutofilled(party.gst_verified_status === "VERIFIED");
@@ -856,6 +860,12 @@ export function PartiesManager() {
     const nextErrors = validateForm(form);
     setFormErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
+      // Surface errors that live on a hidden tab by switching to it.
+      if (nextErrors.credit_limit) {
+        setFormTab("commercial");
+      } else if (nextErrors.pincode) {
+        setFormTab("contact");
+      }
       setSummary("Fix the highlighted Party Master fields before saving.");
       return;
     }
@@ -1012,6 +1022,34 @@ export function PartiesManager() {
     const result = session.result;
     if (!result) return;
 
+    // Decide whether the portal address should overwrite what's already filled.
+    // When editing a party that already has a different address, ask first
+    // rather than silently replacing it.
+    const parsedAddress = result.principal_address
+      ? parseGstAddress(result.principal_address)
+      : null;
+    let applyAddress = true;
+    if (parsedAddress) {
+      const currentHasAddress = !!(
+        form.address_line_1.trim() ||
+        form.address_line_2.trim() ||
+        form.city.trim() ||
+        form.pincode.trim()
+      );
+      const addressDiffers =
+        (parsedAddress.address_line_1 ?? "").trim() !== form.address_line_1.trim() ||
+        (parsedAddress.address_line_2 ?? "").trim() !== form.address_line_2.trim() ||
+        (parsedAddress.city ?? "").trim() !== form.city.trim() ||
+        (parsedAddress.pincode ?? "").trim() !== form.pincode.trim();
+      if (editingPartyId && currentHasAddress && addressDiffers) {
+        applyAddress = window.confirm(
+          "The GST-registered address is different from the address currently filled in.\n\n" +
+            "Replace the current address with the GST address?\n\n" +
+            "OK = replace · Cancel = keep current address",
+        );
+      }
+    }
+
     setForm((current) => {
       const updates: Partial<PartyFormState> = {};
       // Verification is authoritative — populate the trade name (falling back to
@@ -1021,14 +1059,13 @@ export function PartiesManager() {
       if (result.taxpayer_type) {
         updates.registration_type = mapGstTaxpayerType(result.taxpayer_type);
       }
-      if (result.principal_address) {
-        const parsed = parseGstAddress(result.principal_address);
-        if (parsed.address_line_1)
-          updates.address_line_1 = parsed.address_line_1;
-        if (parsed.address_line_2)
-          updates.address_line_2 = parsed.address_line_2;
-        if (parsed.city) updates.city = parsed.city;
-        if (parsed.pincode) updates.pincode = parsed.pincode;
+      if (applyAddress && parsedAddress) {
+        if (parsedAddress.address_line_1)
+          updates.address_line_1 = parsedAddress.address_line_1;
+        if (parsedAddress.address_line_2)
+          updates.address_line_2 = parsedAddress.address_line_2;
+        if (parsedAddress.city) updates.city = parsedAddress.city;
+        if (parsedAddress.pincode) updates.pincode = parsedAddress.pincode;
       }
       return { ...current, ...updates };
     });
@@ -1311,12 +1348,10 @@ export function PartiesManager() {
                 }
               />
             </FieldShell>
-            <FieldShell label="WhatsApp No">
+            <FieldShell label="Email" error={formErrors.email}>
               <Input
-                value={form.whatsapp_no}
-                onChange={(event) =>
-                  updateFormField("whatsapp_no", event.target.value)
-                }
+                value={form.email}
+                onChange={(event) => updateFormField("email", event.target.value)}
               />
             </FieldShell>
           </AppFormGrid>
@@ -1331,8 +1366,20 @@ export function PartiesManager() {
           ) : null}
         </FormSection>
 
+        <AppTabs
+          tabs={[
+            { id: "contact", label: "Contact & Address" },
+            { id: "tax", label: "Tax & Compliance" },
+            { id: "commercial", label: "Commercial Details" },
+          ]}
+          value={formTab}
+          onChange={(value) => setFormTab(value as typeof formTab)}
+        />
+
+        {formTab === "contact" ? (
         <FormSection
           title="Contact & Address"
+          collapsible={false}
           description={
             form.gstin && GSTIN_PATTERN.test(form.gstin)
               ? "Address fields are auto-populated from GSTIN on Verify."
@@ -1398,11 +1445,11 @@ export function PartiesManager() {
                 }
               />
             </FieldShell>
-            <FieldShell label="Email" error={formErrors.email}>
+            <FieldShell label="WhatsApp No">
               <Input
-                value={form.email}
+                value={form.whatsapp_no}
                 onChange={(event) =>
-                  updateFormField("email", event.target.value)
+                  updateFormField("whatsapp_no", event.target.value)
                 }
               />
             </FieldShell>
@@ -1436,8 +1483,10 @@ export function PartiesManager() {
             </div>
           ) : null}
         </FormSection>
+        ) : null}
 
-        <FormSection title="Tax & Compliance">
+        {formTab === "tax" ? (
+        <FormSection title="Tax & Compliance" collapsible={false}>
           <AppFormGrid className="xl:grid-cols-3">
             <FieldShell label="PAN">
               <Input
@@ -1496,6 +1545,7 @@ export function PartiesManager() {
                   </Button>
                 )}
                 {editingParty?.drug_license_verified_status === "VERIFIED" &&
+                  !drugLicenseVerifyError &&
                   !verifyingDrugLicense && (
                     <span className="inline-flex shrink-0 items-center gap-1 text-[hsl(var(--primary))]">
                       <CheckCircle2
@@ -1506,7 +1556,8 @@ export function PartiesManager() {
                       <span className="text-xs font-semibold">Verified</span>
                     </span>
                   )}
-                {(editingParty?.drug_license_verified_status === "FAILED" ||
+                {(drugLicenseVerifyError ||
+                  editingParty?.drug_license_verified_status === "FAILED" ||
                   editingParty?.drug_license_verified_status === "EXPIRED") &&
                   !verifyingDrugLicense && (
                     <XCircle className="h-5 w-5 shrink-0 text-rose-500" />
@@ -1582,6 +1633,7 @@ export function PartiesManager() {
                   </Button>
                 )}
                 {editingParty?.drug_license_2_verified_status === "VERIFIED" &&
+                  !drugLicense2VerifyError &&
                   !verifyingDrugLicense2 && (
                     <span className="inline-flex shrink-0 items-center gap-1 text-[hsl(var(--primary))]">
                       <CheckCircle2
@@ -1592,7 +1644,8 @@ export function PartiesManager() {
                       <span className="text-xs font-semibold">Verified</span>
                     </span>
                   )}
-                {(editingParty?.drug_license_2_verified_status === "FAILED" ||
+                {(drugLicense2VerifyError ||
+                  editingParty?.drug_license_2_verified_status === "FAILED" ||
                   editingParty?.drug_license_2_verified_status ===
                     "EXPIRED") &&
                   !verifyingDrugLicense2 && (
@@ -1645,8 +1698,10 @@ export function PartiesManager() {
             </FieldShell>
           </AppFormGrid>
         </FormSection>
+        ) : null}
 
-        <FormSection title="Commercial Details" defaultOpen={false}>
+        {formTab === "commercial" ? (
+        <FormSection title="Commercial Details" collapsible={false}>
           <AppFormGrid className="xl:grid-cols-3">
             <FieldShell label="Credit Limit" error={formErrors.credit_limit}>
               <Input
@@ -1702,6 +1757,7 @@ export function PartiesManager() {
             </FieldShell>
           </AppFormGrid>
         </FormSection>
+        ) : null}
 
         <AppActionBar>
           <Button type="button" variant="outline" onClick={resetForm}>
@@ -1872,14 +1928,39 @@ export function PartiesManager() {
                     {party.contact_person ?? party.mobile ?? party.phone ?? "-"}
                   </TableCell>
                   <TableCell className="min-w-[180px]">
-                    {party.gstin ?? "-"}
+                    {party.gstin ? (
+                      <div className="space-y-1">
+                        <p
+                          className={cn(
+                            party.gst_verified_status === "VERIFIED" &&
+                              "font-medium text-[hsl(var(--primary))]",
+                          )}
+                        >
+                          {party.gstin}
+                        </p>
+                        {party.gst_verified_status === "VERIFIED" ? (
+                          <span className="text-xs text-[hsl(var(--text-secondary))]">
+                            Last verified {formatDateTime(party.gst_verified_at)}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : (
+                      "-"
+                    )}
                   </TableCell>
                   <TableCell className="min-w-[180px]">
                     {party.state ?? "-"}
                   </TableCell>
                   <TableCell className="min-w-[170px]">
                     <div className="space-y-2">
-                      <p>{party.drug_license_number ?? "-"}</p>
+                      <p
+                        className={cn(
+                          party.drug_license_verified_status === "VERIFIED" &&
+                            "font-medium text-[hsl(var(--primary))]",
+                        )}
+                      >
+                        {party.drug_license_number ?? "-"}
+                      </p>
                       <div className="flex flex-wrap items-center gap-2">
                         <span
                           className={cn(

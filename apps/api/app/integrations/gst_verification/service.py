@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -16,8 +16,8 @@ from app.integrations.gst_verification.parser import (
     ParsedGSTResult,
     parse_result_snapshot,
 )
-from app.models.gst_verification import GSTVerificationLog
 from app.models.enums import GSTVerificationLogStatus
+from app.models.gst_verification import GSTVerificationLog
 from app.models.party import Party
 
 

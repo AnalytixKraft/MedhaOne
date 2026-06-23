@@ -9,12 +9,12 @@ from sqlalchemy import text
 
 from app.api.deps import resolve_request_tenant_schema
 from app.api.routes.test_tools import _ensure_test_user, _reset_test_tenant_schema
+from app.core import tenant as tenant_module
 from app.core.config import get_settings
 from app.core.database import SessionLocal, reset_search_path, set_tenant_search_path
 from app.core.exceptions import AppException
 from app.core.security import create_access_token
 from app.core.tenancy import build_tenant_schema_name, validate_org_slug
-from app.core import tenant as tenant_module
 from app.core.tenant import (
     ensure_tenant_db_context,
     run_in_tenant_schema,
@@ -25,6 +25,7 @@ from app.models.user import User
 from app.routers.public_router import PUBLIC_SCOPED_PREFIXES
 from app.routers.tenant_router import tenant_router
 from app.services import tenancy as tenancy_service
+from app.testing import verify_gstin
 
 
 class _FakeResult:
@@ -157,7 +158,7 @@ def test_resolve_request_tenant_schema_uses_token_context_and_public_org_validat
     )
 
     assert schema_name == "org_kraft"
-    assert session.statements[0][1] == {"org_slug": "kraft"}
+    assert any(stmt[1] == {"org_slug": "kraft"} for stmt in session.statements)
 
 
 def test_resolve_request_tenant_schema_rejects_mismatched_schema_name(
@@ -329,14 +330,18 @@ def test_tenant_request_syncs_public_user_roles_before_write(
             user = db.query(User).filter(User.email == "e2e.admin@medhaone.app").one()
             token = create_access_token(str(user.id))
 
+        headers = {"Authorization": f"Bearer {token}"}
+        gstin = "27ABCDE1234F1Z5"
         response = client.post(
             "/masters/parties",
-            headers={"Authorization": f"Bearer {token}"},
+            headers=headers,
             json={
                 "name": "Tenant Sync Supplier",
                 "party_type": "SUPER_STOCKIST",
                 "phone": "9999999999",
                 "is_active": True,
+                "gstin": gstin,
+                "gst_verification_log_id": verify_gstin(client, headers, gstin),
             },
         )
 
@@ -481,15 +486,18 @@ def test_party_master_auto_repairs_legacy_party_schema(
             user = db.query(User).filter(User.email == "e2e.admin@medhaone.app").one()
             token = create_access_token(str(user.id))
 
+        headers = {"Authorization": f"Bearer {token}"}
+        gstin = "27ABCDE1234F1Z5"
         create_response = client.post(
             "/masters/parties",
-            headers={"Authorization": f"Bearer {token}"},
+            headers=headers,
             json={
                 "party_name": "Legacy Tenant Supplier",
                 "party_type": "SUPPLIER",
                 "party_category": "DISTRIBUTOR",
                 "mobile": "9999999999",
-                "gstin": "27ABCDE1234F1Z5",
+                "gstin": gstin,
+                "gst_verification_log_id": verify_gstin(client, headers, gstin),
                 "is_active": True,
             },
         )

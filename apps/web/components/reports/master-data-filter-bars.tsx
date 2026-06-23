@@ -132,6 +132,7 @@ export type MasterReportFilterState = {
   partyCategories: string[];
   states: string[];
   cities: string[];
+  search: string;
   activeStatus: string;
   inactivityDays: string;
   dateFrom: string;
@@ -147,14 +148,52 @@ export const defaultMasterReportFilters: MasterReportFilterState = {
   partyCategories: [],
   states: [],
   cities: [],
+  search: "",
   activeStatus: "",
   inactivityDays: "30",
   dateFrom: "",
   dateTo: "",
 };
 
+// Which controls a given report wants to expose. Omit to show the full bar.
+export type MasterReportFilterField =
+  | "search"
+  | "warehouseIds"
+  | "brandValues"
+  | "categoryValues"
+  | "productIds"
+  | "partyTypes"
+  | "partyCategories"
+  | "states"
+  | "cities"
+  | "dateFrom"
+  | "dateTo"
+  | "activeStatus"
+  | "inactivityDays";
+
+// Serialize the filter state into the query params the backend reports expect.
+export function masterReportFilterQuery(
+  state: MasterReportFilterState,
+): Record<string, string | undefined> {
+  return {
+    warehouse_ids: state.warehouseIds.join(",") || undefined,
+    brand_values: state.brandValues.join(",") || undefined,
+    category_values: state.categoryValues.join(",") || undefined,
+    product_ids: state.productIds.join(",") || undefined,
+    party_types: state.partyTypes.join(",") || undefined,
+    party_categories: state.partyCategories.join(",") || undefined,
+    states: state.states.join(",") || undefined,
+    cities: state.cities.join(",") || undefined,
+    search: state.search.trim() || undefined,
+    active_status: state.activeStatus || undefined,
+    inactivity_days: state.inactivityDays || undefined,
+    date_from: state.dateFrom || undefined,
+    date_to: state.dateTo || undefined,
+  };
+}
+
 type FilterActions = {
-  onApply: () => void;
+  onApply?: () => void;
   onClear: () => void;
   onExportCsv: () => void;
   onExportExcel: () => void;
@@ -166,13 +205,16 @@ export function MasterReportFilterBar({
   value,
   onChange,
   actions,
+  fields,
 }: {
   options: MasterReportFilterOptions;
   value: MasterReportFilterState;
   onChange: (next: MasterReportFilterState) => void;
   actions: FilterActions;
+  fields?: MasterReportFilterField[];
 }) {
   const makeOptions = (values: string[]) => values.map((entry) => ({ label: entry, value: entry }));
+  const show = (field: MasterReportFilterField) => !fields || fields.includes(field);
 
   return (
     <FilterCard
@@ -195,43 +237,75 @@ export function MasterReportFilterBar({
         </div>
       }
     >
+      {show("search") ? (
+        <div className="relative mb-4">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={value.search}
+            onChange={(event) => onChange({ ...value, search: event.target.value })}
+            placeholder="Search by name, GSTIN, PAN, drug licence, code, or city"
+            className="h-11 rounded-xl pl-9"
+          />
+        </div>
+      ) : null}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        <MultiSelectFilter label="Warehouse" options={options.warehouses.map((entry) => ({ label: entry.label, value: String(entry.id) }))} values={value.warehouseIds} onChange={(warehouseIds) => onChange({ ...value, warehouseIds })} />
-        <MultiSelectFilter label="Manufacturer" options={makeOptions(options.brands)} values={value.brandValues} onChange={(brandValues) => onChange({ ...value, brandValues })} />
-        <MultiSelectFilter label="Category" options={makeOptions(options.categories)} values={value.categoryValues} onChange={(categoryValues) => onChange({ ...value, categoryValues })} />
-        <MultiSelectFilter label="Product" options={options.products.map((entry) => ({ label: entry.label, value: String(entry.id) }))} values={value.productIds} onChange={(productIds) => onChange({ ...value, productIds })} />
-        <MultiSelectFilter label="Party Type" options={makeOptions(options.party_types)} values={value.partyTypes} onChange={(partyTypes) => onChange({ ...value, partyTypes })} />
-        <MultiSelectFilter label="Party Category" options={makeOptions(options.party_categories)} values={value.partyCategories} onChange={(partyCategories) => onChange({ ...value, partyCategories })} />
-        <MultiSelectFilter label="State" options={makeOptions(options.states)} values={value.states} onChange={(states) => onChange({ ...value, states })} />
-        <MultiSelectFilter label="City" options={makeOptions(options.cities)} values={value.cities} onChange={(cities) => onChange({ ...value, cities })} />
-        <label className="space-y-1.5">
-          <span className="text-xs font-semibold text-[hsl(var(--text-secondary))]">Date From</span>
-          <Input type="date" value={value.dateFrom} onChange={(event) => onChange({ ...value, dateFrom: event.target.value })} className={fieldClassName} />
-        </label>
-        <label className="space-y-1.5">
-          <span className="text-xs font-semibold text-[hsl(var(--text-secondary))]">Date To</span>
-          <Input type="date" value={value.dateTo} onChange={(event) => onChange({ ...value, dateTo: event.target.value })} className={fieldClassName} />
-        </label>
-        <label className="space-y-1.5">
-          <span className="text-xs font-semibold text-[hsl(var(--text-secondary))]">Active / Inactive</span>
-          <select value={value.activeStatus} onChange={(event) => onChange({ ...value, activeStatus: event.target.value })} className={fieldClassName}>
-            <option value="">All</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </select>
-        </label>
-        <label className="space-y-1.5">
-          <span className="text-xs font-semibold text-[hsl(var(--text-secondary))]">Inactivity Days</span>
-          <Input type="number" min="1" value={value.inactivityDays} onChange={(event) => onChange({ ...value, inactivityDays: event.target.value })} className={fieldClassName} />
-        </label>
+        {show("warehouseIds") ? (
+          <MultiSelectFilter label="Warehouse" options={options.warehouses.map((entry) => ({ label: entry.label, value: String(entry.id) }))} values={value.warehouseIds} onChange={(warehouseIds) => onChange({ ...value, warehouseIds })} />
+        ) : null}
+        {show("brandValues") ? (
+          <MultiSelectFilter label="Manufacturer" options={makeOptions(options.brands)} values={value.brandValues} onChange={(brandValues) => onChange({ ...value, brandValues })} />
+        ) : null}
+        {show("categoryValues") ? (
+          <MultiSelectFilter label="Category" options={makeOptions(options.categories)} values={value.categoryValues} onChange={(categoryValues) => onChange({ ...value, categoryValues })} />
+        ) : null}
+        {show("productIds") ? (
+          <MultiSelectFilter label="Product" options={options.products.map((entry) => ({ label: entry.label, value: String(entry.id) }))} values={value.productIds} onChange={(productIds) => onChange({ ...value, productIds })} />
+        ) : null}
+        {show("partyTypes") ? (
+          <MultiSelectFilter label="Party Type" options={makeOptions(options.party_types)} values={value.partyTypes} onChange={(partyTypes) => onChange({ ...value, partyTypes })} />
+        ) : null}
+        {show("partyCategories") ? (
+          <MultiSelectFilter label="Party Category" options={makeOptions(options.party_categories)} values={value.partyCategories} onChange={(partyCategories) => onChange({ ...value, partyCategories })} />
+        ) : null}
+        {show("states") ? (
+          <MultiSelectFilter label="State" options={makeOptions(options.states)} values={value.states} onChange={(states) => onChange({ ...value, states })} />
+        ) : null}
+        {show("cities") ? (
+          <MultiSelectFilter label="City" options={makeOptions(options.cities)} values={value.cities} onChange={(cities) => onChange({ ...value, cities })} />
+        ) : null}
+        {show("dateFrom") ? (
+          <label className="space-y-1.5">
+            <span className="text-xs font-semibold text-[hsl(var(--text-secondary))]">Date From</span>
+            <Input type="date" value={value.dateFrom} onChange={(event) => onChange({ ...value, dateFrom: event.target.value })} className={fieldClassName} />
+          </label>
+        ) : null}
+        {show("dateTo") ? (
+          <label className="space-y-1.5">
+            <span className="text-xs font-semibold text-[hsl(var(--text-secondary))]">Date To</span>
+            <Input type="date" value={value.dateTo} onChange={(event) => onChange({ ...value, dateTo: event.target.value })} className={fieldClassName} />
+          </label>
+        ) : null}
+        {show("activeStatus") ? (
+          <label className="space-y-1.5">
+            <span className="text-xs font-semibold text-[hsl(var(--text-secondary))]">Active / Inactive</span>
+            <select value={value.activeStatus} onChange={(event) => onChange({ ...value, activeStatus: event.target.value })} className={fieldClassName}>
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </label>
+        ) : null}
+        {show("inactivityDays") ? (
+          <label className="space-y-1.5">
+            <span className="text-xs font-semibold text-[hsl(var(--text-secondary))]">Inactivity Days</span>
+            <Input type="number" min="1" value={value.inactivityDays} onChange={(event) => onChange({ ...value, inactivityDays: event.target.value })} className={fieldClassName} />
+          </label>
+        ) : null}
       </div>
       <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
         <Button type="button" variant="outline" onClick={actions.onClear} className="gap-2">
           <X className="h-4 w-4" />
           Clear Filters
-        </Button>
-        <Button type="button" onClick={actions.onApply}>
-          Apply Filters
         </Button>
       </div>
     </FilterCard>

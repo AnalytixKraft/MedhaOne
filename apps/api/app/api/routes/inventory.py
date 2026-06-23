@@ -20,7 +20,6 @@ from app.models.product import Product
 from app.models.stock_operations import StockAdjustment, StockCorrection
 from app.models.user import User
 from app.models.warehouse import Warehouse
-from app.schemas.masters import BulkImportError, BulkImportResult
 from app.schemas.inventory import (
     InventoryActionResponse,
     InventoryAdjustRequest,
@@ -29,11 +28,12 @@ from app.schemas.inventory import (
     StockAdjustmentCreateRequest,
     StockAdjustmentListResponse,
     StockAdjustmentResponse,
-    StockCorrectionRequest,
     StockCorrectionListResponse,
+    StockCorrectionRequest,
     StockCorrectionResponse,
     StockItemListResponse,
 )
+from app.schemas.masters import BulkImportError, BulkImportResult
 from app.services.audit import snapshot_model, write_audit_log
 from app.services.inventory import stock_adjust, stock_in, stock_out
 
@@ -214,7 +214,7 @@ def _parse_required_decimal(value: str, field: str, row_index: int) -> Decimal:
             message=f"{field} must be a valid number",
             status_code=400,
             details={"field": field, "row": row_index},
-        )
+        ) from None
     if parsed <= 0:
         raise AppException(
             error_code="VALIDATION_ERROR",
@@ -236,7 +236,7 @@ def _parse_optional_decimal(value: str, field: str, row_index: int) -> Decimal |
             message=f"{field} must be a valid number",
             status_code=400,
             details={"field": field, "row": row_index},
-        )
+        ) from None
     if parsed < 0:
         raise AppException(
             error_code="VALIDATION_ERROR",

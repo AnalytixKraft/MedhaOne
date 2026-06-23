@@ -6,10 +6,10 @@ from sqlalchemy.orm import Session
 from app.core.security import create_access_token
 from app.models.company_settings import CompanySettings
 from app.models.party import Party
+from app.models.product import Product
 from app.models.role import Role
 from app.models.user import User
 from app.models.warehouse import Warehouse
-from app.models.product import Product
 
 
 def _create_access_user(db: Session) -> str:

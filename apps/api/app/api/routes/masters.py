@@ -5,38 +5,48 @@ from decimal import Decimal, InvalidOperation
 from enum import Enum
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
+from app.api.deps import get_current_user
 from app.core.database import get_db, set_tenant_search_path
 from app.core.exceptions import AppException
 from app.core.permissions import require_permission
-from app.api.deps import get_current_user
+from app.domain.pricing import unit_price_from_mrp
 from app.domain.quantity import quantity_precision_from_decimal_allowed
 from app.domain.tax_identity import (
     derive_state_from_gstin,
     extract_pan_from_gstin,
     normalize_and_validate_gstin,
-    normalize_optional_text,
 )
 from app.integrations.drug_license_verification.service import (
     DrugLicenseWorkflowState,
+)
+from app.integrations.drug_license_verification.service import (
     resume_verification as resume_drug_license_verification,
+)
+from app.integrations.drug_license_verification.service import (
     save_verified_data as save_drug_license_verified_data,
+)
+from app.integrations.drug_license_verification.service import (
     start_verification as start_drug_license_verification,
 )
 from app.integrations.gst_verification.service import (
     GSTWorkflowState,
+)
+from app.integrations.gst_verification.service import (
     resume_verification as resume_gst_verification,
+)
+from app.integrations.gst_verification.service import (
     save_verified_data as save_gst_verified_data,
+)
+from app.integrations.gst_verification.service import (
     start_verification as start_gst_verification,
 )
-from app.models.inventory import InventoryLedger, StockSummary
 from app.models.brand import Brand
 from app.models.category import Category
 from app.models.drug_license import DrugLicenseVerificationLog
-from app.models.gst_verification import GSTVerificationLog
 from app.models.enums import (
     DrugLicenseVerificationLogStatus,
     GSTVerificationLogStatus,
@@ -46,6 +56,8 @@ from app.models.enums import (
     PartyType,
     RegistrationType,
 )
+from app.models.gst_verification import GSTVerificationLog
+from app.models.inventory import InventoryLedger, StockSummary
 from app.models.party import Party
 from app.models.product import Product
 from app.models.purchase import GRN, PurchaseCreditNote, PurchaseOrder, PurchaseReturn
@@ -53,12 +65,18 @@ from app.models.purchase_bill import PurchaseBill
 from app.models.sales import DispatchNote, SalesOrder, StockReservation
 from app.models.stock_operations import StockAdjustment, StockCorrection
 from app.models.tax_rate import TaxRate
+from app.models.uom import Uom
 from app.models.user import User
 from app.models.warehouse import Rack, Warehouse
 from app.schemas.masters import (
     BrandCreate,
     BrandRead,
     BrandUpdate,
+    BulkImportError,
+    BulkImportResult,
+    CategoryCreate,
+    CategoryRead,
+    CategoryUpdate,
     DrugLicenseVerificationHistoryResponse,
     DrugLicenseVerificationLogRead,
     DrugLicenseVerificationResumeRequest,
@@ -71,20 +89,19 @@ from app.schemas.masters import (
     GSTVerificationSaveRequest,
     GSTVerificationSessionResponse,
     GSTVerificationStartRequest,
-    BulkImportError,
-    BulkImportResult,
-    CategoryCreate,
-    CategoryRead,
-    CategoryUpdate,
     PartyCreate,
     PartyRead,
     PartyUpdate,
     ProductCreate,
+    ProductListResponse,
     ProductRead,
     ProductUpdate,
     RackCreate,
     RackRead,
     RackUpdate,
+    UomCreate,
+    UomRead,
+    UomUpdate,
     WarehouseBulkDeleteError,
     WarehouseBulkDeleteRequest,
     WarehouseBulkDeleteResult,
@@ -1097,6 +1114,165 @@ def delete_brand(
     return brand_snapshot
 
 
+_DEFAULT_UOMS = (
+    "EA",
+    "PCS",
+    "BOX",
+    "STRIP",
+    "BOTTLE",
+    "VIAL",
+    "TUBE",
+    "PACK",
+    "KG",
+    "GM",
+    "MG",
+    "LITRE",
+    "ML",
+)
+
+
+def _ensure_master_uoms_from_products(db: Session) -> bool:
+    """Seed common UOMs and backfill any distinct values already used by products,
+    so the Product UOM dropdown is populated and existing values stay selectable."""
+    existing_names = {
+        str(name).strip().lower()
+        for (name,) in db.query(Uom.name).all()
+        if isinstance(name, str) and name.strip()
+    }
+    candidates = set(_DEFAULT_UOMS)
+    candidates.update(
+        str(name).strip()
+        for (name,) in db.query(Product.uom).distinct().all()
+        if isinstance(name, str) and name.strip()
+    )
+    missing = [
+        Uom(name=name, is_active=True)
+        for name in sorted(candidates)
+        if name.lower() not in existing_names
+    ]
+    if not missing:
+        return False
+    db.add_all(missing)
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        return False
+    return True
+
+
+def _ensure_unique_uom_name(db: Session, *, name: str, exclude_uom_id: int | None = None) -> None:
+    query = db.query(Uom.id).filter(func.lower(Uom.name) == name.strip().lower())
+    if exclude_uom_id is not None:
+        query = query.filter(Uom.id != exclude_uom_id)
+    if query.first() is not None:
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Unit of measure already exists",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"field": "name"},
+        )
+
+
+@router.get("/uoms", response_model=list[UomRead])
+def list_uoms(
+    include_inactive: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:view")),
+) -> list[UomRead]:
+    _ = current_user
+    if _ensure_master_uoms_from_products(db):
+        _commit_or_400(db, "Failed to prepare units of measure")
+    query = db.query(Uom).order_by(Uom.name.asc())
+    if not include_inactive:
+        query = query.filter(Uom.is_active.is_(True))
+    return query.all()
+
+
+@router.post("/uoms", response_model=UomRead, status_code=status.HTTP_201_CREATED)
+def create_uom(
+    payload: UomCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:manage")),
+) -> UomRead:
+    _ensure_unique_uom_name(db, name=payload.name)
+    uom = Uom(**payload.model_dump())
+    db.add(uom)
+    _commit_or_400(db, "Failed to create unit of measure")
+    write_audit_log(
+        db,
+        module="Masters",
+        entity_type="UOM",
+        entity_id=uom.id,
+        action="CREATE",
+        performed_by=current_user.id,
+        summary=f"Created UOM {uom.name}",
+        source_screen="Masters / Master Settings / Units",
+        after_snapshot=snapshot_model(uom),
+    )
+    _commit_with_tenant_context(db)
+    db.refresh(uom)
+    return uom
+
+
+@router.patch("/uoms/{uom_id}", response_model=UomRead)
+def update_uom(
+    uom_id: int,
+    payload: UomUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:manage")),
+) -> UomRead:
+    uom = _get_or_404(db, Uom, uom_id, "Unit of measure")
+    updates = payload.model_dump(exclude_unset=True)
+    if "name" in updates:
+        _ensure_unique_uom_name(db, name=str(updates["name"]), exclude_uom_id=uom.id)
+    before_snapshot = snapshot_model(uom)
+    for field, value in updates.items():
+        setattr(uom, field, value)
+    _commit_or_400(db, "Failed to update unit of measure")
+    write_audit_log(
+        db,
+        module="Masters",
+        entity_type="UOM",
+        entity_id=uom.id,
+        action="UPDATE",
+        performed_by=current_user.id,
+        summary=f"Updated UOM {uom.name}",
+        source_screen="Masters / Master Settings / Units",
+        before_snapshot=before_snapshot,
+        after_snapshot=snapshot_model(uom),
+    )
+    _commit_with_tenant_context(db)
+    db.refresh(uom)
+    return uom
+
+
+@router.delete("/uoms/{uom_id}", response_model=UomRead)
+def delete_uom(
+    uom_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:manage")),
+) -> UomRead:
+    uom = _get_or_404(db, Uom, uom_id, "Unit of measure")
+    before_snapshot = snapshot_model(uom)
+    uom_snapshot = UomRead.model_validate(uom)
+    db.delete(uom)
+    _commit_or_400(db, "Failed to delete unit of measure")
+    write_audit_log(
+        db,
+        module="Masters",
+        entity_type="UOM",
+        entity_id=uom_snapshot.id,
+        action="DELETE",
+        performed_by=current_user.id,
+        summary=f"Deleted UOM {uom_snapshot.name}",
+        source_screen="Masters / Master Settings / Units",
+        before_snapshot=before_snapshot,
+    )
+    _commit_with_tenant_context(db)
+    return uom_snapshot
+
+
 @router.get("/categories", response_model=list[CategoryRead])
 def list_categories(
     include_inactive: bool = Query(default=False),
@@ -1892,6 +2068,78 @@ def list_products(
     return query.all()
 
 
+@router.get("/products/page", response_model=ProductListResponse)
+def list_products_page(
+    search: str | None = Query(default=None),
+    brand: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    default_warehouse_id: int | None = Query(default=None),
+    is_active: bool | None = Query(default=None),
+    decimal_allowed: bool | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:view")),
+) -> ProductListResponse:
+    """Server-side paginated/searchable product list for the Product Master table."""
+    _ = current_user
+    query = db.query(Product).options(joinedload(Product.default_warehouse))
+
+    if is_active is not None:
+        query = query.filter(Product.is_active.is_(is_active))
+    if brand:
+        query = query.filter(Product.brand == brand)
+    if category:
+        query = query.filter(Product.category == category)
+    if default_warehouse_id is not None:
+        query = query.filter(Product.default_warehouse_id == default_warehouse_id)
+    if decimal_allowed is not None:
+        if decimal_allowed:
+            query = query.filter(Product.quantity_precision > 0)
+        else:
+            query = query.filter(Product.quantity_precision == 0)
+    if search and search.strip():
+        pattern = f"%{search.strip().lower()}%"
+        query = query.filter(
+            or_(
+                func.lower(Product.sku).like(pattern),
+                func.lower(Product.name).like(pattern),
+                func.lower(func.coalesce(Product.display_name, "")).like(pattern),
+                func.lower(func.coalesce(Product.brand, "")).like(pattern),
+                func.lower(func.coalesce(Product.category, "")).like(pattern),
+                func.lower(func.coalesce(Product.rack_number, "")).like(pattern),
+                Product.default_warehouse.has(func.lower(Warehouse.name).like(pattern)),
+            )
+        )
+
+    total = query.count()
+    rows = (
+        query.order_by(Product.name.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return ProductListResponse(total=total, page=page, page_size=page_size, data=rows)
+
+
+@router.get("/products/categories", response_model=list[str])
+def list_product_categories(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("masters:view")),
+) -> list[str]:
+    """Distinct, non-empty product categories for the Product Master filter dropdown."""
+    _ = current_user
+    rows = (
+        db.query(Product.category)
+        .filter(Product.category.isnot(None))
+        .filter(Product.category != "")
+        .distinct()
+        .order_by(Product.category.asc())
+        .all()
+    )
+    return [row[0] for row in rows]
+
+
 @router.post("/products", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
 def create_product(
     payload: ProductCreate,
@@ -1911,6 +2159,9 @@ def create_product(
     )
     payload_data["quantity_precision"] = quantity_precision_from_decimal_allowed(
         bool(payload_data.get("decimal_allowed"))
+    )
+    payload_data["unit_price"] = unit_price_from_mrp(
+        payload_data.get("mrp"), payload_data.get("gst_rate")
     )
     product = Product(**payload_data)
     db.add(product)
@@ -2029,7 +2280,11 @@ async def bulk_create_items(
                     mrp=Decimal(_to_text(row.get("mrp"))) if _to_text(row.get("mrp")) else None,
                     is_active=_parse_import_bool(row.get("is_active"), default=True),
                 )
-                product = Product(**product_input.model_dump())
+                product_data = product_input.model_dump()
+                product_data["unit_price"] = unit_price_from_mrp(
+                    product_input.mrp, product_input.gst_rate
+                )
+                product = Product(**product_data)
                 db.add(product)
                 db.flush()
             seen_skus.add(sku)
@@ -2081,6 +2336,17 @@ def update_product(
     product = _get_or_404(db, Product, product_id, "Product")
     before_snapshot = snapshot_model(product)
     changed_fields = payload.model_dump(exclude_unset=True)
+    if (
+        changed_fields.get("is_active") is False
+        and product.is_active
+        and _product_has_stock_on_hand(db, product.id)
+    ):
+        raise AppException(
+            error_code="VALIDATION_ERROR",
+            message="Product cannot be deactivated while stock is available.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"field": "is_active", "product_id": product.id},
+        )
     if "brand" in changed_fields or not product.brand:
         changed_fields["brand"] = _validate_active_brand_name(
             db,
@@ -2101,6 +2367,11 @@ def update_product(
     if "decimal_allowed" in changed_fields:
         changed_fields["quantity_precision"] = quantity_precision_from_decimal_allowed(
             bool(changed_fields["decimal_allowed"])
+        )
+    if "mrp" in changed_fields or "gst_rate" in changed_fields:
+        changed_fields["unit_price"] = unit_price_from_mrp(
+            changed_fields.get("mrp", product.mrp),
+            changed_fields.get("gst_rate", product.gst_rate),
         )
     for field, value in changed_fields.items():
         setattr(product, field, value)

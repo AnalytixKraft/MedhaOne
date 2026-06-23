@@ -5,12 +5,18 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models.audit import AuditLog
-from app.models.enums import DispatchNoteStatus, InventoryReason, SalesOrderStatus, StockReservationStatus
+from app.models.enums import (
+    DispatchNoteStatus,
+    InventoryReason,
+    SalesOrderStatus,
+    StockReservationStatus,
+)
 from app.models.inventory import InventoryLedger, StockSummary
 from app.models.sales import SalesOrder, StockReservation
 from app.testing import (
     approve_po,
     create_and_post_grn,
+    create_customer,
     create_po,
     create_product,
     create_restricted_headers,
@@ -21,18 +27,7 @@ from app.testing import (
 
 
 def _create_customer(client: TestClient, headers: dict[str, str], name: str) -> int:
-    response = client.post(
-        "/masters/parties",
-        headers=headers,
-        json={
-            "name": name,
-            "party_type": "DISTRIBUTOR",
-            "phone": "9999999999",
-            "is_active": True,
-        },
-    )
-    assert response.status_code == 201, response.text
-    return response.json()["id"]
+    return create_customer(client, headers, name)
 
 
 def _seed_stock(

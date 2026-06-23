@@ -50,6 +50,8 @@ class Product(Base):
     default_purchase_rate: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     default_sale_rate: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     mrp: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    # GST-exclusive unit price, auto-derived from mrp and gst_rate on write.
+    unit_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

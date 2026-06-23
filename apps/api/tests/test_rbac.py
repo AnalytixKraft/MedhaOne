@@ -1,8 +1,8 @@
-from collections.abc import Generator
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+from conftest import TEST_TENANT_SLUG
 from fastapi.testclient import TestClient
 from jose import jwt
 from sqlalchemy.orm import Session
@@ -14,7 +14,7 @@ from app.models.batch import Batch
 from app.models.user import User
 from app.services.external_auth import get_or_create_rbac_shadow_user
 from app.services.rbac import assign_roles_to_user, ensure_rbac_seeded
-from conftest import TEST_TENANT_SLUG
+from app.testing import verify_gstin
 
 
 def _create_user(
@@ -68,13 +68,15 @@ def _rbac_token(
 
 
 def _create_supplier(client: TestClient, headers: dict[str, str], name: str) -> int:
+    gstin = "27ABCDE1234F1Z5"
     response = client.post(
         "/masters/parties",
         headers=headers,
         json={
             "name": name,
             "party_type": "SUPER_STOCKIST",
-            "gstin": "27ABCDE1234F1Z5",
+            "gstin": gstin,
+            "gst_verification_log_id": verify_gstin(client, headers, gstin),
             "state": "Maharashtra",
             "phone": "9999999999",
             "is_active": True,

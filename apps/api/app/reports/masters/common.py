@@ -1,21 +1,20 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import asdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models.inventory import InventoryLedger, StockSummary
+from app.models.inventory import InventoryLedger
 from app.models.party import Party
 from app.models.product import Product
 from app.models.purchase import GRN, PurchaseOrder
 from app.models.sales import SalesOrder
-from app.models.warehouse import Warehouse
+from app.models.warehouse import Rack, Warehouse
 
 
 @dataclass(slots=True)
@@ -28,6 +27,7 @@ class MasterReportFilters:
     party_categories: tuple[str, ...] = ()
     states: tuple[str, ...] = ()
     cities: tuple[str, ...] = ()
+    search: str = ""
     is_active: bool | None = None
     inactivity_days: int = 30
     date_from: date | None = None
@@ -169,6 +169,18 @@ def _filtered_parties(db: Session, filters: MasterReportFilters) -> list[Party]:
         stmt = stmt.where(Party.city.in_(filters.cities))
     if filters.is_active is not None:
         stmt = stmt.where(Party.is_active.is_(filters.is_active))
+    if filters.search:
+        pattern = f"%{filters.search.lower()}%"
+        stmt = stmt.where(
+            or_(
+                func.lower(Party.name).like(pattern),
+                func.lower(func.coalesce(Party.party_code, "")).like(pattern),
+                func.lower(func.coalesce(Party.gstin, "")).like(pattern),
+                func.lower(func.coalesce(Party.pan_number, "")).like(pattern),
+                func.lower(func.coalesce(Party.drug_license_number, "")).like(pattern),
+                func.lower(func.coalesce(Party.city, "")).like(pattern),
+            )
+        )
     return list(db.scalars(stmt))
 
 
@@ -182,6 +194,17 @@ def _filtered_products(db: Session, filters: MasterReportFilters) -> list[Produc
         stmt = stmt.where(Product.hsn.in_(filters.category_values))
     if filters.is_active is not None:
         stmt = stmt.where(Product.is_active.is_(filters.is_active))
+    if filters.search:
+        pattern = f"%{filters.search.lower()}%"
+        stmt = stmt.where(
+            or_(
+                func.lower(Product.sku).like(pattern),
+                func.lower(Product.name).like(pattern),
+                func.lower(func.coalesce(Product.brand, "")).like(pattern),
+                func.lower(func.coalesce(Product.category, "")).like(pattern),
+                func.lower(func.coalesce(Product.hsn, "")).like(pattern),
+            )
+        )
     return list(db.scalars(stmt))
 
 
@@ -241,6 +264,105 @@ def get_warehouse_item_summary_report(
     summary = [
         {"key": "warehouses", "label": "Total Warehouses", "value": len(rows)},
         {"key": "skus", "label": "Total SKUs", "value": sum(int(row["total_skus"]) for row in rows)},
+        {
+            "key": "qty",
+            "label": "Total Stock Qty",
+            "value": sum((_decimal(row["total_stock_qty"]) for row in rows), Decimal("0")),
+        },
+        {
+            "key": "value",
+            "label": "Total Stock Value",
+            "value": sum((_decimal(row["total_stock_value"]) for row in rows), Decimal("0")),
+        },
+    ]
+    return total, page_rows, summary
+
+
+def get_rack_report(
+    db: Session,
+    filters: MasterReportFilters,
+) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Stock and product assignment per rack.
+
+    Racks have no direct stock link; products reference a rack by free text
+    (Product.rack_number) within their default warehouse, so we match
+    Product.default_warehouse_id + lower(rack_number) against each Rack.
+    """
+    rack_stmt = (
+        select(
+            Rack.rack_number.label("rack_number"),
+            Rack.description.label("description"),
+            Rack.is_active.label("rack_is_active"),
+            Warehouse.id.label("warehouse_id"),
+            Warehouse.name.label("warehouse_name"),
+        )
+        .select_from(Rack)
+        .join(Warehouse, Warehouse.id == Rack.warehouse_id)
+        .order_by(Warehouse.name.asc(), Rack.rack_number.asc())
+    )
+    if filters.warehouse_ids:
+        rack_stmt = rack_stmt.where(Rack.warehouse_id.in_(filters.warehouse_ids))
+    if filters.is_active is not None:
+        rack_stmt = rack_stmt.where(Rack.is_active.is_(filters.is_active))
+    rack_rows = db.execute(rack_stmt).mappings().all()
+
+    product_stmt = (
+        select(
+            Product.id.label("product_id"),
+            Product.default_warehouse_id.label("warehouse_id"),
+            func.lower(Product.rack_number).label("rack_key"),
+        )
+        .where(Product.rack_number.isnot(None))
+        .where(Product.rack_number != "")
+        .where(Product.default_warehouse_id.isnot(None))
+    )
+    if filters.warehouse_ids:
+        product_stmt = product_stmt.where(Product.default_warehouse_id.in_(filters.warehouse_ids))
+    products_by_rack: dict[tuple[int, str], set[int]] = defaultdict(set)
+    for row in db.execute(product_stmt).mappings():
+        key = (int(row["warehouse_id"]), str(row["rack_key"]).strip())
+        products_by_rack[key].add(int(row["product_id"]))
+
+    stock_by_wh_product: dict[tuple[int, int], dict[str, Decimal]] = defaultdict(
+        lambda: {"qty": Decimal("0"), "value": Decimal("0")}
+    )
+    for row in _load_stock_positions(db, filters):
+        key = (int(row["warehouse_id"]), int(row["product_id"]))
+        stock_by_wh_product[key]["qty"] += _decimal(row["qty"])
+        stock_by_wh_product[key]["value"] += _decimal(row["stock_value"])
+
+    rows: list[dict[str, Any]] = []
+    for rack in rack_rows:
+        warehouse_id = int(rack["warehouse_id"])
+        rack_key = str(rack["rack_number"]).strip().lower()
+        product_ids = products_by_rack.get((warehouse_id, rack_key), set())
+        total_qty = Decimal("0")
+        total_value = Decimal("0")
+        for product_id in product_ids:
+            stock = stock_by_wh_product.get((warehouse_id, product_id))
+            if stock is not None:
+                total_qty += stock["qty"]
+                total_value += stock["value"]
+        rows.append(
+            {
+                "warehouse_name": rack["warehouse_name"],
+                "rack_number": rack["rack_number"],
+                "description": rack["description"] or "-",
+                "products_assigned": len(product_ids),
+                "total_stock_qty": total_qty,
+                "total_stock_value": total_value,
+                "status": "Active" if rack["rack_is_active"] else "Inactive",
+            }
+        )
+
+    total, page_rows = _paginate_rows(rows, filters)
+    summary = [
+        {"key": "racks", "label": "Total Racks", "value": len(rows)},
+        {
+            "key": "assigned",
+            "label": "Racks With Products",
+            "value": sum(1 for row in rows if int(row["products_assigned"]) > 0),
+        },
         {
             "key": "qty",
             "label": "Total Stock Qty",
@@ -544,6 +666,49 @@ def get_item_distribution_report(
     return total, page_rows, summary
 
 
+def get_item_directory_report(
+    db: Session,
+    filters: MasterReportFilters,
+) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Flat, searchable directory of products with their key master fields."""
+    products = _filtered_products(db, filters)
+    warehouse_names = {
+        int(row.id): row.name
+        for row in db.execute(select(Warehouse.id, Warehouse.name))
+    }
+    rows = [
+        {
+            "sku": product.sku,
+            "product_name": product.name,
+            "brand": product.brand or "-",
+            "category": product.category or "-",
+            "hsn": product.hsn or "-",
+            "uom": product.uom,
+            "gst_rate": _decimal(product.gst_rate),
+            "default_warehouse": warehouse_names.get(product.default_warehouse_id) or "-",
+            "rack_number": product.rack_number or "-",
+            "mrp": _decimal(product.mrp),
+            "status": "Active" if product.is_active else "Inactive",
+        }
+        for product in products
+    ]
+    total, page_rows = _paginate_rows(rows, filters)
+    summary = [
+        {"key": "items", "label": "Total Items", "value": total},
+        {
+            "key": "active",
+            "label": "Active Items",
+            "value": sum(1 for row in rows if row["status"] == "Active"),
+        },
+        {
+            "key": "with_hsn",
+            "label": "With HSN",
+            "value": sum(1 for row in rows if row["hsn"] != "-"),
+        },
+    ]
+    return total, page_rows, summary
+
+
 def _party_activity_maps(db: Session) -> dict[str, Any]:
     purchase_dates = {
         int(row.supplier_id): row.last_purchase_date
@@ -580,6 +745,47 @@ def _party_activity_maps(db: Session) -> dict[str, Any]:
         "grn": grn_dates,
         "sales": sales_dates,
     }
+
+
+def get_party_directory_report(
+    db: Session,
+    filters: MasterReportFilters,
+) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Flat, searchable directory of parties with their key master fields."""
+    parties = _filtered_parties(db, filters)
+    rows = [
+        {
+            "party_code": party.party_code or "-",
+            "party_name": party.name,
+            "party_type": party.party_type,
+            "party_category": party.party_category or "-",
+            "state": party.state or "-",
+            "city": party.city or "-",
+            "gstin": party.gstin or "-",
+            "pan_number": party.pan_number or "-",
+            "drug_license_number": party.drug_license_number or "-",
+            "mobile": party.phone or "-",
+            "email": party.email or "-",
+            "credit_limit": _decimal(party.credit_limit),
+            "status": "Active" if party.is_active else "Inactive",
+        }
+        for party in parties
+    ]
+    total, page_rows = _paginate_rows(rows, filters)
+    summary = [
+        {"key": "parties", "label": "Total Parties", "value": total},
+        {
+            "key": "active",
+            "label": "Active Parties",
+            "value": sum(1 for row in rows if row["status"] == "Active"),
+        },
+        {
+            "key": "with_gstin",
+            "label": "With GSTIN",
+            "value": sum(1 for row in rows if row["gstin"] != "-"),
+        },
+    ]
+    return total, page_rows, summary
 
 
 def get_party_type_report(
